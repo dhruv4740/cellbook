@@ -15,7 +15,9 @@ const CHART_TABS = ['Chart Design', 'Format']
 /** Excel 2021's real tab KeyTips (Alt/F10, then the letter(s)). */
 export const TAB_KEYTIPS: Record<string, string> = {
   File: 'F', Home: 'H', Insert: 'N', Draw: 'JI', 'Page Layout': 'P', Formulas: 'M',
-  Data: 'A', Review: 'R', View: 'W', Help: 'Y'
+  Data: 'A', Review: 'R', View: 'W', Help: 'Y',
+  // Contextual tabs, shown while a chart is selected.
+  'Chart Design': 'JC', Format: 'JA'
 }
 
 export default function Ribbon() {
@@ -65,10 +67,11 @@ export default function Ribbon() {
             <div
               key={t}
               className={'xl-tab' + (ui.ribbonTab === t && !ui.backstage ? ' active' : '')}
-              style={{ color: '#217346', fontWeight: 600 }}
+              style={{ color: '#217346', fontWeight: 600, position: 'relative' }}
               onClick={() => selectTab(t)}
             >
               {t}
+              <span className="xl-keytip-badge xl-keytip-tab" data-keytip={TAB_KEYTIPS[t]}>{TAB_KEYTIPS[t]}</span>
             </div>
           ))}
         </div>

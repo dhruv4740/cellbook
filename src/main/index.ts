@@ -28,6 +28,8 @@ let bookCounter = 0
 
 /** A hidden, pre-loaded window kept ready so a plain Ctrl+N feels instant. */
 let spare: BrowserWindow | null = null
+/** Spare windows whose renderer has finished loading (and so is listening for assignBook). */
+const loadedSpares = new WeakSet<BrowserWindow>()
 
 function preloadSpareWindow(): void {
   const win = new BrowserWindow({
@@ -40,6 +42,7 @@ function preloadSpareWindow(): void {
     backgroundColor: '#ffffff',
     webPreferences: { preload: join(__dirname, '../preload/index.js'), sandbox: false }
   })
+  win.webContents.once('did-finish-load', () => loadedSpares.add(win))
   if (process.env.ELECTRON_RENDERER_URL) win.loadURL(process.env.ELECTRON_RENDERER_URL)
   else win.loadFile(join(__dirname, '../renderer/index.html'))
   spare = win
@@ -48,7 +51,6 @@ function preloadSpareWindow(): void {
 const filters = [
   { name: 'Excel Workbook', extensions: ['xlsx'] },
   { name: 'Excel Macro-Enabled Workbook', extensions: ['xlsm'] },
-  { name: 'Excel 97-2003 Workbook', extensions: ['xls'] },
   { name: 'CSV (Comma delimited)', extensions: ['csv'] },
   { name: 'All Files', extensions: ['*'] }
 ]
@@ -98,9 +100,12 @@ function createWindow(opts: { book?: string; filePath?: string } = {}): BrowserW
     win = spare
     spare = null
     usedSpare = true
-    win.webContents.send('window:assignBook', bookName)
     win.setTitle(`${bookName} - Excel`)
-    win.show()
+    // A very fast Ctrl+N can reuse the spare before its renderer has loaded; hold the name
+    // (and the reveal) until it is listening, or it would keep its default Book1 name.
+    const assign = (w: BrowserWindow): void => { w.webContents.send('window:assignBook', bookName); w.show() }
+    if (loadedSpares.has(win)) assign(win)
+    else win.webContents.once('did-finish-load', () => assign(win))
     // Keep a spare ready for the *next* Ctrl+N.
     preloadSpareWindow()
   } else {
@@ -348,6 +353,7 @@ ipcMain.handle('file:pickAndOpen', async (e) => {
 /** Recent list / drag-drop with a known path already in hand. */
 ipcMain.handle('file:openPathRequest', async (e, filePath: string) => {
   const win = BrowserWindow.fromWebContents(e.sender)
+  if (!existsSync(filePath)) return false // the renderer explains and offers to drop it from Recent
   await openPathSomewhere(filePath, win ?? undefined)
   return true
 })

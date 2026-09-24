@@ -5,10 +5,11 @@ import { HyperFormula, DetailedCellError } from 'hyperformula'
 import { useSyncExternalStore } from 'react'
 import {
   CellStyle, CellValue, Range, Selection, SheetLayout, cellKey, normRange,
-  DEFAULT_COL_WIDTH, DEFAULT_ROW_HEIGHT, FilterCriteria, NoteData, CommentThread
+  DEFAULT_COL_WIDTH, DEFAULT_ROW_HEIGHT, MAX_ROWS, MAX_COLS, FilterCriteria, NoteData, CommentThread
 } from './types'
 import { formatValue, detectInputFormat, FormattedValue } from '../format/numfmt'
 import { computeFilteredRows } from '../engine/filter'
+import { shiftFormula } from '../engine/shiftFormula'
 
 /** Default author shown on new notes/comments (Excel shows the signed-in account's name; this
  *  app has none, so it falls back to the OS-style default Excel itself uses when unlicensed). */
@@ -180,12 +181,17 @@ export class WorkbookStore {
     const has = (rr: number, cc: number): boolean => rr >= 0 && cc >= 0 && this.getRaw(sheet, rr, cc) !== ''
     if (!has(r, c)) return { r1: r, c1: c, r2: r, c2: c }
     let r1 = r, r2 = r, c1 = c, c2 = c
-    for (let guard = 0; guard < 10000; guard++) {
+    const rowHas = (rr: number): boolean => { if (rr < 0 || rr >= MAX_ROWS) return false; for (let cc = c1; cc <= c2; cc++) if (has(rr, cc)) return true; return false }
+    const colHas = (cc: number): boolean => { if (cc < 0 || cc >= MAX_COLS) return false; for (let rr = r1; rr <= r2; rr++) if (has(rr, cc)) return true; return false }
+    // Grow rows as far as they go, then columns, and repeat until neither side moves. Growing a
+    // whole axis per pass keeps a 100k-row table linear instead of re-scanning every column
+    // edge per added row. Bounded only by the sheet itself.
+    for (;;) {
       let grew = false
-      if (Array.from({ length: c2 - c1 + 1 }, (_, i) => c1 + i).some((cc) => has(r1 - 1, cc))) { r1--; grew = true }
-      if (Array.from({ length: c2 - c1 + 1 }, (_, i) => c1 + i).some((cc) => has(r2 + 1, cc))) { r2++; grew = true }
-      if (Array.from({ length: r2 - r1 + 1 }, (_, i) => r1 + i).some((rr) => has(rr, c1 - 1))) { c1--; grew = true }
-      if (Array.from({ length: r2 - r1 + 1 }, (_, i) => r1 + i).some((rr) => has(rr, c2 + 1))) { c2++; grew = true }
+      while (rowHas(r1 - 1)) { r1--; grew = true }
+      while (rowHas(r2 + 1)) { r2++; grew = true }
+      while (colHas(c1 - 1)) { c1--; grew = true }
+      while (colHas(c2 + 1)) { c2++; grew = true }
       if (!grew) break
     }
     return { r1, c1, r2, c2 }
@@ -200,8 +206,10 @@ export class WorkbookStore {
     for (const r of af.filteredOutRows) delete l.hiddenRows[r]
     const getDisplay = (r: number, c: number) => this.getDisplay(sheet, r, c).text
     const { hidden } = computeFilteredRows(af.range, af.columns, getDisplay)
-    af.filteredOutRows = hidden
-    for (const r of hidden) l.hiddenRows[r] = true
+    // Only rows this filter hides itself are recorded, so a row the user hid by hand stays
+    // hidden when the filter is cleared or removed.
+    af.filteredOutRows = hidden.filter((r) => !l.hiddenRows[r])
+    for (const r of af.filteredOutRows) l.hiddenRows[r] = true
   }
 
   /** Data > Filter / Ctrl+Shift+L: toggles an AutoFilter over the current region. */
@@ -269,8 +277,18 @@ export class WorkbookStore {
       return order === 'asc' ? cmp : -cmp
     })
     const cells: { r: number; c: number; raw: string; style?: CellStyle }[] = []
-    sorted.forEach((row, i) => row.cells.forEach((cell, j) => cells.push({ r: n.r1 + 1 + i, c: n.c1 + j, raw: cell.raw, style: cell.style })))
-    this.setCells(sheet, cells, order === 'asc' ? 'Sort A to Z' : 'Sort Z to A')
+    // A moved formula keeps pointing at the same relative cells (=B5*2 moving up 3 rows becomes
+    // =B2*2), matching sortSelection in grid/commands.ts.
+    sorted.forEach((row, i) => row.cells.forEach((cell, j) => {
+      const r = n.r1 + 1 + i
+      cells.push({ r, c: n.c1 + j, raw: shiftFormula(cell.raw, r - row.r, 0), style: cell.style })
+    }))
+    const label = order === 'asc' ? 'Sort A to Z' : 'Sort Z to A'
+    // Rows move, so which ones the filter hides must be recomputed in the same undo step.
+    this.transact(label, () => {
+      this.setCells(sheet, cells, label)
+      this.updateLayout(sheet, label, (l) => this.recomputeAutoFilter(sheet, l))
+    })
   }
 
   // ---------- Notes & Comments ----------

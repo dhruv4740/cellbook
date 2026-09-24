@@ -38,6 +38,14 @@ function addRecentFile(name: string, path: string | null): void {
   }
 }
 
+export function removeRecentFile(path: string): void {
+  try {
+    localStorage.setItem(RECENT_KEY, JSON.stringify(getRecentFiles().filter((f) => f.path !== path)))
+  } catch {
+    // localStorage unavailable: nothing to remove.
+  }
+}
+
 function setTitle(): void {
   const title = `${store.fileName} - Excel`
   if (window.api) window.api.setTitle(title)
@@ -106,10 +114,13 @@ export async function openFile(): Promise<boolean> {
   return true
 }
 
-/** Opens a file from the Recent list. Falls back to the picker when the path can't be read (browser, moved file). */
+/** Opens a file from the Recent list. In the browser (no paths) it falls back to the picker; a
+ *  file that has been moved or deleted gets Excel's "couldn't find" prompt and can be removed. */
 export async function openRecent(f: RecentFile): Promise<boolean> {
   if (!window.api || !f.path) return openFile()
-  return window.api.openPathRequest(f.path)
+  if (await window.api.openPathRequest(f.path)) return true
+  if (window.confirm(`Sorry, we couldn't find ${f.path}. Is it possible it was moved, renamed or deleted?\n\nRemove it from the Recent list?`)) removeRecentFile(f.path)
+  return false
 }
 
 async function loadFromBytes(data: Uint8Array, fileName: string, path: string | null): Promise<void> {

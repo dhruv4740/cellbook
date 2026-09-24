@@ -85,6 +85,41 @@ describe('AutoFilter', () => {
     expect(sh.layout.hiddenRows[1]).toBe(true) // still manually hidden
     expect(sh.layout.hiddenRows[2]).toBeUndefined() // filter-hidden row is back
   })
+
+  it('keeps a manually hidden row hidden when it also fails the filter and the filter is cleared', () => {
+    const s = makeTable()
+    const sh = s.active
+    s.updateLayout(sh, 'Hide', (l) => (l.hiddenRows[2] = true)) // Banana, hidden by hand
+    s.toggleAutoFilter(sh)
+    s.setColumnFilter(sh, 0, { selected: ['Apple'] }) // Banana also fails the filter
+    s.clearAllFilters(sh)
+    expect(sh.layout.hiddenRows[2]).toBe(true)
+  })
+
+  it('sorting shifts formula references and re-applies the filter to the moved rows', () => {
+    const s = makeTable()
+    const sh = s.active
+    s.setRangeRaw(sh, 1, 2, [['=B2*10'], ['=B3*10'], ['=B4*10']])
+    s.setSelection({ ranges: [{ r1: 0, c1: 0, r2: 0, c2: 0 }], active: { r: 0, c: 0 } }, sh)
+    s.toggleAutoFilter(sh)
+    s.setColumnFilter(sh, 0, { selected: ['Apple'] }) // hides row 2 (Banana)
+    s.sortFilterRange(sh, 1, 'asc') // by Qty: Banana 1, Apple 3, Apple 5
+    expect([s.getRaw(sh, 1, 0), s.getRaw(sh, 2, 0), s.getRaw(sh, 3, 0)]).toEqual(['Banana', 'Apple', 'Apple'])
+    expect([s.getRaw(sh, 1, 2), s.getRaw(sh, 2, 2), s.getRaw(sh, 3, 2)]).toEqual(['=B2*10', '=B3*10', '=B4*10'])
+    expect([s.getValue(sh, 1, 2), s.getValue(sh, 2, 2), s.getValue(sh, 3, 2)]).toEqual([10, 30, 50])
+    expect(sh.layout.hiddenRows[1]).toBe(true) // Banana moved to row 1 and stays filtered out
+    expect(sh.layout.hiddenRows[2]).toBeUndefined()
+    s.undo()
+    expect(s.getRaw(sh, 2, 0)).toBe('Banana')
+    expect(sh.layout.hiddenRows[2]).toBe(true)
+  })
+
+  it('finds a current region larger than 10,000 rows', () => {
+    const s = new WorkbookStore()
+    const sh = s.active
+    s.setRangeRaw(sh, 0, 0, Array.from({ length: 12000 }, (_, i) => [String(i)]))
+    expect(s.currentRegion(sh, 0, 0)).toEqual({ r1: 0, c1: 0, r2: 11999, c2: 0 })
+  })
 })
 
 describe('Notes & Comments', () => {

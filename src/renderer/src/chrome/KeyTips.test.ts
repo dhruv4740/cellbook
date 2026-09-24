@@ -6,12 +6,13 @@ describe('Ribbon KeyTip sequence table', () => {
   it('matches Excel 2021\'s real tab access-key letters', () => {
     expect(TAB_KEYTIPS).toEqual({
       File: 'F', Home: 'H', Insert: 'N', Draw: 'JI', 'Page Layout': 'P', Formulas: 'M',
-      Data: 'A', Review: 'R', View: 'W', Help: 'Y'
+      Data: 'A', Review: 'R', View: 'W', Help: 'Y',
+      'Chart Design': 'JC', Format: 'JA'
     })
   })
 
   it('has exactly one code per visible tab, all non-empty', () => {
-    const tabs = ['File', 'Home', 'Insert', 'Draw', 'Page Layout', 'Formulas', 'Data', 'Review', 'View', 'Help']
+    const tabs = ['File', 'Home', 'Insert', 'Draw', 'Page Layout', 'Formulas', 'Data', 'Review', 'View', 'Help', 'Chart Design', 'Format']
     for (const t of tabs) {
       expect(TAB_KEYTIPS[t]).toBeTruthy()
     }

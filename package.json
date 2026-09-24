@@ -65,7 +65,6 @@
     "fileAssociations": [
       { "ext": "xlsx", "name": "Excel Workbook", "description": "Excel Workbook", "role": "Editor" },
       { "ext": "xlsm", "name": "Excel Macro-Enabled Workbook", "description": "Excel Macro-Enabled Workbook", "role": "Editor" },
-      { "ext": "xls", "name": "Excel 97-2003 Workbook", "description": "Excel 97-2003 Workbook", "role": "Editor" },
       { "ext": "csv", "name": "CSV File", "description": "Comma Separated Values File", "role": "Editor" }
     ],
     "linux": {
