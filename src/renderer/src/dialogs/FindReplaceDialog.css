@@ -1,0 +1,216 @@
+/* Find and Replace Dialog styles - Excel M365 light theme */
+
+.xl-fr-window {
+  position: fixed;
+  left: 50%;
+  top: 35%;
+  transform: translate(-50%, -50%);
+  background: #fff;
+  border: 1px solid #adadad;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  font: 12px var(--ui-font);
+  color: #242424;
+  z-index: 950;
+  user-select: none;
+  min-width: 440px;
+}
+
+.xl-fr-title {
+  display: flex;
+  align-items: center;
+  height: 32px;
+  padding-left: 12px;
+  background: #fff;
+  cursor: move;
+  border-bottom: 1px solid #adadad;
+}
+
+.xl-fr-title span:first-child {
+  flex: 1;
+  font-weight: 500;
+}
+
+.xl-fr-tbtn {
+  width: 40px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.xl-fr-tbtn:hover {
+  background: #e5e5e5;
+}
+
+.xl-fr-tbtn.close:hover {
+  background: #e81123;
+  color: #fff;
+}
+
+/* Tabs */
+.xl-fr-tabs {
+  display: flex;
+  padding-left: 10px;
+  border-bottom: 1px solid #adadad;
+  background: #fdfdfd;
+  gap: 2px;
+}
+
+.xl-fr-tab {
+  padding: 5px 16px;
+  background: #f0f0f0;
+  border: 1px solid #adadad;
+  border-bottom: none;
+  border-top-left-radius: 3px;
+  border-top-right-radius: 3px;
+  cursor: pointer;
+  font-size: 12px;
+  margin-bottom: -1px;
+}
+
+.xl-fr-tab.active {
+  background: #fff;
+  border-bottom: 1px solid #fff;
+  font-weight: 600;
+  z-index: 2;
+}
+
+/* Body */
+.xl-fr-body {
+  padding: 14px 14px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.xl-fr-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.xl-fr-label {
+  width: 90px;
+  text-align: left;
+  font-size: 12px;
+}
+
+.xl-fr-combo-wrap {
+  flex: 1;
+  position: relative;
+  display: flex;
+}
+
+.xl-fr-input {
+  flex: 1;
+  height: 24px;
+  border: 1px solid #adadad;
+  padding: 2px 6px;
+  font: 12px var(--ui-font);
+  background: #fff;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.xl-fr-input:focus {
+  border-color: #0078d7;
+}
+
+/* Options expand panel */
+.xl-fr-options-panel {
+  border-top: 1px solid #e1e1e1;
+  padding-top: 10px;
+  margin-top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.xl-fr-options-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 16px;
+}
+
+.xl-fr-select {
+  border: 1px solid #adadad;
+  height: 24px;
+  padding: 2px 4px;
+  font: 12px var(--ui-font);
+  background: #fff;
+  outline: none;
+}
+
+.xl-fr-check-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+/* Buttons bar */
+.xl-fr-btn-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 14px 14px;
+}
+
+/* Results panel */
+.xl-fr-results-panel {
+  border-top: 1px solid #adadad;
+  display: flex;
+  flex-direction: column;
+  height: 180px;
+  background: #fff;
+}
+
+.xl-fr-results-table-wrap {
+  flex: 1;
+  overflow: auto;
+}
+
+.xl-fr-results-table {
+  width: 100%;
+  border-collapse: collapse;
+  font: 11px var(--ui-font);
+}
+
+.xl-fr-results-table th {
+  background: #f5f5f5;
+  border-bottom: 1px solid #d4d4d4;
+  border-right: 1px solid #e1e1e1;
+  padding: 4px 6px;
+  text-align: left;
+  font-weight: 500;
+  position: sticky;
+  top: 0;
+}
+
+.xl-fr-results-table td {
+  border-bottom: 1px solid #f0f0f0;
+  border-right: 1px solid #f0f0f0;
+  padding: 3px 6px;
+  white-space: nowrap;
+}
+
+.xl-fr-results-table tr.selected td {
+  background: #cce8ff;
+  color: #000;
+}
+
+.xl-fr-results-table tr:hover td {
+  background: #e5f1fb;
+}
+
+.xl-fr-results-status {
+  padding: 4px 10px;
+  font-size: 11px;
+  color: #555;
+  border-top: 1px solid #e1e1e1;
+  background: #fafafa;
+}

@@ -6,6 +6,7 @@ import Grid from './grid/Grid'
 import SheetTabs from './chrome/SheetTabs'
 import StatusBar from './chrome/StatusBar'
 import Backstage from './io/Backstage'
+import DialogHost from './dialogs/DialogHost'
 import { useUi } from './chrome/ui'
 
 export default function App() {
@@ -19,6 +20,7 @@ export default function App() {
       <Grid />
       <SheetTabs />
       <StatusBar />
+      <DialogHost />
     </div>
   )
 }
