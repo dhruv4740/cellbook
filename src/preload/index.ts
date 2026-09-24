@@ -1,0 +1,13 @@
+import { contextBridge, ipcRenderer } from 'electron'
+
+const api = {
+  windowControl: (action: 'minimize' | 'maximize' | 'close') => ipcRenderer.invoke('window:control', action),
+  setTitle: (title: string) => ipcRenderer.invoke('window:setTitle', title),
+  onMaximized: (cb: (max: boolean) => void) => ipcRenderer.on('window:maximized', (_e, v) => cb(v)),
+  openFile: (): Promise<{ path: string; data: Uint8Array } | null> => ipcRenderer.invoke('file:open'),
+  saveAs: (defaultName: string): Promise<string | null> => ipcRenderer.invoke('file:saveAs', defaultName),
+  writeFile: (path: string, data: Uint8Array): Promise<boolean> => ipcRenderer.invoke('file:write', path, data)
+}
+
+contextBridge.exposeInMainWorld('api', api)
+export type Api = typeof api

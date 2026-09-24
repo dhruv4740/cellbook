@@ -1,0 +1,22 @@
+/* Global styles. Excel (Microsoft 365, Windows, light theme) palette tokens. */
+:root {
+  --xl-green: #217346;        /* Excel brand green */
+  --xl-green-dark: #185c37;
+  --title-bg: #f3f3f3;
+  --ribbon-bg: #f3f3f3;
+  --ribbon-border: #e1e1e1;
+  --header-bg: #f5f5f5;
+  --header-border: #d4d4d4;
+  --header-sel-bg: #d3f0e0;
+  --header-sel-text: #107c41;
+  --gridline: #e1e1e1;
+  --sel-border: #107c41;
+  --sel-fill: rgba(33, 115, 70, 0.1);
+  --text: #242424;
+  --ui-font: 'Segoe UI', 'Segoe UI Variable', system-ui, sans-serif;
+}
+* { box-sizing: border-box; }
+html, body, #root { margin: 0; height: 100%; overflow: hidden; }
+body { font: 12px var(--ui-font); color: var(--text); background: #fff; user-select: none; }
+.app { display: flex; flex-direction: column; height: 100%; }
+.grid-host { flex: 1; min-height: 0; position: relative; }
