@@ -145,11 +145,11 @@ export default function Grid() {
   // ---------- hit testing / geometry ----------
   function colAt(px: number): number {
     if (px < frozenW) return colsAxis.indexAt(px / z)
-    return Math.max(frozen.cols, colsAxis.indexAt((px - frozenW + scroll.x) / z))
+    return Math.max(frozen.cols, colsAxis.indexAt((px + scroll.x) / z))
   }
   function rowAt(py: number): number {
     if (py < frozenH) return rowsAxis.indexAt(py / z)
-    return Math.max(frozen.rows, rowsAxis.indexAt((py - frozenH + scroll.y) / z))
+    return Math.max(frozen.rows, rowsAxis.indexAt((py + scroll.y) / z))
   }
   function cellScreenX(c: number): number {
     if (c < frozen.cols) return rowHeaderW + colsAxis.offset(c) * z
@@ -177,8 +177,9 @@ export default function Grid() {
 
   function visibleCols(fromCol: number, untilCol: number, scrollPx: number, originX: number, availW: number): { c: number; x: number; w: number }[] {
     const out: { c: number; x: number; w: number }[] = []
-    let c = Math.max(fromCol, colsAxis.indexAt(scrollPx / z))
-    let x = originX + (colsAxis.offset(c) * z - scrollPx)
+    const base = colsAxis.offset(fromCol)
+    let c = Math.max(fromCol, colsAxis.indexAt(base + scrollPx / z))
+    let x = originX + ((colsAxis.offset(c) - base) * z - scrollPx)
     while (c < untilCol && x < originX + availW) {
       const w = colsAxis.size(c) * z
       if (w > 0.01) out.push({ c, x, w })
@@ -189,8 +190,10 @@ export default function Grid() {
   }
   function visibleRows(fromRow: number, untilRow: number, scrollPx: number, originY: number, availH: number): { r: number; y: number; h: number }[] {
     const out: { r: number; y: number; h: number }[] = []
-    let r = Math.max(fromRow, rowsAxis.indexAt(scrollPx / z))
-    let y = originY + (rowsAxis.offset(r) * z - scrollPx)
+    // Offsets are relative to fromRow: the scrollable pane starts right below the frozen rows.
+    const base = rowsAxis.offset(fromRow)
+    let r = Math.max(fromRow, rowsAxis.indexAt(base + scrollPx / z))
+    let y = originY + ((rowsAxis.offset(r) - base) * z - scrollPx)
     while (r < untilRow && y < originY + availH) {
       const h = rowsAxis.size(r) * z
       if (h > 0.01) out.push({ r, y, h })
