@@ -109,7 +109,7 @@ export function SplitButton({ icon, label, tip, onClick, active, color, menu }: 
 }
 
 /** Small (16px) ribbon button used stacked 2-3 per group, or in a row. */
-export function SmallButton({ icon, label, tip, onClick, active, disabled, menu }: BtnProps & { menu?: MenuItem[] }) {
+export function SmallButton({ icon, label, tip, onClick, onDoubleClick, active, disabled, menu }: BtnProps & { menu?: MenuItem[]; onDoubleClick?: () => void }) {
   const [open, setOpen] = useState<{ x: number; y: number } | null>(null)
   const ref = useRef<HTMLButtonElement>(null)
   return (
@@ -118,6 +118,7 @@ export function SmallButton({ icon, label, tip, onClick, active, disabled, menu 
         ref={ref}
         className={'xl-small-btn' + (active ? ' active' : '') + (open ? ' active' : '')}
         disabled={disabled}
+        onDoubleClick={onDoubleClick}
         onClick={() => {
           if (menu) {
             const r = ref.current!.getBoundingClientRect()

@@ -1,0 +1,32 @@
+.xl-titlebar { display: flex; align-items: center; height: 30px; background: var(--title-bg); flex: none; -webkit-app-region: drag; padding-right: 4px; }
+.xl-titlebar-drag { display: flex; align-items: center; flex: 1; min-width: 0; -webkit-app-region: drag; height: 100%; position: relative; }
+.xl-logo { display: flex; align-items: center; padding: 0 6px 0 10px; -webkit-app-region: no-drag; }
+
+.xl-autosave { -webkit-app-region: no-drag; display: flex; align-items: center; gap: 5px; border: none; background: transparent; font: inherit; font-size: 12px; color: var(--text); padding: 2px 6px; border-radius: 3px; cursor: default; }
+.xl-autosave:hover { background: rgba(0,0,0,0.06); }
+.xl-autosave-toggle { width: 24px; height: 13px; border-radius: 7px; background: #8a8886; position: relative; display: inline-block; }
+.xl-autosave-toggle::after { content: ''; position: absolute; width: 9px; height: 9px; border-radius: 50%; background: #fff; top: 2px; left: 2px; transition: left .1s; }
+.xl-autosave.on .xl-autosave-toggle { background: var(--xl-green); }
+.xl-autosave.on .xl-autosave-toggle::after { left: 13px; }
+
+.xl-qat { -webkit-app-region: no-drag; display: flex; align-items: center; margin-left: 2px; }
+.xl-qat-btn { border: none; background: transparent; padding: 4px; display: flex; border-radius: 3px; cursor: default; color: var(--text); }
+.xl-qat-btn:hover:not(:disabled) { background: rgba(0,0,0,0.06); }
+.xl-qat-btn:disabled { color: #b0b0b0; }
+.xl-qat-split { display: flex; align-items: center; }
+.xl-qat-caret { border: none; background: transparent; display: flex; align-items: center; padding: 4px 2px; border-radius: 3px; cursor: default; color: var(--text); }
+.xl-qat-caret:hover:not(:disabled) { background: rgba(0,0,0,0.06); }
+
+.xl-titlebar-center { position: absolute; left: 50%; transform: translateX(-50%); display: flex; align-items: baseline; gap: 6px; font-size: 12px; pointer-events: none; }
+.xl-filename { font-weight: 600; }
+.xl-saved { color: #555; font-size: 11px; }
+
+.xl-titlebar-search { -webkit-app-region: no-drag; margin-left: auto; display: flex; align-items: center; gap: 6px; background: #fff; border: 1px solid #d0d0d0; border-radius: 16px; padding: 3px 10px; width: 260px; color: #555; }
+.xl-titlebar-search input { border: none; outline: none; font: inherit; font-size: 12px; flex: 1; background: transparent; }
+
+.xl-titlebar-right { -webkit-app-region: no-drag; display: flex; align-items: center; gap: 6px; margin-left: 12px; }
+.xl-avatar { border: none; background: transparent; border-radius: 50%; display: flex; padding: 2px; cursor: default; color: var(--xl-green); }
+.xl-winctl { display: flex; height: 30px; }
+.xl-winbtn { border: none; background: transparent; width: 44px; display: flex; align-items: center; justify-content: center; cursor: default; color: var(--text); }
+.xl-winbtn:hover { background: rgba(0,0,0,0.08); }
+.xl-winbtn.close:hover { background: #e81123; color: #fff; }

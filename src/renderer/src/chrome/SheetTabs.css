@@ -1,0 +1,12 @@
+.xl-sheettabs { display: flex; align-items: stretch; height: 26px; background: #e9e9e9; border-top: 1px solid var(--header-border); flex: none; }
+.xl-sheet-nav { display: flex; align-items: center; }
+.xl-sheet-navbtn { border: none; background: transparent; display: flex; align-items: center; width: 24px; height: 100%; justify-content: center; color: #444; cursor: default; }
+.xl-sheet-navbtn:hover { background: rgba(0,0,0,0.06); }
+.xl-sheet-list { display: flex; align-items: flex-end; overflow-x: auto; overflow-y: hidden; max-width: 40%; scrollbar-width: thin; }
+.xl-sheet-tab { position: relative; padding: 3px 14px; font-size: 12px; color: #444; background: #e0e0e0; border-right: 1px solid var(--header-border); height: 24px; display: flex; align-items: center; cursor: default; white-space: nowrap; }
+.xl-sheet-tab.active { background: #fff; color: var(--xl-green); font-weight: 600; border-top: 2px solid var(--xl-green); padding-top: 1px; }
+.xl-sheet-tab.drag-over { outline: 2px dashed var(--xl-green); }
+.xl-sheet-rename { font: inherit; font-size: 12px; border: 1px solid var(--sel-border); padding: 0 2px; width: 80px; }
+.xl-sheet-add { border: none; background: transparent; display: flex; align-items: center; width: 26px; height: 24px; justify-content: center; color: #444; cursor: default; }
+.xl-sheet-add:hover { background: rgba(0,0,0,0.06); }
+.xl-sheet-scrollarea { flex: 1; }

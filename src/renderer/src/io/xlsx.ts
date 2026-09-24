@@ -1,6 +1,7 @@
 // XLSX read/write via exceljs, mapping to/from the app's WorkbookData model.
 import ExcelJS from 'exceljs'
 import type { CellStyle, BorderLineStyle, BorderSide, SheetLayout, Range } from '../model/types'
+import { DEFAULT_ROW_HEIGHT } from '../model/types'
 import type { WorkbookData } from '../model/store'
 import { defaultLayout } from '../model/store'
 
@@ -204,13 +205,14 @@ function isDateFormat(fmt: string | undefined): boolean {
 // ---------- read ----------
 export async function readXlsx(data: Uint8Array): Promise<WorkbookData> {
   const wb = new ExcelJS.Workbook()
-  await wb.xlsx.load(data as unknown as Buffer)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await wb.xlsx.load(data as any)
 
   const sheets: WorkbookData['sheets'] = []
   wb.eachSheet((ws) => {
     const cells: WorkbookData['sheets'][number]['cells'] = {}
-    ws.eachRow({ includeEmpty: false }, (row, rowNum) => {
-      row.eachCell({ includeEmpty: false }, (cell, colNum) => {
+    ws.eachRow({ includeEmpty: true }, (row, rowNum) => {
+      row.eachCell({ includeEmpty: true }, (cell, colNum) => {
         const r = rowNum - 1
         const c = colNum - 1
         const key = r + ',' + c
@@ -251,7 +253,7 @@ export async function readXlsx(data: Uint8Array): Promise<WorkbookData> {
     // column widths / hidden
     const colWidths: Record<number, number> = {}
     const hiddenCols: Record<number, true> = {}
-    const colCount = ws.columnCount || 0
+    const colCount = Math.max(ws.columnCount || 0, ws.columns?.length ?? 0)
     for (let i = 1; i <= colCount; i++) {
       const col = ws.getColumn(i)
       if (col.hidden) hiddenCols[i - 1] = true
@@ -355,7 +357,11 @@ export async function writeXlsx(data: WorkbookData): Promise<Uint8Array> {
       ws.getRow(+r + 1).height = pxToPt(px)
     }
     for (const r of Object.keys(layout.hiddenRows)) {
-      ws.getRow(+r + 1).hidden = true
+      const row = ws.getRow(+r + 1)
+      row.hidden = true
+      // exceljs only serializes a row that has cells or an explicit height; give hidden-but-empty rows one
+      // so the hidden flag round-trips through the file.
+      if (row.height === undefined) row.height = pxToPt(layout.rowHeights[+r] ?? DEFAULT_ROW_HEIGHT)
     }
     for (const m of layout.merges) {
       ws.mergeCells(m.r1 + 1, m.c1 + 1, m.r2 + 1, m.c2 + 1)

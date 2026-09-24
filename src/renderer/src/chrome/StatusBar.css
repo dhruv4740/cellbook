@@ -1,0 +1,18 @@
+.xl-statusbar { display: flex; align-items: center; height: 22px; background: var(--xl-green); color: #fff; font-size: 12px; flex: none; padding: 0 8px; justify-content: space-between; }
+.xl-status-left { display: flex; align-items: center; gap: 14px; overflow: hidden; }
+.xl-status-mode { min-width: 54px; }
+.xl-status-a11y { display: flex; align-items: center; gap: 4px; opacity: 0.95; }
+.xl-status-stats { display: flex; align-items: center; gap: 14px; white-space: nowrap; }
+.xl-status-right { display: flex; align-items: center; gap: 10px; }
+.xl-view-btns { display: flex; align-items: center; }
+.xl-viewbtn { border: none; background: transparent; color: #fff; display: flex; align-items: center; padding: 2px 5px; cursor: default; opacity: 0.85; }
+.xl-viewbtn.active, .xl-viewbtn:hover { opacity: 1; background: rgba(255,255,255,0.15); }
+.xl-zoom { display: flex; align-items: center; gap: 3px; }
+.xl-zoombtn { border: none; background: transparent; color: #fff; width: 18px; height: 18px; display: flex; align-items: center; justify-content: center; cursor: default; }
+.xl-zoombtn:hover { background: rgba(255,255,255,0.15); }
+.xl-zoom-slider { width: 80px; accent-color: #fff; }
+.xl-zoom-pct { border: none; background: transparent; color: #fff; font: inherit; width: 42px; cursor: default; }
+.xl-zoom-pct:hover { text-decoration: underline; }
+.xl-zoom-dialog { display: flex; flex-direction: column; gap: 8px; font-size: 12px; color: #242424; }
+.xl-zoom-custom { width: 48px; margin: 0 4px; }
+

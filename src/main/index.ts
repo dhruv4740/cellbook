@@ -15,6 +15,23 @@ function createWindow(): void {
   })
   win.on('maximize', () => win.webContents.send('window:maximized', true))
   win.on('unmaximize', () => win.webContents.send('window:maximized', false))
+
+  // Give the renderer a chance to prompt "Save changes?" before the window actually closes.
+  let allowClose = false
+  win.on('close', (e) => {
+    if (allowClose) return
+    e.preventDefault()
+    win.webContents.send('window:closeRequested')
+  })
+  ipcMain.handle('window:confirmClose', (e, shouldClose: boolean) => {
+    const w = BrowserWindow.fromWebContents(e.sender)
+    if (!w || w !== win) return
+    if (shouldClose) {
+      allowClose = true
+      w.close()
+    }
+  })
+
   if (process.env.ELECTRON_RENDERER_URL) win.loadURL(process.env.ELECTRON_RENDERER_URL)
   else win.loadFile(join(__dirname, '../renderer/index.html'))
 }

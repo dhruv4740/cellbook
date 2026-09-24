@@ -6,6 +6,7 @@ export interface UiState {
   backstage: boolean // File tab open
   ribbonTab: string // 'Home', 'Insert', ...
   ribbonCollapsed: boolean
+  hideFormulaBar: boolean
   dialog: null | { kind: string; props?: Record<string, unknown> } // e.g. { kind: 'formatCells', props: { tab: 'Number' } }
   /** Sticky format-painter state: set by the Home > Format Painter button, consumed by the grid. */
   formatPainter: null | { once: boolean }
@@ -16,7 +17,7 @@ export interface UiState {
   edit: null | { r: number; c: number; text: string; caret?: number; source: 'cell' | 'bar'; mode: 'Enter' | 'Edit' }
 }
 
-let state: UiState = { backstage: false, ribbonTab: 'Home', ribbonCollapsed: false, dialog: null, formatPainter: null, edit: null }
+let state: UiState = { backstage: false, ribbonTab: 'Home', ribbonCollapsed: false, hideFormulaBar: false, dialog: null, formatPainter: null, edit: null }
 const listeners = new Set<() => void>()
 
 export function setUi(patch: Partial<UiState>): void {

@@ -6,7 +6,10 @@ const api = {
   onMaximized: (cb: (max: boolean) => void) => ipcRenderer.on('window:maximized', (_e, v) => cb(v)),
   openFile: (): Promise<{ path: string; data: Uint8Array } | null> => ipcRenderer.invoke('file:open'),
   saveAs: (defaultName: string): Promise<string | null> => ipcRenderer.invoke('file:saveAs', defaultName),
-  writeFile: (path: string, data: Uint8Array): Promise<boolean> => ipcRenderer.invoke('file:write', path, data)
+  writeFile: (path: string, data: Uint8Array): Promise<boolean> => ipcRenderer.invoke('file:write', path, data),
+  /** Main asks the renderer to confirm before actually closing the window (unsaved-changes prompt). */
+  onCloseRequested: (cb: () => void) => ipcRenderer.on('window:closeRequested', () => cb()),
+  confirmClose: (shouldClose: boolean): Promise<void> => ipcRenderer.invoke('window:confirmClose', shouldClose)
 }
 
 contextBridge.exposeInMainWorld('api', api)
