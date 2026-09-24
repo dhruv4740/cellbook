@@ -65,6 +65,8 @@ ipcMain.handle('file:saveAs', async (e, defaultName: string) => {
   return r.canceled ? null : r.filePath
 })
 
+ipcMain.handle('file:read', async (_e, path: string) => new Uint8Array(await fs.readFile(path)))
+
 ipcMain.handle('file:write', async (_e, path: string, data: Uint8Array) => {
   await fs.writeFile(path, data)
   return true

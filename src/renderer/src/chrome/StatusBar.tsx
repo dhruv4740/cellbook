@@ -1,6 +1,7 @@
 // Bottom status bar: mode indicator, accessibility, selection stats, view buttons, zoom slider.
 import { useState } from 'react'
 import { useStore } from '../model/store'
+import { normRange } from '../model/types'
 import { useUi, setUi } from './ui'
 import { Menu, MenuItem, useMenu } from '../components/Menu'
 import { Dialog } from '../components/Dialog'
@@ -22,12 +23,11 @@ export default function StatusBar() {
   let sum = 0, count = 0, numCount = 0, min = Infinity, max = -Infinity
   // Clamp to the used range: a whole-row/column/sheet selection (Ctrl+A, header click) would
   // otherwise iterate up to MAX_ROWS*MAX_COLS cells here and hang the tab.
-  const usedForStats = store.usedRange(sheet)
-  const capR = Math.max(usedForStats?.r2 ?? 0, 1000)
-  const capC = Math.max(usedForStats?.c2 ?? 0, 200)
-  for (const rg of sheet.selection.ranges) {
-    for (let r = rg.r1; r <= Math.min(rg.r2, capR); r++)
-      for (let c = rg.c1; c <= Math.min(rg.c2, capC); c++) {
+  const used = store.usedRange(sheet)
+  for (const raw of used ? sheet.selection.ranges : []) {
+    const rg = normRange(raw) // ranges dragged up/left arrive reversed
+    for (let r = rg.r1; r <= Math.min(rg.r2, used!.r2); r++)
+      for (let c = rg.c1; c <= Math.min(rg.c2, used!.c2); c++) {
         const v = store.getValue(sheet, r, c)
         if (v === null || v === '') continue
         count++

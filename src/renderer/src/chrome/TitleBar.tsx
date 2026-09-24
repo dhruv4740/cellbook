@@ -1,4 +1,5 @@
 // Frameless window title bar: logo, AutoSave, Quick Access Toolbar, file name, search, avatar, window controls.
+import { save } from '../io/fileOps'
 import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../model/store'
 import { Menu, MenuItem } from '../components/Menu'
@@ -44,7 +45,7 @@ export default function TitleBar() {
         </button>
 
         <div className="xl-qat">
-          <button className="xl-qat-btn" title="Save (Ctrl+S)"><Save20Regular /></button>
+          <button className="xl-qat-btn" title="Save (Ctrl+S)" onClick={() => void save()}><Save20Regular /></button>
           <div className="xl-qat-split" ref={undoBtn}>
             <button className="xl-qat-btn" title="Undo (Ctrl+Z)" disabled={!store.canUndo} onClick={() => store.undo()}><ArrowUndo20Regular /></button>
             <button

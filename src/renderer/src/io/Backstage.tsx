@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { store, useStore } from '../model/store'
 import { setUi, useUi } from '../chrome/ui'
 import {
-  openFile, save, saveAs, newWorkbook, closeWorkbook, downloadCsv,
+  openFile, openRecent, save, saveAs, newWorkbook, closeWorkbook, downloadCsv,
   getRecentFiles, installFileShortcuts, writeActiveCsv, type RecentFile
 } from './fileOps'
 import {
@@ -72,7 +72,7 @@ export default function Backstage() {
         <div className={`bs-item${tab === 'share' ? ' active' : ''}`} onClick={() => go('share')}>Share</div>
         <div className={`bs-item${tab === 'export' ? ' active' : ''}`} onClick={() => go('export')}>Export</div>
         <div className={`bs-item${tab === 'publish' ? ' active' : ''}`} onClick={() => go('publish')}>Publish</div>
-        <div className="bs-item" onClick={() => { void closeWorkbook(); close() }}>Close</div>
+        <div className="bs-item" onClick={() => { void closeWorkbook().then((ok) => ok && close()) }}>Close</div>
         <div className="bs-spacer" />
         <div className="bs-bottom">
           <div className="bs-item">Account</div>
@@ -135,9 +135,9 @@ function HomePane() {
     <div className="bs-pad">
       <div className="bs-greeting">{greeting()}</div>
       <div className="bs-h2">New</div>
-      <TemplateGrid onPick={() => { void newWorkbook(); close() }} />
+      <TemplateGrid onPick={() => { void newWorkbook().then((ok) => ok && close()) }} />
       <div className="bs-h2">Recent</div>
-      <RecentList onOpen={() => { void openFile(); close() }} />
+      <RecentList onOpen={(f) => { void openRecent(f).then((ok) => ok && close()) }} />
     </div>
   )
 }
@@ -148,7 +148,7 @@ function NewPane() {
       <div className="bs-places-title" style={{ padding: 0, marginBottom: 8 }}>New</div>
       <input className="bs-search" placeholder="Search for online templates" />
       <div className="bs-h2">Blank workbook &amp; templates</div>
-      <TemplateGrid onPick={() => { void newWorkbook(); close() }} />
+      <TemplateGrid onPick={() => { void newWorkbook().then((ok) => ok && close()) }} />
     </div>
   )
 }
@@ -156,7 +156,7 @@ function NewPane() {
 function PlacesPane({ mode }: { mode: 'open' | 'saveas' }) {
   const [place, setPlace] = useState<'recent' | 'this-pc' | 'onedrive' | 'shared'>(mode === 'open' ? 'recent' : 'this-pc')
   const browse = (): void => {
-    if (mode === 'open') void openFile().then(close)
+    if (mode === 'open') void openFile().then((ok) => ok && close())
     else void saveAs().then((ok) => ok && close())
   }
   return (
@@ -177,7 +177,7 @@ function PlacesPane({ mode }: { mode: 'open' | 'saveas' }) {
       </div>
       <div className="bs-pad" style={{ flex: 1 }}>
         <div className="bs-places-title" style={{ padding: 0 }}>{mode === 'open' ? 'Open' : 'Save As'}</div>
-        {place === 'recent' && mode === 'open' && <RecentList onOpen={() => { void openFile().then(close) }} />}
+        {place === 'recent' && mode === 'open' && <RecentList onOpen={(f) => { void openRecent(f).then((ok) => ok && close()) }} />}
         {place !== 'recent' && (
           <div className="bs-empty">
             {place === 'this-pc' ? 'Browse for a file on this computer.' : 'Connect a cloud account to see files here.'}

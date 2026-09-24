@@ -128,3 +128,18 @@ describe('reading a workbook built directly with exceljs', () => {
     expect(s.layout?.merges).toContainEqual({ r1: 0, c1: 3, r2: 1, c2: 4 })
   })
 })
+
+describe('shared formulas', () => {
+  it('resolves followers of a real shared formula range', async () => {
+    const ExcelJS = (await import('exceljs')).default
+    const wb = new ExcelJS.Workbook()
+    const ws = wb.addWorksheet('S')
+    ws.getCell('A1').value = 1
+    ws.getCell('A2').value = 2
+    ws.getCell('B1').value = { formula: 'A1*2', result: 2, shareType: 'shared', ref: 'B1:B2' } as never
+    ws.getCell('B2').value = { sharedFormula: 'B1', result: 4 } as never
+    const buf = new Uint8Array(await wb.xlsx.writeBuffer())
+    const data = await readXlsx(buf)
+    expect(data.sheets[0].cells['1,1'].raw).toBe('=A2*2')
+  })
+})
