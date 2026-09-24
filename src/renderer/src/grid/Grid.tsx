@@ -13,6 +13,16 @@ import { Menu, MenuItem, useMenu } from '../components/Menu'
 import { Dialog } from '../components/Dialog'
 import * as cmd from './commands'
 import { shiftFormula } from '../engine/shiftFormula'
+import {
+  Cut20Regular, Copy20Regular, ClipboardPaste20Regular, ClipboardTaskRegular, ClipboardCodeRegular,
+  ClipboardLink20Regular, ArrowSwap20Regular, PaintBrush20Regular, Delete20Regular, Eraser20Regular,
+  TableAdd20Regular, TableDeleteRow20Regular, ArrowSort20Regular, Filter20Regular, Comment20Regular,
+  Note20Regular, Link20Regular, TableCellEdit20Regular, Translate20Regular, SquareHintSparkles20Regular,
+  ColumnTriple20Regular, TextBold20Regular, TextItalic20Regular, TextUnderline20Regular,
+  AlignLeft20Regular, AlignCenterHorizontal20Regular, AlignRight20Regular, BorderAll20Regular,
+  PaintBucket20Regular, TextFont20Regular, FontIncrease20Regular, FontDecrease20Regular,
+  TextPercent20Regular, TextIndentDecrease20Regular, TextIndentIncrease20Regular
+} from '@fluentui/react-icons'
 
 const HEADER_H = 20
 const CORNER_W_MIN = 46
@@ -28,6 +38,20 @@ function fontString(style: CellStyle | undefined, z: number): string {
 }
 
 interface Pt { x: number; y: number }
+
+function MiniBtn({ icon, title, active, onClick }: { icon: React.ReactNode; title: string; active?: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      className={'xl-mini-btn' + (active ? ' active' : '')}
+      title={title}
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={onClick}
+    >
+      {icon}
+    </button>
+  )
+}
 
 export default function Grid() {
   useStore()
@@ -46,6 +70,9 @@ export default function Grid() {
   const [ctxMenu, openCtxMenu, closeCtxMenu] = useMenu()
   const [ctxMenuKind, setCtxMenuKind] = useState<'cell' | 'col' | 'row'>('cell')
   const [resizeTip, setResizeTip] = useState<{ x: number; y: number; text: string } | null>(null)
+  // Excel's Enter-after-Tab: while chaining Tab across cells in a single-cell selection, Enter
+  // commits and moves down to the row below, but back to the column where the Tab-run started.
+  const tabAnchorCol = useRef<number | null>(null)
 
   const drag = useRef<
     | null
@@ -348,13 +375,16 @@ export default function Grid() {
         ctx.strokeRect(x + ctx.lineWidth / 2, y + ctx.lineWidth / 2, Math.max(0, w - ctx.lineWidth), Math.max(0, h - ctx.lineWidth))
       })
     })
-    // clear active-cell fill (Excel shows the active cell un-tinted) + fill handle
+    // clear active-cell fill (Excel shows the active cell un-tinted) + fill handle. Re-draw the
+    // cell's own content afterwards: clearRect/fillRect wipe whatever was painted underneath
+    // (including the cell's text), so without this the active cell would render blank.
     if (!wholeColSel && !wholeRowSel) {
       const ar = mergedRangeOf(sel.active.r, sel.active.c)
       forEachVisibleRectOf(ar, (x, y, w, h) => {
         ctx.clearRect(x + 2, y + 2, Math.max(0, w - 4), Math.max(0, h - 4))
         ctx.fillStyle = '#ffffff'
         ctx.fillRect(x + 2, y + 2, Math.max(0, w - 4), Math.max(0, h - 4))
+        drawCellContent(ar.r1, ar.c1, x, y, w, h)
       })
     }
     // fill handle at bottom-right of primary range
@@ -467,6 +497,13 @@ export default function Grid() {
     ta.style.top = rc.y + 'px'
     ta.style.width = Math.max(rc.w, measured) + 'px'
     ta.style.height = Math.max(rc.h, 18) + 'px'
+    // Keep the DOM caret in sync with edit.caret: on a fresh edit (esp. the first keystroke that
+    // starts "Enter" mode) the freshly-focused textarea otherwise leaves the native caret at 0,
+    // so the next keystrokes land BEFORE the first character instead of after it.
+    const caret = e.caret ?? e.text.length
+    if (ta.selectionStart !== caret || ta.selectionEnd !== caret) {
+      try { ta.setSelectionRange(caret, caret) } catch { /* ignore */ }
+    }
   })
 
   // ---------- selection setting ----------
@@ -596,6 +633,7 @@ export default function Grid() {
 
   function onMouseDown(e: React.MouseEvent): void {
     if (e.button === 2) return
+    tabAnchorCol.current = null
     const rect = hostRef.current!.getBoundingClientRect()
     const x = e.clientX - rect.left, y = e.clientY - rect.top
     editorRef.current?.blur()
@@ -870,6 +908,7 @@ export default function Grid() {
       return
     }
     if (y < headerH || x < rowHeaderW) return
+    tabAnchorCol.current = null
     const { r, c } = cellAt(x, y)
     beginEdit(r, c, 'Edit')
   }
@@ -890,18 +929,24 @@ export default function Grid() {
     const editing = !!getUi().edit
     const mod = e.ctrlKey || e.metaKey
     if (!editing) {
-      if (e.key === 'ArrowDown') { moveActive(1, 0, e.shiftKey, { jump: mod }); e.preventDefault(); return }
-      if (e.key === 'ArrowUp') { moveActive(-1, 0, e.shiftKey, { jump: mod }); e.preventDefault(); return }
-      if (e.key === 'ArrowLeft') { moveActive(0, -1, e.shiftKey, { jump: mod }); e.preventDefault(); return }
-      if (e.key === 'ArrowRight') { moveActive(0, 1, e.shiftKey, { jump: mod }); e.preventDefault(); return }
-      if (e.key === 'Tab') { moveWithinOrGrid(0, e.shiftKey ? -1 : 1); e.preventDefault(); return }
-      if (e.key === 'Enter') { moveWithinOrGrid(e.shiftKey ? -1 : 1, 0); e.preventDefault(); return }
+      if (e.key === 'ArrowDown') { tabAnchorCol.current = null; moveActive(1, 0, e.shiftKey, { jump: mod }); e.preventDefault(); return }
+      if (e.key === 'ArrowUp') { tabAnchorCol.current = null; moveActive(-1, 0, e.shiftKey, { jump: mod }); e.preventDefault(); return }
+      if (e.key === 'ArrowLeft') { tabAnchorCol.current = null; moveActive(0, -1, e.shiftKey, { jump: mod }); e.preventDefault(); return }
+      if (e.key === 'ArrowRight') { tabAnchorCol.current = null; moveActive(0, 1, e.shiftKey, { jump: mod }); e.preventDefault(); return }
+      if (e.key === 'Tab') {
+        if (tabAnchorCol.current === null) tabAnchorCol.current = sheet.selection.active.c
+        moveWithinOrGrid(0, e.shiftKey ? -1 : 1)
+        e.preventDefault(); return
+      }
+      if (e.key === 'Enter') { commitEnterAfterTabAware(e.shiftKey); e.preventDefault(); return }
       if (e.key === 'Home') {
+        tabAnchorCol.current = null
         const a = sheet.selection.active
         if (mod) { selectSingle(0, 0); ensureVisible(0, 0) } else { selectSingle(a.r, 0); ensureVisible(a.r, 0) }
         e.preventDefault(); return
       }
       if (e.key === 'End' && mod) {
+        tabAnchorCol.current = null
         const u = store.usedRange(sheet) ?? { r1: 0, c1: 0, r2: 0, c2: 0 }
         selectSingle(u.r2, u.c2); ensureVisible(u.r2, u.c2); e.preventDefault(); return
       }
@@ -909,7 +954,7 @@ export default function Grid() {
       if (e.key === 'PageUp' && !e.altKey) { pageMove(-1); e.preventDefault(); return }
       if (e.key === 'PageDown' && e.altKey) { moveActive(0, 10, e.shiftKey); e.preventDefault(); return }
       if (e.key === 'PageUp' && e.altKey) { moveActive(0, -10, e.shiftKey); e.preventDefault(); return }
-      if (e.key === 'F2') { const a = sheet.selection.active; beginEdit(a.r, a.c, 'Edit'); e.preventDefault(); return }
+      if (e.key === 'F2') { tabAnchorCol.current = null; const a = sheet.selection.active; beginEdit(a.r, a.c, 'Edit'); e.preventDefault(); return }
       if (e.key === 'Delete') { cmd.clearSelection('contents'); e.preventDefault(); return }
       if (e.key === 'Backspace') { const a = sheet.selection.active; cmd.clearSelection('contents'); beginEdit(a.r, a.c, 'Enter'); e.preventDefault(); return }
       if (mod && e.key.toLowerCase() === 'a') { cmd.selectAll(); e.preventDefault(); return }
@@ -954,6 +999,21 @@ export default function Grid() {
     else store.applyStyle(sheet, rg, { [key]: !first?.[key] } as Partial<CellStyle>)
   }
 
+  /** Enter: normally moves down one row in place; but after a Tab-run in a single-cell
+   *  selection, returns to the column where that Tab-run started (Excel's Enter-after-Tab). */
+  function commitEnterAfterTabAware(shift: boolean): void {
+    const anchor = tabAnchorCol.current
+    if (anchor !== null && !shift) {
+      tabAnchorCol.current = null
+      const a = sheet.selection.active
+      const r = Math.min(MAX_ROWS - 1, a.r + 1)
+      selectSingle(r, anchor)
+      ensureVisible(r, anchor)
+    } else {
+      moveWithinOrGrid(shift ? -1 : 1, 0)
+    }
+  }
+
   function moveWithinOrGrid(dr: number, dc: number): void {
     const cur = sheet.selection
     const rg = normRange(cur.ranges[cur.ranges.length - 1])
@@ -976,15 +1036,16 @@ export default function Grid() {
   // ---------- editor textarea handlers ----------
   function onEditorKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>): void {
     const edit = getUi().edit!
-    if (e.key === 'Escape') { cancelEdit(); e.preventDefault(); hostRef.current?.focus(); return }
+    if (e.key === 'Escape') { tabAnchorCol.current = null; cancelEdit(); e.preventDefault(); hostRef.current?.focus(); return }
     if (e.key === 'Enter' && !e.altKey) {
       commitEdit()
-      moveWithinOrGrid(e.shiftKey ? -1 : 1, 0)
+      commitEnterAfterTabAware(e.shiftKey)
       hostRef.current?.focus()
       e.preventDefault()
       return
     }
     if (e.key === 'Tab') {
+      if (tabAnchorCol.current === null) tabAnchorCol.current = getUi().edit!.c
       commitEdit()
       moveWithinOrGrid(0, e.shiftKey ? -1 : 1)
       hostRef.current?.focus()
@@ -992,6 +1053,7 @@ export default function Grid() {
       return
     }
     if (edit.mode === 'Enter' && (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+      tabAnchorCol.current = null
       commitEdit()
       const dr = e.key === 'ArrowDown' ? 1 : e.key === 'ArrowUp' ? -1 : 0
       const dc = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0
@@ -1003,7 +1065,30 @@ export default function Grid() {
   }
   function onEditorChange(e: React.ChangeEvent<HTMLTextAreaElement>): void {
     const edit = getUi().edit!
-    setUi({ edit: { ...edit, text: e.target.value, caret: e.target.selectionStart ?? e.target.value.length } })
+    const native = e.nativeEvent as InputEvent
+    const val = e.target.value
+    // A Tab or newline character can arrive as a plain text insertion (inputType "insertText")
+    // instead of a keydown — e.g. IME composition, accessibility tools, or automation that
+    // synthesizes text input directly. A real Tab/Enter keypress never reaches here as inserted
+    // text (its keydown handler commits and moves first), and a genuine paste is reported as
+    // "insertFromPaste", so this only fires for that synthetic-insert case — where we replay the
+    // same commit-and-move behavior as an actual Tab/Enter keystroke instead of embedding the
+    // control character in the cell's text.
+    if (native?.inputType === 'insertText' && (native.data === '\t' || native.data === '\n') && val.endsWith(native.data)) {
+      const text = val.slice(0, -1)
+      setUi({ edit: { ...edit, text, caret: text.length } })
+      if (native.data === '\t') {
+        if (tabAnchorCol.current === null) tabAnchorCol.current = edit.c
+        commitEdit()
+        moveWithinOrGrid(0, 1)
+      } else {
+        commitEdit()
+        commitEnterAfterTabAware(false)
+      }
+      hostRef.current?.focus()
+      return
+    }
+    setUi({ edit: { ...edit, text: val, caret: e.target.selectionStart ?? val.length } })
     store.setMode(edit.mode)
   }
 
@@ -1028,70 +1113,106 @@ export default function Grid() {
     openCtxMenu(e)
   }
 
+  const PASTE_OPTS: { k: cmd.PasteKind; label: string; icon: React.ReactNode; badge?: string }[] = [
+    { k: 'all', label: 'Paste', icon: <ClipboardPaste20Regular /> },
+    { k: 'values', label: 'Values', icon: <ClipboardTaskRegular />, badge: '123' },
+    { k: 'formulas', label: 'Formulas', icon: <ClipboardCodeRegular />, badge: 'fx' },
+    { k: 'transpose', label: 'Transpose', icon: <ArrowSwap20Regular /> },
+    { k: 'formats', label: 'Formatting', icon: <PaintBrush20Regular /> },
+    { k: 'link', label: 'Paste Link', icon: <ClipboardLink20Regular /> }
+  ]
   const pasteOptionsStrip = (close: () => void) => (
     <div className="xl-paste-strip">
-      {(['all', 'values', 'formulas', 'transpose', 'formats', 'link'] as const).map((k) => (
-        <button key={k} className="xl-paste-icon" title={k} onClick={() => { close(); cmd.paste(k as cmd.PasteKind) }}>
-          {k === 'all' ? 'P' : k === 'values' ? '123' : k === 'formulas' ? 'fx' : k === 'transpose' ? '⇄' : k === 'formats' ? '🖌' : '🔗'}
+      {PASTE_OPTS.map(({ k, label, icon, badge }) => (
+        <button key={k} className="xl-paste-icon" title={label} onClick={() => { close(); cmd.paste(k) }}>
+          {icon}
+          {badge && <span className="xl-paste-badge">{badge}</span>}
         </button>
       ))}
     </div>
   )
 
+  const miniToolbar = () => {
+    const style = store.getStyle(sheet, sheet.selection.active.r, sheet.selection.active.c) ?? {}
+    const setStyle = (patch: Partial<CellStyle>) => store.applyStyle(sheet, sheet.selection.ranges, patch, 'Format Cells')
+    return (
+      <div className="xl-mini-toolbar">
+        <span className="xl-mini-size">{style.fontSize ?? 11}</span>
+        <MiniBtn icon={<FontIncrease20Regular />} title="Increase Font Size" onClick={() => setStyle({ fontSize: (style.fontSize ?? 11) + 1 })} />
+        <MiniBtn icon={<FontDecrease20Regular />} title="Decrease Font Size" onClick={() => setStyle({ fontSize: Math.max(1, (style.fontSize ?? 11) - 1) })} />
+        <span className="xl-mini-sep" />
+        <MiniBtn icon={<TextBold20Regular />} title="Bold" active={!!style.bold} onClick={() => toggleStyle('bold')} />
+        <MiniBtn icon={<TextItalic20Regular />} title="Italic" active={!!style.italic} onClick={() => toggleStyle('italic')} />
+        <MiniBtn icon={<TextUnderline20Regular />} title="Underline" active={!!style.underline} onClick={() => toggleStyle('underline')} />
+        <MiniBtn icon={<BorderAll20Regular />} title="Borders" onClick={() => {}} />
+        <MiniBtn icon={<PaintBucket20Regular />} title="Fill Color" onClick={() => setStyle({ fill: '#FFFF00' })} />
+        <MiniBtn icon={<TextFont20Regular />} title="Font Color" onClick={() => setStyle({ color: '#FF0000' })} />
+        <span className="xl-mini-sep" />
+        <MiniBtn icon={<AlignLeft20Regular />} title="Align Left" active={style.hAlign === 'left'} onClick={() => setStyle({ hAlign: 'left' })} />
+        <MiniBtn icon={<AlignCenterHorizontal20Regular />} title="Center" active={style.hAlign === 'center'} onClick={() => setStyle({ hAlign: 'center' })} />
+        <MiniBtn icon={<AlignRight20Regular />} title="Align Right" active={style.hAlign === 'right'} onClick={() => setStyle({ hAlign: 'right' })} />
+        <span className="xl-mini-sep" />
+        <MiniBtn icon={<TextPercent20Regular />} title="Percent Style" onClick={() => setStyle({ numFmt: '0%' })} />
+        <MiniBtn icon={<TextIndentDecrease20Regular />} title="Decrease Decimal" onClick={() => {}} />
+        <MiniBtn icon={<TextIndentIncrease20Regular />} title="Increase Decimal" onClick={() => {}} />
+      </div>
+    )
+  }
+
   const cellMenu: MenuItem[] = [
-    { label: 'Cu&t', shortcut: 'Ctrl+X', onClick: () => cmd.cut() },
-    { label: '&Copy', shortcut: 'Ctrl+C', onClick: () => cmd.copy() },
+    { label: 'Cu&t', icon: <Cut20Regular />, shortcut: 'Ctrl+X', onClick: () => cmd.cut() },
+    { label: '&Copy', icon: <Copy20Regular />, shortcut: 'Ctrl+C', onClick: () => cmd.copy() },
     { label: 'Paste Options:', render: pasteOptionsStrip },
-    { label: 'Paste &Special...', onClick: () => setUi({ dialog: { kind: 'pasteSpecial' } }) },
+    { label: 'Paste &Special...', icon: <ClipboardPaste20Regular />, onClick: () => setUi({ dialog: { kind: 'pasteSpecial' } }) },
     'separator',
-    { label: 'Smart &Lookup' },
+    { label: 'Smart &Lookup', icon: <SquareHintSparkles20Regular /> },
     'separator',
-    { label: '&Insert...', onClick: () => cmd.insertCellsDialog() },
-    { label: '&Delete...', onClick: () => cmd.deleteCellsDialog() },
-    { label: 'Clear Co&ntents', shortcut: 'Del', onClick: () => cmd.clearSelection('contents') },
-    { label: '&Translate' },
-    { label: '&Quick Analysis' },
+    { label: '&Insert...', icon: <TableAdd20Regular />, onClick: () => cmd.insertCellsDialog() },
+    { label: '&Delete...', icon: <Delete20Regular />, onClick: () => cmd.deleteCellsDialog() },
+    { label: 'Clear Co&ntents', icon: <Eraser20Regular />, shortcut: 'Del', onClick: () => cmd.clearSelection('contents') },
+    { label: '&Translate', icon: <Translate20Regular /> },
+    { label: '&Quick Analysis', icon: <SquareHintSparkles20Regular /> },
     'separator',
-    { label: 'Filt&er', submenu: [{ label: 'Filter by Selected Cell\'s Value' }, { label: 'Clear Filter' }] },
-    { label: 'S&ort', submenu: [{ label: 'Smallest to Largest', onClick: () => cmd.sortSelection('asc') }, { label: 'Largest to Smallest', onClick: () => cmd.sortSelection('desc') }] },
+    { label: 'Filt&er', icon: <Filter20Regular />, submenu: [{ label: 'Filter by Selected Cell\'s Value' }, { label: 'Clear Filter' }] },
+    { label: 'S&ort', icon: <ArrowSort20Regular />, submenu: [{ label: 'Smallest to Largest', onClick: () => cmd.sortSelection('asc') }, { label: 'Largest to Smallest', onClick: () => cmd.sortSelection('desc') }] },
     'separator',
     { label: 'Get Data from Table/Range...' },
-    { label: 'New Co&mment' },
-    { label: 'New N&ote' },
+    { label: 'New Co&mment', icon: <Comment20Regular /> },
+    { label: 'New N&ote', icon: <Note20Regular /> },
     'separator',
-    { label: '&Format Cells...', onClick: () => setUi({ dialog: { kind: 'formatCells' } }) },
+    { label: '&Format Cells...', icon: <TableCellEdit20Regular />, onClick: () => setUi({ dialog: { kind: 'formatCells' } }) },
     { label: 'Pic&k From Drop-down List...' },
     { label: 'Define N&ame...' },
-    { label: 'L&ink', submenu: [{ label: 'Insert Link...' }] },
+    { label: 'L&ink', icon: <Link20Regular />, submenu: [{ label: 'Insert Link...' }] },
     { label: 'Show Changes' }
   ]
   const colMenu: MenuItem[] = [
-    { label: 'Cu&t', shortcut: 'Ctrl+X', onClick: () => cmd.cut() },
-    { label: '&Copy', shortcut: 'Ctrl+C', onClick: () => cmd.copy() },
+    { label: 'Cu&t', icon: <Cut20Regular />, shortcut: 'Ctrl+X', onClick: () => cmd.cut() },
+    { label: '&Copy', icon: <Copy20Regular />, shortcut: 'Ctrl+C', onClick: () => cmd.copy() },
     { label: 'Paste Options:', render: pasteOptionsStrip },
-    { label: 'Paste &Special...', onClick: () => setUi({ dialog: { kind: 'pasteSpecial' } }) },
+    { label: 'Paste &Special...', icon: <ClipboardPaste20Regular />, onClick: () => setUi({ dialog: { kind: 'pasteSpecial' } }) },
     'separator',
-    { label: '&Insert', onClick: () => cmd.insertSheetColumns() },
-    { label: '&Delete', onClick: () => cmd.deleteSheetColumns() },
-    { label: 'Clear Co&ntents', onClick: () => cmd.clearSelection('contents') },
+    { label: '&Insert', icon: <TableAdd20Regular />, onClick: () => cmd.insertSheetColumns() },
+    { label: '&Delete', icon: <Delete20Regular />, onClick: () => cmd.deleteSheetColumns() },
+    { label: 'Clear Co&ntents', icon: <Eraser20Regular />, onClick: () => cmd.clearSelection('contents') },
     'separator',
-    { label: '&Format Cells...', onClick: () => setUi({ dialog: { kind: 'formatCells' } }) },
-    { label: '&Column Width...', onClick: () => setUi({ dialog: { kind: 'columnWidth' } }) },
+    { label: '&Format Cells...', icon: <TableCellEdit20Regular />, onClick: () => setUi({ dialog: { kind: 'formatCells' } }) },
+    { label: '&Column Width...', icon: <ColumnTriple20Regular />, onClick: () => setUi({ dialog: { kind: 'columnWidth' } }) },
     { label: '&Hide', onClick: () => cmd.hideColumns(true) },
     { label: '&Unhide', onClick: () => cmd.hideColumns(false) }
   ]
   const rowMenu: MenuItem[] = [
-    { label: 'Cu&t', shortcut: 'Ctrl+X', onClick: () => cmd.cut() },
-    { label: '&Copy', shortcut: 'Ctrl+C', onClick: () => cmd.copy() },
+    { label: 'Cu&t', icon: <Cut20Regular />, shortcut: 'Ctrl+X', onClick: () => cmd.cut() },
+    { label: '&Copy', icon: <Copy20Regular />, shortcut: 'Ctrl+C', onClick: () => cmd.copy() },
     { label: 'Paste Options:', render: pasteOptionsStrip },
-    { label: 'Paste &Special...', onClick: () => setUi({ dialog: { kind: 'pasteSpecial' } }) },
+    { label: 'Paste &Special...', icon: <ClipboardPaste20Regular />, onClick: () => setUi({ dialog: { kind: 'pasteSpecial' } }) },
     'separator',
-    { label: '&Insert', onClick: () => cmd.insertSheetRows() },
-    { label: '&Delete', onClick: () => cmd.deleteSheetRows() },
-    { label: 'Clear Co&ntents', onClick: () => cmd.clearSelection('contents') },
+    { label: '&Insert', icon: <TableAdd20Regular />, onClick: () => cmd.insertSheetRows() },
+    { label: '&Delete', icon: <TableDeleteRow20Regular />, onClick: () => cmd.deleteSheetRows() },
+    { label: 'Clear Co&ntents', icon: <Eraser20Regular />, onClick: () => cmd.clearSelection('contents') },
     'separator',
-    { label: '&Format Cells...', onClick: () => setUi({ dialog: { kind: 'formatCells' } }) },
-    { label: '&Row Height...', onClick: () => setUi({ dialog: { kind: 'rowHeight' } }) },
+    { label: '&Format Cells...', icon: <TableCellEdit20Regular />, onClick: () => setUi({ dialog: { kind: 'formatCells' } }) },
+    { label: '&Row Height...', icon: <ColumnTriple20Regular />, onClick: () => setUi({ dialog: { kind: 'rowHeight' } }) },
     { label: '&Hide', onClick: () => cmd.hideRows(true) },
     { label: '&Unhide', onClick: () => cmd.hideRows(false) }
   ]
@@ -1132,6 +1253,7 @@ export default function Grid() {
           y={ctxMenu.y}
           onClose={closeCtxMenu}
           items={ctxMenuKind === 'cell' ? cellMenu : ctxMenuKind === 'col' ? colMenu : rowMenu}
+          header={ctxMenuKind === 'cell' ? miniToolbar() : undefined}
         />
       )}
       <GridDialogs sheet={sheet} />

@@ -34,7 +34,7 @@ export default function StatusBar() {
         if (typeof v === 'number') { sum += v; numCount++; if (v < min) min = v; if (v > max) max = v }
       }
   }
-  const showStats = numCount >= 1
+  const showStats = count >= 2 && numCount >= 1
 
   const zoom = sheet.layout.zoom
   const setZoom = (z: number) => store.updateLayout(sheet, 'Zoom', (l) => (l.zoom = Math.max(10, Math.min(400, Math.round(z)))))

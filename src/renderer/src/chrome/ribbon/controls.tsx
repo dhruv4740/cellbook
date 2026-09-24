@@ -52,14 +52,14 @@ export interface BtnProps {
 }
 
 /** Large ribbon button: icon on top, label wraps below, used for group headline commands. */
-export function BigButton({ icon, label, tip, onClick, active, disabled, color, menu }: BtnProps & { menu?: MenuItem[] }) {
+export function BigButton({ icon, label, tip, onClick, active, disabled, color, menu, wide }: BtnProps & { menu?: MenuItem[]; wide?: boolean }) {
   const [open, setOpen] = useState<{ x: number; y: number } | null>(null)
   const ref = useRef<HTMLButtonElement>(null)
   return (
     <TipWrap tip={tip}>
       <button
         ref={ref}
-        className={'xl-big-btn' + (active ? ' active' : '') + (open ? ' active' : '')}
+        className={'xl-big-btn' + (wide ? ' wide' : '') + (active ? ' active' : '') + (open ? ' active' : '')}
         disabled={disabled}
         onClick={() => {
           if (menu) {
@@ -95,6 +95,32 @@ export function SplitButton({ icon, label, tip, onClick, active, color, menu }: 
         </button>
         <button
           className="xl-split-caret"
+          onClick={() => {
+            const r = ref.current!.getBoundingClientRect()
+            setOpen({ x: r.left, y: r.bottom })
+          }}
+        >
+          <ChevronDown12Regular />
+        </button>
+      </div>
+      {open && <Menu x={open.x} y={open.y} items={menu} onClose={() => setOpen(null)} />}
+    </TipWrap>
+  )
+}
+
+/** Row split button: icon + label + caret in a single ~24px-tall row, used 3-stacked (Cells, Editing groups). */
+export function StackSplit({ icon, label, tip, onClick, menu }: BtnProps & { menu: MenuItem[] }) {
+  const [open, setOpen] = useState<{ x: number; y: number } | null>(null)
+  const ref = useRef<HTMLDivElement>(null)
+  return (
+    <TipWrap tip={tip}>
+      <div ref={ref} className="xl-stacksplit">
+        <button className="xl-stacksplit-main" onClick={onClick}>
+          <span className="xl-stacksplit-icon">{icon}</span>
+          {label && <span className="xl-stacksplit-label">{label}</span>}
+        </button>
+        <button
+          className="xl-stacksplit-caret"
           onClick={() => {
             const r = ref.current!.getBoundingClientRect()
             setOpen({ x: r.left, y: r.bottom })

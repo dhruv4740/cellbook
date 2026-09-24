@@ -10,20 +10,20 @@
 }
 
 .bs-nav {
-  width: 232px;
-  min-width: 232px;
-  background: var(--xl-green-dark, #185c37);
+  width: 180px;
+  min-width: 180px;
+  background: #185c37;
   color: #fff;
   display: flex;
   flex-direction: column;
-  padding-top: 8px;
+  padding-top: 4px;
 }
 .bs-back {
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 56px;
-  padding: 0 20px;
+  height: 48px;
+  padding: 0 18px;
   cursor: pointer;
   font-size: 20px;
 }
@@ -31,18 +31,23 @@
 .bs-back .bs-back-label { font-size: 13px; }
 
 .bs-item {
-  padding: 10px 24px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 18px;
   cursor: pointer;
   font-size: 13px;
   white-space: nowrap;
   border-left: 4px solid transparent;
 }
+.bs-item svg { flex: none; }
 .bs-item:hover { background: rgba(255, 255, 255, 0.10); }
 .bs-item.active { background: #fff; color: #185c37; font-weight: 600; }
-.bs-item.primary { font-size: 13.5px; padding: 12px 24px; }
-.bs-sep { height: 1px; background: rgba(255, 255, 255, 0.25); margin: 8px 20px; }
+.bs-item.primary { font-size: 13.5px; padding: 10px 18px; }
+.bs-sep { height: 1px; background: rgba(255, 255, 255, 0.25); margin: 8px 18px; }
 .bs-spacer { flex: 1; }
 .bs-bottom { border-top: 1px solid rgba(255, 255, 255, 0.25); padding-top: 4px; padding-bottom: 8px; }
+.bs-bottom .bs-item { padding-left: 18px; }
 
 .bs-content {
   flex: 1;
@@ -75,7 +80,14 @@
   box-shadow: 0 1px 2px rgba(0,0,0,0.08);
 }
 .bs-template:hover .bs-template-thumb { box-shadow: 0 2px 6px rgba(0,0,0,0.18); }
-.bs-template-thumb.blank { background: #fff; }
+.bs-template-thumb.blank {
+  background:
+    linear-gradient(#e6e6e6 1px, transparent 1px) 0 0 / 100% 16px,
+    linear-gradient(90deg, #e6e6e6 1px, transparent 1px) 0 0 / 24px 100%,
+    #fff;
+  position: relative;
+}
+.bs-template-plus { font-size: 34px; color: #217346; font-weight: 300; background: #fff; width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 1px #e1e1e1; }
 .bs-template-name { font-size: 12px; margin-top: 6px; color: #201f1e; }
 
 .bs-recent-list { border-top: 1px solid #e1dfdd; max-width: 720px; }
@@ -88,7 +100,7 @@
   cursor: pointer;
 }
 .bs-recent-row:hover { background: #f3f2f1; }
-.bs-recent-icon { color: #185c37; font-size: 16px; }
+.bs-recent-icon { color: #185c37; display: flex; align-items: center; }
 .bs-recent-name { font-size: 13px; color: #106ebe; flex: 1; }
 .bs-recent-path { font-size: 11px; color: #605e5c; }
 .bs-empty { color: #605e5c; font-size: 13px; padding: 8px 4px; }
@@ -108,7 +120,7 @@
 .bs-info-path { font-size: 12px; color: #605e5c; margin-top: 2px; }
 .bs-tiles { display: flex; flex-direction: column; gap: 1px; max-width: 640px; margin-bottom: 28px; }
 .bs-tile { display: flex; gap: 16px; padding: 14px 8px; border-bottom: 1px solid #e1dfdd; cursor: default; }
-.bs-tile-icon { font-size: 28px; width: 40px; text-align: center; color: #185c37; }
+.bs-tile-icon { width: 40px; display: flex; align-items: flex-start; justify-content: center; color: #185c37; padding-top: 2px; }
 .bs-tile-title { font-weight: 600; font-size: 13px; }
 .bs-tile-desc { font-size: 12px; color: #605e5c; margin-top: 2px; max-width: 460px; }
 .bs-props { max-width: 360px; }

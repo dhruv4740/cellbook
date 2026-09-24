@@ -1,14 +1,16 @@
-.xl-formulabar { display: flex; align-items: center; height: 24px; border-bottom: 1px solid var(--ribbon-border); background: #fff; flex: none; padding-left: 2px; }
-.xl-namebox { display: flex; align-items: center; width: 92px; border-right: 1px solid var(--ribbon-border); height: 100%; }
-.xl-namebox input { flex: 1; border: none; outline: none; font: inherit; font-size: 12px; padding: 0 6px; height: 100%; }
-.xl-namebox-caret { border: none; background: transparent; width: 16px; display: flex; align-items: center; justify-content: center; color: #555; }
-.xl-fb-splitter { width: 10px; display: flex; align-items: center; justify-content: center; color: #999; font-size: 10px; cursor: col-resize; border-right: 1px solid var(--ribbon-border); }
-.xl-fb-buttons { display: flex; align-items: center; padding: 0 2px; gap: 1px; }
-.xl-fb-btn { border: none; background: transparent; display: flex; align-items: center; justify-content: center; width: 22px; height: 20px; color: #444; cursor: default; }
+.xl-formulabar { display: flex; align-items: center; height: 26px; border-bottom: 1px solid var(--ribbon-border); background: #fff; flex: none; padding-left: 3px; gap: 0; position: relative; }
+.xl-namebox { display: flex; align-items: center; width: 100px; min-width: 100px; border: 1px solid #c8c8c8; border-radius: 2px; height: 20px; margin: 2px 0; background: #fff; }
+.xl-namebox input { flex: 1; border: none; outline: none; font: inherit; font-size: 12px; padding: 0 6px; height: 100%; background: transparent; }
+.xl-namebox-caret { border: none; background: transparent; width: 16px; height: 100%; display: flex; align-items: center; justify-content: center; color: #555; border-left: 1px solid #d8d8d8; }
+.xl-fb-splitter { width: 12px; display: flex; align-items: center; justify-content: center; color: #888; font-size: 12px; cursor: col-resize; flex: none; letter-spacing: -1px; }
+.xl-fb-buttons { display: flex; align-items: center; padding: 0 2px; gap: 1px; flex: none; }
+.xl-fb-btn { border: none; background: transparent; display: flex; align-items: center; justify-content: center; width: 22px; height: 22px; color: #666; cursor: default; border-radius: 2px; }
 .xl-fb-btn:hover:not(:disabled) { background: #e0f0e8; }
 .xl-fb-btn:disabled { color: #ccc; }
+.xl-fb-btn.cancel:not(:disabled) { color: #c00; }
+.xl-fb-btn.enter:not(:disabled) { color: #217346; }
 .xl-fb-btn.fx { color: #217346; font-style: italic; }
-.xl-fb-input { flex: 1; height: 100%; display: flex; }
-.xl-fb-input input { flex: 1; border: none; outline: none; font: inherit; font-size: 12px; padding: 0 4px; }
-.xl-fb-input.expanded { position: absolute; left: 0; right: 24px; top: 54px; height: 120px; background: #fff; z-index: 20; border: 1px solid var(--sel-border); box-shadow: 0 2px 6px rgba(0,0,0,0.2); }
-.xl-fb-expand { border: none; background: transparent; width: 20px; display: flex; align-items: center; justify-content: center; color: #555; }
+.xl-fb-input { flex: 1; min-width: 0; height: 20px; margin: 2px 4px 2px 0; display: flex; border: 1px solid #c8c8c8; border-radius: 2px; background: #fff; }
+.xl-fb-input input { flex: 1; min-width: 0; border: none; outline: none; font: inherit; font-size: 12px; padding: 0 5px; background: transparent; }
+.xl-fb-input.expanded { position: absolute; left: 106px; right: 24px; top: 26px; height: 120px; background: #fff; z-index: 20; border: 1px solid var(--sel-border); box-shadow: 0 2px 6px rgba(0,0,0,0.2); margin: 0; }
+.xl-fb-expand { border: none; background: transparent; width: 20px; height: 100%; display: flex; align-items: center; justify-content: center; color: #555; flex: none; }
