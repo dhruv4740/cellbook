@@ -10,10 +10,12 @@ import {
 import { formatValue, detectInputFormat, FormattedValue } from '../format/numfmt'
 import { computeFilteredRows } from '../engine/filter'
 import { shiftFormula } from '../engine/shiftFormula'
+import { DEFAULT_AUTHOR, defaultLayout } from './defaults'
 
-/** Default author shown on new notes/comments (Excel shows the signed-in account's name; this
- *  app has none, so it falls back to the OS-style default Excel itself uses when unlicensed). */
-export const DEFAULT_AUTHOR = 'Excel User'
+// Re-exported so existing `import { DEFAULT_AUTHOR, defaultLayout } from '../model/store'` call
+// sites keep working; the actual definitions live in defaults.ts (no HyperFormula/React), which
+// the fast xlsx reader/worker import directly instead of pulling in this whole heavy module.
+export { DEFAULT_AUTHOR, defaultLayout }
 
 export interface SheetState {
   uid: number // stable id, independent of HyperFormula's sheet id
@@ -37,14 +39,6 @@ interface UndoEntry {
   label: string
   undo: () => void
   redo: () => void
-}
-
-export function defaultLayout(): SheetLayout {
-  return {
-    colWidths: {}, rowHeights: {}, hiddenRows: {}, hiddenCols: {}, merges: [],
-    frozen: { rows: 0, cols: 0 }, showGridlines: true, showHeadings: true, zoom: 100,
-    notes: {}, comments: {}
-  }
 }
 
 function defaultSelection(): Selection {

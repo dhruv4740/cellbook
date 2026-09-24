@@ -3,6 +3,12 @@ import { store } from '../model/store'
 import { readXlsx, writeXlsx } from './xlsx'
 import { readCsv, writeCsv } from './csv'
 import { confirmSaveChanges } from './saveConfirm'
+import type { VbaProject } from './xlsxPostProcess'
+
+// The currently-open workbook's VBA project (.xlsm only), kept outside WorkbookData/the store
+// since it's opaque binary Excel data, not something the app model or undo stack needs to know
+// about - just bytes to carry from open to the next save. Reset whenever a different file loads.
+let currentVba: VbaProject | undefined
 
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 const CSV_MIME = 'text/csv'
@@ -125,16 +131,29 @@ export async function openRecent(f: RecentFile): Promise<boolean> {
 
 async function loadFromBytes(data: Uint8Array, fileName: string, path: string | null): Promise<void> {
   const ext = extOf(fileName)
-  const wb = ext === 'csv' ? readCsv(new TextDecoder('utf-8').decode(data)) : await readXlsx(data)
-  store.load(wb, stripExt(fileName), path)
+  if (ext === 'csv') {
+    currentVba = undefined
+    store.load(readCsv(new TextDecoder('utf-8').decode(data)), stripExt(fileName), path)
+  } else {
+    const wb = await readXlsx(data)
+    currentVba = wb.vbaProject
+    store.load(wb, stripExt(fileName), path)
+  }
   setTitle()
   addRecentFile(fileName, path)
+}
+
+/** Only a .xlsm save carries the macros back; Save As to .xlsx must drop them, same as real Excel. */
+function vbaForPath(path: string): VbaProject | undefined {
+  return extOf(path) === 'xlsm' ? currentVba : undefined
 }
 
 export async function save(): Promise<boolean> {
   if (!store.filePath && !window.api) return saveAs()
   if (!store.filePath) return saveAs()
-  const bytes = extOf(store.filePath) === 'csv' ? new TextEncoder().encode(writeActiveCsv()) : await writeXlsx(store.toData())
+  const bytes = extOf(store.filePath) === 'csv'
+    ? new TextEncoder().encode(writeActiveCsv())
+    : await writeXlsx(store.toData(), vbaForPath(store.filePath))
   const ok = await window.api!.writeFile(store.filePath, bytes)
   if (ok) {
     store.dirty = false
@@ -149,7 +168,7 @@ export async function saveAs(): Promise<boolean> {
     const path = await window.api.saveAs(currentName)
     if (!path) return false
     const isCsv = extOf(path) === 'csv'
-    const bytes = isCsv ? new TextEncoder().encode(writeActiveCsv()) : await writeXlsx(store.toData())
+    const bytes = isCsv ? new TextEncoder().encode(writeActiveCsv()) : await writeXlsx(store.toData(), vbaForPath(path))
     const ok = await window.api.writeFile(path, bytes)
     if (ok) {
       store.fileName = stripExt(path.split(/[\\/]/).pop() || currentName)
@@ -161,7 +180,7 @@ export async function saveAs(): Promise<boolean> {
     }
     return ok
   }
-  // Browser: no save dialog, just download.
+  // Browser: no save dialog, just download (always .xlsx, so no macros to carry over).
   const bytes = await writeXlsx(store.toData())
   browserDownload(currentName, bytes, XLSX_MIME)
   store.dirty = false
@@ -193,6 +212,7 @@ export async function newWorkbook(): Promise<boolean> {
     return true
   }
   if (!(await confirmDiscard())) return false
+  currentVba = undefined
   store.newWorkbook()
   setTitle()
   return true
@@ -205,6 +225,7 @@ export async function closeWorkbook(): Promise<boolean> {
     return true
   }
   if (!(await confirmDiscard())) return false
+  currentVba = undefined
   store.newWorkbook()
   setTitle()
   return true

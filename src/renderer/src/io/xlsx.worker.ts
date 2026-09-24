@@ -2,12 +2,13 @@
 // Posts { ok: true, data } on success or { ok: false, error } on failure; xlsx.ts (readXlsx)
 // owns spawning this worker and falls back to parsing inline when Worker isn't available.
 import { parseXlsx } from './fastXlsx'
-import type { WorkbookData } from '../model/store'
 
 self.onmessage = (ev: MessageEvent<ArrayBuffer>): void => {
   try {
     const bytes = new Uint8Array(ev.data)
-    const data: WorkbookData = parseXlsx(bytes)
+    // vbaProject.bin bytes are structured-cloned (not transferred) by postMessage, same as the
+    // rest of `data` - fine for the one-off cost of an open, and simplest to reason about.
+    const data = parseXlsx(bytes)
     self.postMessage({ ok: true, data })
   } catch (err) {
     self.postMessage({ ok: false, error: err instanceof Error ? err.message : String(err) })

@@ -5,11 +5,14 @@
 // against readXlsxExceljs).
 import { unzipSync } from 'fflate'
 import { shiftFormula } from '../engine/shiftFormula'
-import type { BorderSide, CellStyle, NoteData, Range, SheetLayout } from '../model/types'
-import { DEFAULT_AUTHOR } from '../model/store'
+import type { BorderSide, CellStyle, CommentThread, FilterCriteria, NoteData, Range, SheetLayout } from '../model/types'
 import type { WorkbookData } from '../model/store'
-import { defaultLayout } from '../model/store'
-import { THEME_COLORS, BORDER_STYLES, applyTint, ptToPx, colWidthToPx, colLetterToIndex, parseRangeStr } from './xlsx'
+import { DEFAULT_AUTHOR, defaultLayout } from '../model/defaults'
+import {
+  THEME_COLORS, BORDER_STYLES, applyTint, ptToPx, colWidthToPx, colLetterToIndex, parseRangeStr,
+  parseAutoFilterRef, parseAutoFilterColumns, legacyNoteToThread
+} from './xlsxShared'
+import type { VbaProject } from './xlsxPostProcess'
 import {
   decodeXmlEntities,
   parseAttrs,
@@ -19,6 +22,9 @@ import {
   resolveRelTarget,
   parseRelationships
 } from './fastXlsxXml'
+
+const VBA_REL_TYPE = 'http://schemas.microsoft.com/office/2006/relationships/vbaProject'
+const VBA_SIGNATURE_REL_TYPE_RE = /vbaProjectSignature/
 
 // ---------- built-in number format codes (ECMA-376 18.8.30) ----------
 const BUILTIN_NUMFMTS: Record<number, string> = {
@@ -60,11 +66,15 @@ function unzipTextFilter(name: string): boolean {
     name === 'xl/theme/theme1.xml' ||
     /^xl\/worksheets\/[^/]+\.xml$/.test(name) ||
     /^xl\/worksheets\/_rels\/[^/]+\.xml\.rels$/.test(name) ||
-    /^xl\/comments\d*\.xml$/.test(name)
+    /^xl\/comments\d*\.xml$/.test(name) ||
+    // Raw (non-text) parts, kept only for a .xlsm workbook's VBA project - see parseXlsx below.
+    name === 'xl/vbaProject.bin' ||
+    name === 'xl/vbaProjectSignature.bin' ||
+    name === 'xl/_rels/vbaProject.bin.rels'
   )
 }
 
-export function parseXlsx(bytes: Uint8Array): WorkbookData {
+export function parseXlsx(bytes: Uint8Array): WorkbookData & { vbaProject?: VbaProject } {
   const files = unzipSync(bytes, { filter: (f) => unzipTextFilter(f.name) })
   const dec = new TextDecoder('utf-8')
   const cache = new Map<string, string>()
@@ -114,8 +124,21 @@ export function parseXlsx(bytes: Uint8Array): WorkbookData {
     layout.rowHeights = parsed.rowHeights
     layout.hiddenRows = parsed.hiddenRows
     layout.merges = parsed.merges
-    layout.notes = parseNotesForSheet(files, dec, path)
-    layout.comments = {}
+
+    // Notes vs. threaded comments: a legacy note whose text is Excel's own threaded-comment
+    // fallback format (see xlsxShared.ts) came from a `comments` thread on save, not a plain note.
+    const notes = parseNotesForSheet(files, dec, path)
+    const comments: Record<string, CommentThread> = {}
+    for (const [key, note] of Object.entries(notes)) {
+      const thread = legacyNoteToThread(note)
+      if (thread) {
+        comments[key] = thread
+        delete notes[key]
+      }
+    }
+    layout.notes = notes
+    layout.comments = comments
+
     if (parsed.showGridlines !== undefined) layout.showGridlines = parsed.showGridlines
     if (parsed.showHeadings !== undefined) layout.showHeadings = parsed.showHeadings
     if (parsed.zoom !== undefined) layout.zoom = parsed.zoom
@@ -124,17 +147,50 @@ export function parseXlsx(bytes: Uint8Array): WorkbookData {
       const c = resolveColor(parseAttrs(parsed.tabColorAttrs, 0, parsed.tabColorAttrs.length), themeColors)
       if (c) layout.tabColor = c
     }
-    // Note: readXlsxExceljs never populates layout.autoFilter when reading a file - exceljs's
-    // AutoFilterXform#parseOpen always sets `ws.autoFilter` to the raw ref *string*, but the
-    // reader's read path only accepts it when `typeof af === 'object'`, so the check is always
-    // false for a loaded workbook. We match that behavior (bug-for-bug) rather than diverge from
-    // what the rest of the app currently sees.
+    if (parsed.autoFilterRef) {
+      const range = parseSingleOrRange(parsed.autoFilterRef)
+      if (range) {
+        const columns: Record<number, FilterCriteria> = {}
+        for (const [colId, crit] of Object.entries(parseAutoFilterColumns(xml))) {
+          columns[Number(colId) + range.c1] = crit
+        }
+        layout.autoFilter = {
+          range,
+          columns,
+          filteredOutRows: Object.keys(parsed.hiddenRows).map(Number).filter((r) => r > range.r1 && r <= range.r2)
+        }
+      }
+    }
 
     sheets.push({ name: def.name, cells: parsed.cells, layout })
   }
 
   const activeSheet = Math.max(0, Math.min(activeTab, sheets.length - 1))
-  return { sheets, activeSheet }
+  return { sheets, activeSheet, vbaProject: parseVbaProject(files, relsXml, dec) }
+}
+
+// ---------- .xlsm VBA project (kept as opaque bytes so it survives a save back to .xlsm) ----------
+function parseVbaProject(files: Record<string, Uint8Array>, workbookRelsXml: string, dec: TextDecoder): VbaProject | undefined {
+  const rel = parseRelationships(workbookRelsXml).find((r) => r.type === VBA_REL_TYPE)
+  if (!rel) return undefined
+  const path = resolveRelTarget('xl/workbook.xml', rel.target)
+  const bin = files[path]
+  if (!bin) return undefined
+
+  const vba: VbaProject = { bin }
+  const sigRelsPath = 'xl/_rels/vbaProject.bin.rels'
+  const sigRelsBytes = files[sigRelsPath]
+  if (sigRelsBytes) {
+    vba.signatureRels = sigRelsBytes
+    const sigRelsXml = dec.decode(sigRelsBytes)
+    const sigRel = parseRelationships(sigRelsXml).find((r) => VBA_SIGNATURE_REL_TYPE_RE.test(r.type))
+    if (sigRel) {
+      const sigPath = resolveRelTarget(path, sigRel.target)
+      const sigBin = files[sigPath]
+      if (sigBin) vba.signature = sigBin
+    }
+  }
+  return vba
 }
 
 // ---------- workbook.xml ----------
@@ -618,8 +674,7 @@ function parseSheetXml(xml: string, xfStyles: (CellStyle | undefined)[], sharedS
   }
 
   // autoFilter
-  const afM = /<autoFilter ref="([^"]+)"/.exec(xml)
-  const autoFilterRef = afM ? afM[1] : undefined
+  const autoFilterRef = parseAutoFilterRef(xml)
 
   return {
     cells,

@@ -1,7 +1,11 @@
+import { unzipSync } from 'fflate'
 import { describe, it, expect } from 'vitest'
 import ExcelJS from 'exceljs'
 import { readXlsx, writeXlsx, colWidthToPx, pxToColWidth, ptToPx, pxToPt } from './xlsx'
+import { postProcessXlsx, type VbaProject } from './xlsxPostProcess'
+import { BLANK_TOKEN } from '../engine/filter'
 import type { WorkbookData } from '../model/store'
+import type { CommentThread } from '../model/types'
 
 describe('column width / row height conversions', () => {
   it('round-trips reasonably close', () => {
@@ -126,6 +130,142 @@ describe('reading a workbook built directly with exceljs', () => {
     expect(s.cells['0,1'].raw).toBe('=A2*2')
     expect(s.cells['0,2'].style?.color?.toUpperCase()).toBe('#4472C4')
     expect(s.layout?.merges).toContainEqual({ r1: 0, c1: 3, r2: 1, c2: 4 })
+  })
+})
+
+describe('AutoFilter criteria round trip', () => {
+  it('preserves per-column checked values (including blanks) and the filter range', async () => {
+    const data: WorkbookData = {
+      sheets: [
+        {
+          name: 'Filtered',
+          cells: {
+            '0,0': { raw: 'Fruit' }, '0,1': { raw: 'Qty' },
+            '1,0': { raw: 'Apple' }, '1,1': { raw: '3' },
+            '2,0': { raw: '' }, '2,1': { raw: '5' },
+            '3,0': { raw: 'Pear' }, '3,1': { raw: '1' }
+          },
+          layout: {
+            autoFilter: {
+              range: { r1: 0, c1: 0, r2: 3, c2: 1 },
+              columns: {
+                0: { selected: ['Apple', BLANK_TOKEN] }, // absolute col 0 -> colId 0 (range starts at c1=0)
+                1: { selected: ['3', '5'] } // absolute col 1 -> colId 1
+              },
+              filteredOutRows: [3]
+            }
+          }
+        }
+      ]
+    }
+
+    const bytes = await writeXlsx(data)
+    const back = await readXlsx(bytes)
+    const af = back.sheets[0].layout?.autoFilter
+    expect(af?.range).toEqual({ r1: 0, c1: 0, r2: 3, c2: 1 })
+    expect(af?.columns[0]?.selected.sort()).toEqual(['Apple', BLANK_TOKEN].sort())
+    expect(af?.columns[1]?.selected.sort()).toEqual(['3', '5'])
+  })
+
+  it('leaves the range-only case (no criteria) as a plain autoFilter ref', async () => {
+    const data: WorkbookData = {
+      sheets: [{ name: 'S', cells: { '0,0': { raw: 'H' } }, layout: { autoFilter: { range: { r1: 0, c1: 0, r2: 0, c2: 0 }, columns: {}, filteredOutRows: [] } } }]
+    }
+    const bytes = await writeXlsx(data)
+    const back = await readXlsx(bytes)
+    expect(back.sheets[0].layout?.autoFilter?.range).toEqual({ r1: 0, c1: 0, r2: 0, c2: 0 })
+    expect(back.sheets[0].layout?.autoFilter?.columns).toEqual({})
+  })
+})
+
+describe('threaded comments round trip', () => {
+  it('saves a comment thread as a legacy note in the fallback format and reads it back as a thread', async () => {
+    const thread: CommentThread = {
+      author: 'Alice',
+      text: 'Please double-check this total.',
+      time: '2024-01-01T00:00:00.000Z',
+      replies: [
+        { id: 'x', author: 'Bob', text: 'Looks right to me.', time: '2024-01-02T00:00:00.000Z' },
+        { id: 'y', author: 'Alice', text: 'Thanks!', time: '2024-01-03T00:00:00.000Z' }
+      ]
+    }
+    const data: WorkbookData = {
+      sheets: [{ name: 'S', cells: { '0,0': { raw: '42' } }, layout: { comments: { '0,0': thread } } }]
+    }
+    const bytes = await writeXlsx(data)
+    const back = await readXlsx(bytes)
+    const s = back.sheets[0]
+    expect(s.layout?.comments?.['0,0']).toEqual({
+      author: 'Alice',
+      text: 'Please double-check this total.',
+      time: '',
+      replies: [
+        { id: 'r0', author: 'Alice', text: 'Looks right to me.', time: '' },
+        { id: 'r1', author: 'Alice', text: 'Thanks!', time: '' }
+      ]
+    })
+    // Not saved as a plain note - a cell can't show both.
+    expect(s.layout?.notes?.['0,0']).toBeUndefined()
+  })
+
+  it('a comment wins over a plain note at the same cell', async () => {
+    const thread: CommentThread = { author: 'Alice', text: 'the comment', time: '', replies: [] }
+    const data: WorkbookData = {
+      sheets: [
+        {
+          name: 'S',
+          cells: { '0,0': { raw: '1' } },
+          layout: { notes: { '0,0': { author: 'Old', text: 'a stale note' } }, comments: { '0,0': thread } }
+        }
+      ]
+    }
+    const bytes = await writeXlsx(data)
+    const back = await readXlsx(bytes)
+    const s = back.sheets[0]
+    expect(s.layout?.comments?.['0,0']?.text).toBe('the comment')
+    expect(s.layout?.notes?.['0,0']).toBeUndefined()
+  })
+})
+
+describe('.xlsm VBA project round trip', () => {
+  it('survives read -> write -> read', async () => {
+    const data: WorkbookData = { sheets: [{ name: 'S', cells: { '0,0': { raw: 'has macros' } } }] }
+    const plain = await writeXlsx(data)
+
+    // Simulate an .xlsm file: inject a synthetic vbaProject.bin the same way a real save-to-.xlsm
+    // does, since our own writeXlsx (via exceljs) never produces one on its own.
+    const bin = new Uint8Array([1, 2, 3, 4, 5, 250, 251, 252])
+    const signature = new Uint8Array([9, 9, 9])
+    // The signature is only discoverable via its own relationship (xl/_rels/vbaProject.bin.rels),
+    // same as in a real workbook - matching postProcessXlsx's "copy the rels part through" approach.
+    const signatureRels = new TextEncoder().encode(
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+        '<Relationship Id="rId1" Type="http://schemas.microsoft.com/office/2006/relationships/vbaProjectSignature" Target="vbaProjectSignature.bin"/>' +
+        '</Relationships>'
+    )
+    const vba: VbaProject = { bin, signature, signatureRels }
+    const asXlsm = postProcessXlsx(plain, [undefined], vba)
+
+    const opened = await readXlsx(asXlsm)
+    expect(opened.vbaProject?.bin).toEqual(bin)
+    expect(opened.vbaProject?.signature).toEqual(signature)
+
+    // Re-save (as .xlsm - the macros are threaded back through) and read again.
+    const resaved = await writeXlsx(opened, opened.vbaProject)
+    // Excel only runs (and keeps) macros when the workbook part carries the macro-enabled type.
+    const ct = new TextDecoder().decode(unzipSync(resaved)['[Content_Types].xml'])
+    expect(ct).toContain('application/vnd.ms-excel.sheet.macroEnabled.main+xml')
+    expect(ct).toContain('<Default Extension="bin" ContentType="application/vnd.ms-office.vbaProject"/>')
+    const reopened = await readXlsx(resaved)
+    expect(reopened.vbaProject?.bin).toEqual(bin)
+  })
+
+  it('is not written when saving without a vba project (e.g. .xlsx)', async () => {
+    const data: WorkbookData = { sheets: [{ name: 'S', cells: {} }] }
+    const bytes = await writeXlsx(data)
+    const back = await readXlsx(bytes)
+    expect(back.vbaProject).toBeUndefined()
   })
 })
 
