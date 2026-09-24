@@ -82,18 +82,30 @@ function browserDownload(name: string, data: Uint8Array | string, mime: string):
 
 // ---------- core operations ----------
 
-export async function openFile(): Promise<void> {
-  if (!(await confirmDiscard())) return
+/** Returns true when a workbook was opened. */
+export async function openFile(): Promise<boolean> {
+  if (!(await confirmDiscard())) return false
 
   if (window.api) {
     const r = await window.api.openFile()
-    if (!r) return
+    if (!r) return false
     await loadFromBytes(r.data, r.path.split(/[\\/]/).pop() || 'Book1.xlsx', r.path)
   } else {
     const picked = await browserPickFile()
-    if (!picked) return
+    if (!picked) return false
     await loadFromBytes(picked.data, picked.name, null)
   }
+  return true
+}
+
+/** Opens a file from the Recent list. Falls back to the picker when the path can't be read (browser, moved file). */
+export async function openRecent(f: RecentFile): Promise<boolean> {
+  if (!window.api || !f.path) return openFile()
+  if (!(await confirmDiscard())) return false
+  const data = await window.api.readFile(f.path).catch(() => null)
+  if (!data) return openFile()
+  await loadFromBytes(data, f.path.split(/[\\/]/).pop() || f.name, f.path)
+  return true
 }
 
 async function loadFromBytes(data: Uint8Array, fileName: string, path: string | null): Promise<void> {
@@ -107,7 +119,7 @@ async function loadFromBytes(data: Uint8Array, fileName: string, path: string | 
 export async function save(): Promise<boolean> {
   if (!store.filePath && !window.api) return saveAs()
   if (!store.filePath) return saveAs()
-  const bytes = await writeXlsx(store.toData())
+  const bytes = extOf(store.filePath) === 'csv' ? new TextEncoder().encode(writeActiveCsv()) : await writeXlsx(store.toData())
   const ok = await window.api!.writeFile(store.filePath, bytes)
   if (ok) {
     store.dirty = false
@@ -155,16 +167,19 @@ export function downloadCsv(): void {
   browserDownload(store.fileName + '.csv', writeActiveCsv(), CSV_MIME)
 }
 
-export async function newWorkbook(): Promise<void> {
-  if (!(await confirmDiscard())) return
+/** Returns false when the user cancelled the save prompt. */
+export async function newWorkbook(): Promise<boolean> {
+  if (!(await confirmDiscard())) return false
   store.newWorkbook()
   setTitle()
+  return true
 }
 
-export async function closeWorkbook(): Promise<void> {
-  if (!(await confirmDiscard())) return
+export async function closeWorkbook(): Promise<boolean> {
+  if (!(await confirmDiscard())) return false
   store.newWorkbook()
   setTitle()
+  return true
 }
 
 // ---------- shortcuts & window-close guard ----------

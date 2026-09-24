@@ -1,4 +1,5 @@
 // XLSX read/write via exceljs, mapping to/from the app's WorkbookData model.
+import { shiftFormula } from '../engine/shiftFormula'
 import ExcelJS from 'exceljs'
 import type { CellStyle, BorderLineStyle, BorderSide, SheetLayout, Range } from '../model/types'
 import { DEFAULT_ROW_HEIGHT } from '../model/types'
@@ -224,8 +225,15 @@ export async function readXlsx(data: Uint8Array): Promise<WorkbookData> {
           const fv = v as ExcelJS.CellFormulaValue
           raw = '=' + fv.formula
         } else if (typeof v === 'object' && 'sharedFormula' in (v as object)) {
+          // Followers of a shared formula only name their master cell: shift the master's formula here.
           const fv = v as ExcelJS.CellSharedFormulaValue
-          raw = fv.formula ? '=' + fv.formula : undefined
+          const master = ws.getCell(fv.sharedFormula)
+          const mf = (master.value as ExcelJS.CellFormulaValue | null)?.formula
+          raw = fv.formula
+            ? '=' + fv.formula
+            : mf
+              ? shiftFormula('=' + mf, rowNum - Number(master.row), colNum - Number(master.col))
+              : undefined
         } else if (typeof v === 'object' && 'richText' in (v as object)) {
           raw = (v as ExcelJS.CellRichTextValue).richText.map((rt) => rt.text).join('')
         } else if (typeof v === 'object' && 'text' in (v as object) && 'hyperlink' in (v as object)) {
@@ -288,6 +296,7 @@ export async function readXlsx(data: Uint8Array): Promise<WorkbookData> {
     }
     if (view) {
       if (view.showGridLines !== undefined) layout.showGridlines = view.showGridLines
+      if (view.showRowColHeaders !== undefined) layout.showHeadings = view.showRowColHeaders
       if (view.zoomScale !== undefined) layout.zoom = view.zoomScale
     }
     const tabColor = (ws.properties as ExcelJS.WorksheetProperties | undefined)?.tabColor as ExcelColor | undefined
@@ -372,6 +381,7 @@ export async function writeXlsx(data: WorkbookData): Promise<Uint8Array> {
 
     const view: Partial<ExcelJS.WorksheetView> = {
       showGridLines: layout.showGridlines,
+      showRowColHeaders: layout.showHeadings,
       zoomScale: layout.zoom,
       zoomScaleNormal: layout.zoom
     }
