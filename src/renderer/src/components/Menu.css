@@ -1,0 +1,15 @@
+.xl-menu-layer { position: fixed; inset: 0; pointer-events: none; z-index: 1000; }
+.xl-menu, .xl-menu-header { pointer-events: auto; position: fixed; }
+.xl-menu {
+  background: #fff; border: 1px solid #c8c6c4; box-shadow: 0 3px 8px rgba(0,0,0,.18);
+  padding: 4px 0; min-width: 200px; font: 12px var(--ui-font); color: #242424;
+}
+.xl-menu-item { display: flex; align-items: center; height: 26px; padding: 0 8px 0 4px; cursor: default; white-space: nowrap; }
+.xl-menu-item:hover:not(.disabled), .xl-menu-item.open { background: #e6e6e6; }
+.xl-menu-item.disabled { color: #a6a6a6; }
+.xl-menu-icon { width: 28px; display: flex; justify-content: center; align-items: center; font-size: 16px; }
+.xl-menu-label { flex: 1; padding-right: 24px; }
+.xl-menu-shortcut { color: #616161; padding-right: 4px; }
+.xl-menu-arrow { width: 12px; text-align: right; font-size: 14px; }
+.xl-menu-sep { height: 1px; background: #e1dfdd; margin: 4px 0 4px 32px; }
+.xl-menu-header { background: #fff; border: 1px solid #c8c6c4; box-shadow: 0 3px 8px rgba(0,0,0,.18); padding: 4px; }

@@ -46,6 +46,17 @@ function defaultSelection(): Selection {
 
 let nextUid = 1
 
+// US-locale input parsing, matching Excel en-US.
+const HF_CONFIG = {
+  licenseKey: 'gpl-v3',
+  undoLimit: 0,
+  useArrayArithmetic: true,
+  dateFormats: ['MM/DD/YYYY', 'MM/DD/YY', 'YYYY-MM-DD', 'YYYY/MM/DD'],
+  timeFormats: ['hh:mm', 'hh:mm:ss.sss'],
+  currencySymbol: ['$'],
+  nullDate: { year: 1899, month: 12, day: 30 }
+}
+
 export class WorkbookStore {
   hf: HyperFormula
   sheets: SheetState[] = []
@@ -77,7 +88,7 @@ export class WorkbookStore {
   }
 
   constructor() {
-    this.hf = HyperFormula.buildEmpty({ licenseKey: 'gpl-v3', undoLimit: 0, useArrayArithmetic: true })
+    this.hf = HyperFormula.buildEmpty(HF_CONFIG)
     this.addSheetRaw('Sheet1', 0)
   }
 
@@ -176,7 +187,7 @@ export class WorkbookStore {
     const g: UndoEntry[] = []
     this.group = g
     try {
-      this.batch(fn)
+      fn() // not batched: fn may read cells between its commits
     } finally {
       this.group = null
     }
@@ -524,7 +535,7 @@ export class WorkbookStore {
   // ---------- whole workbook ----------
   load(data: WorkbookData, fileName: string, filePath: string | null): void {
     this.hf.destroy()
-    this.hf = HyperFormula.buildEmpty({ licenseKey: 'gpl-v3', undoLimit: 0, useArrayArithmetic: true })
+    this.hf = HyperFormula.buildEmpty(HF_CONFIG)
     this.sheets = []
     // Add all sheets first so cross-sheet formulas resolve.
     data.sheets.forEach((sd, i) => {

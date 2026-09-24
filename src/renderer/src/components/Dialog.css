@@ -1,0 +1,15 @@
+.xl-dialog-overlay { position: fixed; inset: 0; z-index: 900; }
+.xl-dialog {
+  position: fixed; left: 50%; top: 45%; transform: translate(-50%, -50%);
+  background: #fff; border: 1px solid #adadad; box-shadow: 0 8px 24px rgba(0,0,0,.25); font: 12px var(--ui-font);
+}
+.xl-dialog-title { display: flex; align-items: center; height: 32px; padding-left: 12px; background: #fff; cursor: default; }
+.xl-dialog-title span:first-child { flex: 1; }
+.xl-dialog-tbtn { width: 40px; height: 32px; display: flex; align-items: center; justify-content: center; font-size: 12px; }
+.xl-dialog-tbtn:hover { background: #e5e5e5; }
+.xl-dialog-tbtn:last-child:hover { background: #e81123; color: #fff; }
+.xl-dialog-body { padding: 8px 12px 12px; }
+.xl-dialog-footer { display: flex; gap: 8px; padding: 0 12px 12px; align-items: center; }
+.xl-btn { min-width: 75px; height: 24px; background: #fdfdfd; border: 1px solid #adadad; font: 12px var(--ui-font); border-radius: 2px; }
+.xl-btn:hover { background: #e5f1fb; border-color: #0078d7; }
+.xl-btn.primary { border-color: #0078d7; box-shadow: inset 0 0 0 1px #0078d7; }
