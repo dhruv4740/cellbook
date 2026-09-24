@@ -58,6 +58,79 @@ export interface SheetLayout {
   showHeadings: boolean
   zoom: number // 10..400 percent
   tabColor?: string
+  conditionalFormats?: CfRule[]
+}
+
+export type CfRuleType =
+  | 'cellIs'
+  | 'textContains'
+  | 'dateOccurring'
+  | 'duplicateValues'
+  | 'uniqueValues'
+  | 'top10'
+  | 'aboveAverage'
+  | 'expression'
+  | 'dataBar'
+  | 'colorScale'
+  | 'iconSet'
+
+export type CfOperator =
+  | 'greaterThan'
+  | 'lessThan'
+  | 'between'
+  | 'notBetween'
+  | 'equal'
+  | 'notEqual'
+  | 'greaterThanOrEqual'
+  | 'lessThanOrEqual'
+
+export type CfDateOccurring =
+  | 'yesterday'
+  | 'today'
+  | 'tomorrow'
+  | 'inTheLast7Days'
+  | 'lastWeek'
+  | 'thisWeek'
+  | 'nextWeek'
+  | 'lastMonth'
+  | 'thisMonth'
+  | 'nextMonth'
+
+export interface CfRule {
+  id: string
+  ranges: Range[]
+  priority: number
+  stopIfTrue?: boolean
+  type: CfRuleType
+  operator?: CfOperator
+  value?: string
+  value2?: string
+  text?: string
+  date?: CfDateOccurring
+  percent?: boolean
+  bottom?: boolean
+  rank?: number
+  above?: boolean
+  equalOrAbove?: boolean
+  formula?: string
+  format?: Partial<CellStyle>
+  dataBar?: {
+    color: string
+    min?: number
+    max?: number
+    gradient?: boolean
+    showValue?: boolean
+  }
+  colorScale?: {
+    minColor: string
+    midColor?: string
+    maxColor: string
+  }
+  iconSet?: {
+    name: string
+    reverse?: boolean
+    showValue?: boolean
+  }
 }
 
 export type CellValue = number | string | boolean | null | CellError

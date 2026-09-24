@@ -13,6 +13,7 @@ import { Menu, MenuItem, useMenu } from '../components/Menu'
 import { Dialog } from '../components/Dialog'
 import * as cmd from './commands'
 import { shiftFormula } from '../engine/shiftFormula'
+import { evaluateCf } from '../format/conditional'
 import {
   Cut20Regular, Copy20Regular, ClipboardPaste20Regular, ClipboardTaskRegular, ClipboardCodeRegular,
   ClipboardLink20Regular, ArrowSwap20Regular, PaintBrush20Regular, Delete20Regular, Eraser20Regular,
@@ -51,6 +52,41 @@ function MiniBtn({ icon, title, active, onClick }: { icon: React.ReactNode; titl
       {icon}
     </button>
   )
+}
+
+function drawCfIcon(ctx: CanvasRenderingContext2D, set: string, index: number, x: number, y: number, z: number): void {
+  ctx.save()
+  const r = 5 * z
+  if (set.includes('TrafficLights') || set.includes('Shapes') || set.includes('Symbols')) {
+    const colors = ['#e81123', '#ffb900', '#107c41']
+    ctx.fillStyle = colors[index] || '#107c41'
+    ctx.beginPath()
+    ctx.arc(x + r, y, r, 0, 2 * Math.PI)
+    ctx.fill()
+    ctx.strokeStyle = '#333'
+    ctx.lineWidth = 0.5
+    ctx.stroke()
+  } else {
+    const colors = ['#e81123', '#ffb900', '#107c41']
+    ctx.fillStyle = colors[index] || '#107c41'
+    ctx.beginPath()
+    if (index === 0) {
+      ctx.moveTo(x + r, y + r)
+      ctx.lineTo(x, y - r * 0.5)
+      ctx.lineTo(x + 2 * r, y - r * 0.5)
+    } else if (index === 1) {
+      ctx.moveTo(x + 2 * r, y)
+      ctx.lineTo(x, y - r)
+      ctx.lineTo(x, y + r)
+    } else {
+      ctx.moveTo(x + r, y - r)
+      ctx.lineTo(x, y + r * 0.5)
+      ctx.lineTo(x + 2 * r, y + r * 0.5)
+    }
+    ctx.closePath()
+    ctx.fill()
+  }
+  ctx.restore()
 }
 
 export default function Grid() {
@@ -227,8 +263,33 @@ export default function Grid() {
 
     function drawCellContent(r: number, c: number, x: number, y: number, w: number, h: number): void {
       if (w <= 0 || h <= 0) return
-      const style = store.getStyle(sheet, r, c)
-      if (style?.fill) { ctx.fillStyle = style.fill; ctx.fillRect(x, y, w, h) }
+      const baseStyle = store.getStyle(sheet, r, c)
+      const cf = evaluateCf(store, sheet, r, c)
+      const style = cf.style ? { ...baseStyle, ...cf.style } : baseStyle
+      const bg = cf.colorScale || style?.fill
+      if (bg) { ctx.fillStyle = bg; ctx.fillRect(x, y, w, h) }
+
+      if (cf.dataBar) {
+        const barW = Math.max(0, Math.min(w - 2, Math.round((w - 2) * cf.dataBar.fraction)))
+        if (barW > 0) {
+          const grad = ctx.createLinearGradient(x + 1, y + 1, x + 1 + barW, y + 1)
+          grad.addColorStop(0, cf.dataBar.color)
+          grad.addColorStop(1, '#ffffff')
+          ctx.fillStyle = grad
+          ctx.fillRect(x + 1, y + 1, barW, h - 2)
+          ctx.strokeStyle = cf.dataBar.color
+          ctx.lineWidth = 1
+          ctx.strokeRect(x + 1, y + 1, barW, h - 2)
+        }
+      }
+
+      let iconPad = 0
+      if (cf.icon) {
+        iconPad = 14 * z
+        const ix = x + 3 * z, iy = y + h / 2
+        drawCfIcon(ctx, cf.icon.set, cf.icon.index, ix, iy, z)
+      }
+
       const editingHere = ui.edit && ui.edit.r === r && ui.edit.c === c
       if (editingHere) return
       const disp = store.getDisplay(sheet, r, c)
@@ -239,7 +300,7 @@ export default function Grid() {
       const vAlign = style?.vAlign ?? 'bottom'
       const pad = 3 * z
       ctx.textBaseline = 'middle'
-      let tx = x + pad
+      let tx = x + pad + iconPad
       ctx.textAlign = 'left'
       if (hAlign === 'right') { tx = x + w - pad; ctx.textAlign = 'right' }
       else if (hAlign === 'center' || hAlign === 'centerContinuous') { tx = x + w / 2; ctx.textAlign = 'center' }
@@ -247,9 +308,9 @@ export default function Grid() {
       let text = disp.text
       const metrics = ctx.measureText(text)
       const isNumeric = typeof store.getValue(sheet, r, c) === 'number'
-      if (metrics.width > w - 2 * pad && isNumeric) {
-        text = '#'.repeat(Math.max(1, Math.floor((w - 2 * pad) / (7 * z))))
-      } else if (metrics.width > w - 2 * pad && !style?.wrap) {
+      if (metrics.width > w - 2 * pad - iconPad && isNumeric) {
+        text = '#'.repeat(Math.max(1, Math.floor((w - 2 * pad - iconPad) / (7 * z))))
+      } else if (metrics.width > w - 2 * pad - iconPad && !style?.wrap) {
         // overflow into empty neighbours: only clip if neighbour is non-empty
       }
       ctx.save()
@@ -258,13 +319,13 @@ export default function Grid() {
       let clipX = x, clipW = w
       if (!style?.wrap && hAlign === 'left') {
         let cc = c + 1
-        while (clipW < metrics.width + 2 * pad && cc < MAX_COLS && store.getRaw(sheet, r, cc) === '' && !store.mergeAt(sheet, r, cc)) {
+        while (clipW < metrics.width + 2 * pad + iconPad && cc < MAX_COLS && store.getRaw(sheet, r, cc) === '' && !store.mergeAt(sheet, r, cc)) {
           clipW += colsAxis.size(cc) * z
           cc++
         }
       } else if (!style?.wrap && hAlign === 'right') {
         let cc = c - 1
-        while (clipW < metrics.width + 2 * pad && cc >= 0 && store.getRaw(sheet, r, cc) === '' && !store.mergeAt(sheet, r, cc)) {
+        while (clipW < metrics.width + 2 * pad + iconPad && cc >= 0 && store.getRaw(sheet, r, cc) === '' && !store.mergeAt(sheet, r, cc)) {
           clipX -= colsAxis.size(cc) * z
           clipW += colsAxis.size(cc) * z
           cc--
@@ -289,7 +350,9 @@ export default function Grid() {
     }
 
     function drawBorders(r: number, c: number, x: number, y: number, w: number, h: number): void {
-      const style = store.getStyle(sheet, r, c)
+      const baseStyle = store.getStyle(sheet, r, c)
+      const cf = evaluateCf(store, sheet, r, c)
+      const style = cf.style?.borders ? { ...baseStyle, borders: { ...baseStyle?.borders, ...cf.style.borders } } : baseStyle
       const b = style?.borders
       if (!b) return
       ctx.lineWidth = 1

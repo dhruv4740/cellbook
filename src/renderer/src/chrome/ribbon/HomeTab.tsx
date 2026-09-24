@@ -9,6 +9,7 @@ import { ChevronDown12Regular } from '@fluentui/react-icons'
 import { ColorMenu } from './ColorMenu'
 import * as cmds from '../../grid/commands'
 import { getSpecialRanges } from '../../dialogs/find'
+import { addCfRule, clearCfRules } from '../../format/conditional'
 import {
   ClipboardPaste24Regular, Cut20Regular, Copy20Regular, PaintBrush20Regular,
   TextBold20Regular, TextItalic20Regular, TextUnderline20Regular, TextUnderlineDouble20Regular,
@@ -285,6 +286,99 @@ export default function HomeTab() {
     { label: 'Select Objects', onClick: () => {} }
   ]
 
+  const cfMenu: MenuItem[] = [
+    {
+      label: 'Highlight Cells Rules',
+      submenu: [
+        { label: 'Greater Than...', onClick: () => setUi({ dialog: { kind: 'cfQuick', props: { kind: 'greaterThan' } } }) },
+        { label: 'Less Than...', onClick: () => setUi({ dialog: { kind: 'cfQuick', props: { kind: 'lessThan' } } }) },
+        { label: 'Between...', onClick: () => setUi({ dialog: { kind: 'cfQuick', props: { kind: 'between' } } }) },
+        { label: 'Equal To...', onClick: () => setUi({ dialog: { kind: 'cfQuick', props: { kind: 'equal' } } }) },
+        { label: 'Text that Contains...', onClick: () => setUi({ dialog: { kind: 'cfQuick', props: { kind: 'textContains' } } }) },
+        { label: 'A Date Occurring...', onClick: () => setUi({ dialog: { kind: 'cfQuick', props: { kind: 'dateOccurring' } } }) },
+        { label: 'Duplicate Values...', onClick: () => setUi({ dialog: { kind: 'cfQuick', props: { kind: 'duplicateValues' } } }) },
+        'separator',
+        { label: 'More Rules...', onClick: () => setUi({ dialog: { kind: 'cfNewRule' } }) }
+      ]
+    },
+    {
+      label: 'Top/Bottom Rules',
+      submenu: [
+        { label: 'Top 10 Items...', onClick: () => setUi({ dialog: { kind: 'cfQuick', props: { kind: 'top10Items' } } }) },
+        { label: 'Top 10%...', onClick: () => setUi({ dialog: { kind: 'cfQuick', props: { kind: 'top10Percent' } } }) },
+        { label: 'Bottom 10 Items...', onClick: () => setUi({ dialog: { kind: 'cfQuick', props: { kind: 'bottom10Items' } } }) },
+        { label: 'Bottom 10%...', onClick: () => setUi({ dialog: { kind: 'cfQuick', props: { kind: 'bottom10Percent' } } }) },
+        { label: 'Above Average...', onClick: () => setUi({ dialog: { kind: 'cfQuick', props: { kind: 'aboveAverage' } } }) },
+        { label: 'Below Average...', onClick: () => setUi({ dialog: { kind: 'cfQuick', props: { kind: 'belowAverage' } } }) },
+        'separator',
+        { label: 'More Rules...', onClick: () => setUi({ dialog: { kind: 'cfNewRule' } }) }
+      ]
+    },
+    {
+      label: 'Data Bars',
+      submenu: [
+        { label: 'Blue Data Bar', onClick: () => addCfRule(store, sheet, { ranges, type: 'dataBar', dataBar: { color: '#638EC6', gradient: true } }) },
+        { label: 'Green Data Bar', onClick: () => addCfRule(store, sheet, { ranges, type: 'dataBar', dataBar: { color: '#63C384', gradient: true } }) },
+        { label: 'Red Data Bar', onClick: () => addCfRule(store, sheet, { ranges, type: 'dataBar', dataBar: { color: '#FF555A', gradient: true } }) },
+        { label: 'Orange Data Bar', onClick: () => addCfRule(store, sheet, { ranges, type: 'dataBar', dataBar: { color: '#FFB620', gradient: true } }) },
+        { label: 'Light Blue Data Bar', onClick: () => addCfRule(store, sheet, { ranges, type: 'dataBar', dataBar: { color: '#33CCCC', gradient: true } }) },
+        { label: 'Purple Data Bar', onClick: () => addCfRule(store, sheet, { ranges, type: 'dataBar', dataBar: { color: '#800080', gradient: true } }) },
+        'separator',
+        { label: 'Blue Data Bar (Solid)', onClick: () => addCfRule(store, sheet, { ranges, type: 'dataBar', dataBar: { color: '#0070C0', gradient: false } }) },
+        { label: 'Green Data Bar (Solid)', onClick: () => addCfRule(store, sheet, { ranges, type: 'dataBar', dataBar: { color: '#00B050', gradient: false } }) },
+        { label: 'Red Data Bar (Solid)', onClick: () => addCfRule(store, sheet, { ranges, type: 'dataBar', dataBar: { color: '#C00000', gradient: false } }) },
+        { label: 'Orange Data Bar (Solid)', onClick: () => addCfRule(store, sheet, { ranges, type: 'dataBar', dataBar: { color: '#FFC000', gradient: false } }) },
+        { label: 'Light Blue Data Bar (Solid)', onClick: () => addCfRule(store, sheet, { ranges, type: 'dataBar', dataBar: { color: '#00B0F0', gradient: false } }) },
+        { label: 'Purple Data Bar (Solid)', onClick: () => addCfRule(store, sheet, { ranges, type: 'dataBar', dataBar: { color: '#7030A0', gradient: false } }) },
+        'separator',
+        { label: 'More Rules...', onClick: () => setUi({ dialog: { kind: 'cfNewRule' } }) }
+      ]
+    },
+    {
+      label: 'Color Scales',
+      submenu: [
+        { label: 'Green - Yellow - Red Color Scale', onClick: () => addCfRule(store, sheet, { ranges, type: 'colorScale', colorScale: { minColor: '#F8696B', midColor: '#FFEB84', maxColor: '#63BE7B' } }) },
+        { label: 'Red - Yellow - Green Color Scale', onClick: () => addCfRule(store, sheet, { ranges, type: 'colorScale', colorScale: { minColor: '#63BE7B', midColor: '#FFEB84', maxColor: '#F8696B' } }) },
+        { label: 'Green - White - Red Color Scale', onClick: () => addCfRule(store, sheet, { ranges, type: 'colorScale', colorScale: { minColor: '#F8696B', midColor: '#FFFFFF', maxColor: '#63BE7B' } }) },
+        { label: 'Red - White - Green Color Scale', onClick: () => addCfRule(store, sheet, { ranges, type: 'colorScale', colorScale: { minColor: '#63BE7B', midColor: '#FFFFFF', maxColor: '#F8696B' } }) },
+        { label: 'Blue - White - Red Color Scale', onClick: () => addCfRule(store, sheet, { ranges, type: 'colorScale', colorScale: { minColor: '#F8696B', midColor: '#FFFFFF', maxColor: '#5A8AC6' } }) },
+        { label: 'Red - White - Blue Color Scale', onClick: () => addCfRule(store, sheet, { ranges, type: 'colorScale', colorScale: { minColor: '#5A8AC6', midColor: '#FFFFFF', maxColor: '#F8696B' } }) },
+        { label: 'White - Red Color Scale', onClick: () => addCfRule(store, sheet, { ranges, type: 'colorScale', colorScale: { minColor: '#FFFFFF', maxColor: '#F8696B' } }) },
+        { label: 'Red - White Color Scale', onClick: () => addCfRule(store, sheet, { ranges, type: 'colorScale', colorScale: { minColor: '#F8696B', maxColor: '#FFFFFF' } }) },
+        { label: 'Green - White Color Scale', onClick: () => addCfRule(store, sheet, { ranges, type: 'colorScale', colorScale: { minColor: '#FFFFFF', maxColor: '#63BE7B' } }) },
+        { label: 'White - Green Color Scale', onClick: () => addCfRule(store, sheet, { ranges, type: 'colorScale', colorScale: { minColor: '#63BE7B', maxColor: '#FFFFFF' } }) },
+        { label: 'Green - Yellow Color Scale', onClick: () => addCfRule(store, sheet, { ranges, type: 'colorScale', colorScale: { minColor: '#FFEB84', maxColor: '#63BE7B' } }) },
+        { label: 'Yellow - Green Color Scale', onClick: () => addCfRule(store, sheet, { ranges, type: 'colorScale', colorScale: { minColor: '#63BE7B', maxColor: '#FFEB84' } }) },
+        'separator',
+        { label: 'More Rules...', onClick: () => setUi({ dialog: { kind: 'cfNewRule' } }) }
+      ]
+    },
+    {
+      label: 'Icon Sets',
+      submenu: [
+        { label: '3 Traffic Lights (Unrimmed)', onClick: () => addCfRule(store, sheet, { ranges, type: 'iconSet', iconSet: { name: '3TrafficLights1' } }) },
+        { label: '3 Traffic Lights (Rimmed)', onClick: () => addCfRule(store, sheet, { ranges, type: 'iconSet', iconSet: { name: '3TrafficLights2' } }) },
+        { label: '3 Arrows (Colored)', onClick: () => addCfRule(store, sheet, { ranges, type: 'iconSet', iconSet: { name: '3Arrows' } }) },
+        { label: '3 Symbols (Circled)', onClick: () => addCfRule(store, sheet, { ranges, type: 'iconSet', iconSet: { name: '3Symbols' } }) },
+        { label: '3 Flags', onClick: () => addCfRule(store, sheet, { ranges, type: 'iconSet', iconSet: { name: '3Flags' } }) },
+        { label: '4 Ratings', onClick: () => addCfRule(store, sheet, { ranges, type: 'iconSet', iconSet: { name: '4Rating' } }) },
+        { label: '5 Ratings', onClick: () => addCfRule(store, sheet, { ranges, type: 'iconSet', iconSet: { name: '5Rating' } }) },
+        'separator',
+        { label: 'More Rules...', onClick: () => setUi({ dialog: { kind: 'cfNewRule' } }) }
+      ]
+    },
+    'separator',
+    { label: 'New Rule...', onClick: () => setUi({ dialog: { kind: 'cfNewRule' } }) },
+    {
+      label: 'Clear Rules',
+      submenu: [
+        { label: 'Clear Rules from Selected Cells', onClick: () => clearCfRules(store, sheet, 'selection') },
+        { label: 'Clear Rules from Entire Sheet', onClick: () => clearCfRules(store, sheet, 'sheet') }
+      ]
+    },
+    { label: 'Manage Rules...', onClick: () => setUi({ dialog: { kind: 'cfManage' } }) }
+  ]
+
   return (
     <>
       <Group label="Clipboard">
@@ -383,7 +477,7 @@ export default function HomeTab() {
       <GroupSep />
 
       <Group label="Styles">
-        <BigButton wide icon={<TableCellsMerge20Regular fontSize={28} />} label="Conditional Formatting" tip={{ title: 'Conditional Formatting' }} menu={[{ label: 'Highlight Cells Rules', submenu: [{ label: 'Greater Than...', onClick: () => {} }] }, { label: 'Clear Rules', onClick: () => {} }, { label: 'Manage Rules...', onClick: () => {} }]} onClick={() => {}} />
+        <BigButton wide icon={<TableCellsMerge20Regular fontSize={28} />} label="Conditional Formatting" tip={{ title: 'Conditional Formatting' }} menu={cfMenu} onClick={() => {}} />
         <BigButton wide icon={<TableSimple20Regular fontSize={28} />} label="Format as Table" tip={{ title: 'Format as Table' }} menu={[{ label: 'New Table Style...', onClick: () => {} }]} onClick={() => {}} />
         <BigButton
           wide

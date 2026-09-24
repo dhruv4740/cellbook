@@ -143,3 +143,44 @@ describe('shared formulas', () => {
     expect(data.sheets[0].cells['1,1'].raw).toBe('=A2*2')
   })
 })
+
+describe('conditional formatting round trip', () => {
+  it('preserves conditional formatting rules in sheet layout', async () => {
+    const data: WorkbookData = {
+      sheets: [
+        {
+          name: 'CFSheet',
+          cells: {
+            '0,0': { raw: '50' },
+            '1,0': { raw: '150' }
+          },
+          layout: {
+            conditionalFormats: [
+              {
+                id: 'cf1',
+                priority: 1,
+                ranges: [{ r1: 0, c1: 0, r2: 5, c2: 0 }],
+                type: 'cellIs',
+                operator: 'greaterThan',
+                value: '100',
+                format: { fill: '#FFC7CE', color: '#9C0006' }
+              }
+            ]
+          }
+        }
+      ]
+    }
+
+    const bytes = await writeXlsx(data)
+    const back = await readXlsx(bytes)
+
+    expect(back.sheets[0].layout?.conditionalFormats).toBeDefined()
+    const rules = back.sheets[0].layout!.conditionalFormats!
+    expect(rules.length).toBe(1)
+    expect(rules[0].type).toBe('cellIs')
+    expect(rules[0].operator).toBe('greaterThan')
+    expect(rules[0].value).toBe('100')
+    expect(rules[0].format?.fill?.toUpperCase()).toBe('#FFC7CE')
+    expect(rules[0].format?.color?.toUpperCase()).toBe('#9C0006')
+  })
+})
