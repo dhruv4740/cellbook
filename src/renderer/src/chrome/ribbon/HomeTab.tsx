@@ -8,6 +8,7 @@ import { Group, GroupSep, BigButton, SplitButton, SmallButton, DialogLauncher, C
 import { ChevronDown12Regular } from '@fluentui/react-icons'
 import { ColorMenu } from './ColorMenu'
 import * as cmds from '../../grid/commands'
+import { getSpecialRanges } from '../../dialogs/find'
 import {
   ClipboardPaste24Regular, Cut20Regular, Copy20Regular, PaintBrush20Regular,
   TextBold20Regular, TextItalic20Regular, TextUnderline20Regular, TextUnderlineDouble20Regular,
@@ -254,10 +255,32 @@ export default function HomeTab() {
     { label: 'Reapply', onClick: () => {} }
   ]
   const findMenu: MenuItem[] = [
-    { label: '&Find...', shortcut: 'Ctrl+F', onClick: () => {} },
-    { label: '&Replace...', shortcut: 'Ctrl+H', onClick: () => {} },
-    { label: 'Go &To...', shortcut: 'Ctrl+G', onClick: () => {} },
-    { label: 'Go To &Special...', onClick: () => {} },
+    { label: '&Find...', shortcut: 'Ctrl+F', onClick: () => setUi({ dialog: { kind: 'find' } }) },
+    { label: '&Replace...', shortcut: 'Ctrl+H', onClick: () => setUi({ dialog: { kind: 'replace' } }) },
+    { label: 'Go &To...', shortcut: 'Ctrl+G', onClick: () => setUi({ dialog: { kind: 'goto' } }) },
+    { label: 'Go To &Special...', onClick: () => setUi({ dialog: { kind: 'gotoSpecial' } }) },
+    'separator',
+    {
+      label: 'Formulas',
+      onClick: () => {
+        const ranges = getSpecialRanges(store, 'formulas')
+        if (ranges.length > 0) store.setSelection({ ranges, active: { r: ranges[0].r1, c: ranges[0].c1 } })
+      }
+    },
+    {
+      label: 'Notes',
+      onClick: () => {
+        const ranges = getSpecialRanges(store, 'comments')
+        if (ranges.length > 0) store.setSelection({ ranges, active: { r: ranges[0].r1, c: ranges[0].c1 } })
+      }
+    },
+    {
+      label: 'Constants',
+      onClick: () => {
+        const ranges = getSpecialRanges(store, 'constants')
+        if (ranges.length > 0) store.setSelection({ ranges, active: { r: ranges[0].r1, c: ranges[0].c1 } })
+      }
+    },
     'separator',
     { label: 'Select Objects', onClick: () => {} }
   ]
@@ -386,7 +409,7 @@ export default function HomeTab() {
         </div>
         <div className="xl-col xl-stack">
           <SplitButton icon={<ArrowSort20Regular />} label="Sort & Filter" tip={{ title: 'Sort & Filter' }} menu={sortMenu} onClick={() => cmds.sortSelection('asc')} />
-          <SplitButton icon={<Search20Regular />} label="Find & Select" tip={{ title: 'Find & Select' }} menu={findMenu} onClick={() => {}} />
+          <SplitButton icon={<Search20Regular />} label="Find & Select" tip={{ title: 'Find & Select' }} menu={findMenu} onClick={() => setUi({ dialog: { kind: 'find' } })} />
         </div>
       </Group>
       <GroupSep />
