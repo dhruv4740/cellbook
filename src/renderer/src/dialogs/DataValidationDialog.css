@@ -1,0 +1,111 @@
+/* DataValidationDialog styles - Excel M365 light theme */
+
+.xl-dv-body {
+  font: 12px var(--ui-font, 'Segoe UI', Tahoma, sans-serif);
+  color: #242424;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  user-select: none;
+}
+
+.xl-dv-tabs {
+  display: flex;
+  border-bottom: 1px solid #d4d4d4;
+  gap: 4px;
+}
+
+.xl-dv-tab {
+  background: transparent;
+  border: 1px solid transparent;
+  border-bottom: none;
+  padding: 6px 12px;
+  font: 12px var(--ui-font, 'Segoe UI', Tahoma, sans-serif);
+  cursor: pointer;
+  margin-bottom: -1px;
+}
+
+.xl-dv-tab:hover {
+  background: #f0f7fc;
+}
+
+.xl-dv-tab.active {
+  background: #fff;
+  border-color: #d4d4d4;
+  border-bottom-color: #fff;
+  font-weight: 600;
+}
+
+.xl-dv-tab-content {
+  border: 1px solid #d4d4d4;
+  background: #fff;
+  padding: 14px;
+  min-height: 180px;
+}
+
+.xl-dv-form-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.xl-dv-form-col {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.xl-dv-checkboxes-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 18px;
+}
+
+.xl-dv-checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.xl-dv-select,
+.xl-dv-input {
+  height: 24px;
+  font: 12px var(--ui-font, 'Segoe UI', Tahoma, sans-serif);
+  border: 1px solid #adadad;
+  border-radius: 2px;
+  padding: 0 4px;
+  background: #fff;
+}
+
+.xl-dv-textarea {
+  font: 12px var(--ui-font, 'Segoe UI', Tahoma, sans-serif);
+  border: 1px solid #adadad;
+  border-radius: 2px;
+  padding: 4px;
+  background: #fff;
+  resize: vertical;
+}
+
+.xl-dv-footer {
+  display: flex;
+  justify-content: flex-start;
+  margin-top: 4px;
+}
+
+.xl-dv-clear-btn {
+  height: 24px;
+  font: 12px var(--ui-font, 'Segoe UI', Tahoma, sans-serif);
+  background: #fdfdfd;
+  border: 1px solid #adadad;
+  border-radius: 2px;
+  padding: 0 10px;
+  cursor: pointer;
+}
+
+.xl-dv-clear-btn:hover {
+  background: #e5f1fb;
+  border-color: #0078d7;
+}

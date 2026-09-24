@@ -248,7 +248,7 @@ export default function HomeTab() {
   const sortMenu: MenuItem[] = [
     { label: 'Sort &A to Z', onClick: () => cmds.sortSelection('asc') },
     { label: 'Sort &Z to A', onClick: () => cmds.sortSelection('desc') },
-    { label: 'Custom Sort...', onClick: () => {} },
+    { label: 'Custom Sort...', onClick: () => cmds.openSortDialog() },
     'separator',
     { label: '&Filter', icon: <Filter20Regular />, onClick: () => {} },
     { label: 'Clear', onClick: () => {} },

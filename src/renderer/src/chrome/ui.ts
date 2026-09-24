@@ -1,6 +1,7 @@
 // Small UI-only state shared between chrome pieces (not part of the workbook, not undoable).
 import { useSyncExternalStore } from 'react'
 import { store } from '../model/store'
+import { validateInput } from '../data/dataValidation'
 
 export interface UiState {
   backstage: boolean // File tab open
@@ -35,9 +36,37 @@ export function useUi(): UiState {
 export function commitEdit(): boolean {
   const e = state.edit
   if (!e) return false
+  const sheet = store.active
+  const res = validateInput(store, sheet, e.r, e.c, e.text)
+  if (!res.ok) {
+    setUi({
+      dialog: {
+        kind: 'dataValidationError',
+        props: {
+          style: res.style,
+          title: res.title,
+          message: res.message,
+          onRetry: () => {
+            setUi({ dialog: null })
+          },
+          onCancel: () => {
+            cancelEdit()
+            setUi({ dialog: null })
+          },
+          onContinue: () => {
+            setUi({ dialog: null, edit: null })
+            const raw = store.getRaw(sheet, e.r, e.c)
+            if (raw !== e.text) store.setRaw(sheet, e.r, e.c, e.text)
+            store.setMode('Ready')
+          }
+        }
+      }
+    })
+    return false
+  }
   setUi({ edit: null })
-  const raw = store.getRaw(store.active, e.r, e.c)
-  if (raw !== e.text) store.setRaw(store.active, e.r, e.c, e.text)
+  const raw = store.getRaw(sheet, e.r, e.c)
+  if (raw !== e.text) store.setRaw(sheet, e.r, e.c, e.text)
   store.setMode('Ready')
   return true
 }

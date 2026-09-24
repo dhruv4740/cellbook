@@ -7,6 +7,12 @@ import { FormatCellsDialog } from './FormatCellsDialog'
 import { FindReplaceDialog } from './FindReplaceDialog'
 import { GoToDialog } from './GoToDialog'
 import { GoToSpecialDialog } from './GoToSpecialDialog'
+import { SortDialog } from './SortDialog'
+import { SortWarningDialog } from './SortWarningDialog'
+import { RemoveDuplicatesDialog } from './RemoveDuplicatesDialog'
+import { TextToColumnsDialog } from './TextToColumnsDialog'
+import { DataValidationDialog } from './DataValidationDialog'
+import { DataValidationErrorDialog } from './DataValidationErrorDialog'
 
 export default function DialogHost() {
   const ui = useUi()
@@ -50,6 +56,35 @@ export default function DialogHost() {
       return <GoToDialog onOpenSpecial={() => setUi({ dialog: { kind: 'gotoSpecial' } })} onClose={close} />
     case 'gotoSpecial':
       return <GoToSpecialDialog store={store} initialType={(d.props?.type as never) || 'formulas'} onClose={close} />
+    case 'sort':
+      return <SortDialog store={store} onClose={close} />
+    case 'sortWarning':
+      return (
+        <SortWarningDialog
+          onSort={(expand) => {
+            const onSort = d.props?.onSort as ((expand: boolean) => void) | undefined
+            if (onSort) onSort(expand)
+          }}
+          onClose={close}
+        />
+      )
+    case 'removeDuplicates':
+      return <RemoveDuplicatesDialog store={store} onClose={close} />
+    case 'textToColumns':
+      return <TextToColumnsDialog store={store} onClose={close} />
+    case 'dataValidation':
+      return <DataValidationDialog store={store} onClose={close} />
+    case 'dataValidationError':
+      return (
+        <DataValidationErrorDialog
+          style={d.props?.style as any}
+          title={d.props?.title as string}
+          message={d.props?.message as string}
+          onRetry={((d.props?.onRetry as () => void) || close)}
+          onCancel={((d.props?.onCancel as () => void) || close)}
+          onContinue={((d.props?.onContinue as () => void) || close)}
+        />
+      )
     default:
       return null
   }
