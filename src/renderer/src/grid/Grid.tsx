@@ -188,13 +188,10 @@ export default function Grid() {
 
     const sel = sheet.selection
     const primary = normRange(sel.ranges[sel.ranges.length - 1])
-    const selectedCols = new Set<number>()
-    const selectedRows = new Set<number>()
-    sel.ranges.forEach((rg) => {
-      const n = normRange(rg)
-      for (let c = n.c1; c <= n.c2; c++) selectedCols.add(c)
-      for (let r = n.r1; r <= n.r2; r++) selectedRows.add(r)
-    })
+    // Cheap containment checks (never enumerate a whole-row/whole-column range's million+ indices).
+    const normRanges = sel.ranges.map(normRange)
+    const selectedCols = { has: (c: number) => normRanges.some((n) => c >= n.c1 && c <= n.c2) }
+    const selectedRows = { has: (r: number) => normRanges.some((n) => r >= n.r1 && r <= n.r2) }
     const wholeColSel = primary.r1 === 0 && primary.r2 >= MAX_ROWS - 1
     const wholeRowSel = primary.c1 === 0 && primary.c2 >= MAX_COLS - 1
 
@@ -456,11 +453,20 @@ export default function Grid() {
     if (!e || !ta) return
     if (e.source !== 'cell') return
     const rc = cellRect(e.r, e.c)
+    const font = fontString(store.getStyle(sheet, e.r, e.c), z)
+    ta.style.font = font
+    const ctx = canvasRef.current?.getContext('2d')
+    let measured = rc.w
+    if (ctx) {
+      ctx.font = font
+      const lines = e.text.split('\n')
+      const widest = Math.max(...lines.map((l) => ctx.measureText(l || ' ').width))
+      measured = widest + 16
+    }
     ta.style.left = rc.x + 'px'
     ta.style.top = rc.y + 'px'
-    ta.style.minWidth = Math.max(rc.w, 40) + 'px'
+    ta.style.width = Math.max(rc.w, measured) + 'px'
     ta.style.height = Math.max(rc.h, 18) + 'px'
-    ta.style.font = fontString(store.getStyle(sheet, e.r, e.c), z)
   })
 
   // ---------- selection setting ----------
@@ -610,7 +616,6 @@ export default function Grid() {
     // column resize
     const rcol = findColBorder(x, y)
     if (rcol !== null && y < headerH) {
-      const cols = sheet.selection.ranges.some((rg) => inRange(rg, 0, rcol)) ? [...new Set(sheet.selection.ranges.flatMap((rg) => { const n = normRange(rg); const a: number[] = []; for (let c = n.c1; c <= n.c2; c++) a.push(c); return a }))].filter((c) => selectedColsContains(rcol) ? true : c === rcol) : [rcol]
       drag.current = { kind: 'resizeCol', col: rcol, startX: x, startW: colsAxis.size(rcol), cols: selectedColsContains(rcol) ? [...selectedColsSet()] : [rcol] }
       window.addEventListener('mousemove', onResizeMove)
       window.addEventListener('mouseup', onResizeUp)
