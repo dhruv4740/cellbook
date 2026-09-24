@@ -1,0 +1,40 @@
+.xl-note-scrim { position: fixed; inset: 0; z-index: 1000; }
+
+.xl-note-box {
+  position: fixed; z-index: 1001; width: 200px; min-height: 90px; background: #fffee0;
+  border: 1px solid #d6c778; box-shadow: 0 3px 10px rgba(0,0,0,.25); padding: 6px; font: 12px var(--ui-font);
+  display: flex; flex-direction: column;
+}
+.xl-note-box .xl-note-author { font-weight: 700; margin-bottom: 2px; }
+.xl-note-box textarea {
+  flex: 1; resize: none; border: none; background: transparent; font: 12px var(--ui-font); outline: none; min-height: 70px;
+}
+
+.xl-note-tip {
+  position: fixed; z-index: 1001; width: 200px; background: #fffee0; border: 1px solid #d6c778;
+  box-shadow: 0 3px 10px rgba(0,0,0,.25); padding: 6px; font: 12px var(--ui-font); pointer-events: none;
+}
+.xl-note-tip .xl-note-author { font-weight: 700; margin-bottom: 2px; }
+.xl-note-tip .xl-note-text { white-space: pre-wrap; }
+
+.xl-comment-box {
+  position: fixed; z-index: 1001; width: 260px; background: #fff; border: 1px solid #c8c6c4;
+  box-shadow: 0 4px 12px rgba(0,0,0,.25); font: 12px var(--ui-font); color: #242424; border-radius: 2px; overflow: hidden;
+}
+.xl-comment-head { display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; font-weight: 600; border-bottom: 1px solid #e1dfdd; }
+.xl-comment-x { border: none; background: none; cursor: pointer; font-size: 12px; color: #616161; }
+.xl-comment-cellref { padding: 6px 10px 0; color: #616161; font-size: 11px; }
+.xl-comment-new { padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
+.xl-comment-new textarea { resize: none; min-height: 50px; border: 1px solid #c8c6c4; padding: 4px 6px; font: 12px var(--ui-font); }
+.xl-comment-actions { display: flex; justify-content: flex-end; gap: 6px; }
+.xl-comment-thread { max-height: 260px; overflow-y: auto; border-bottom: 1px solid #e1dfdd; }
+.xl-comment-thread.resolved { opacity: .6; }
+.xl-comment-item { display: flex; gap: 8px; padding: 8px 10px; }
+.xl-comment-item.reply { padding-left: 26px; }
+.xl-comment-avatar {
+  width: 24px; height: 24px; border-radius: 50%; background: #7719aa; color: #fff; display: flex;
+  align-items: center; justify-content: center; font-size: 11px; font-weight: 700; flex: none;
+}
+.xl-comment-meta { display: flex; gap: 6px; align-items: baseline; }
+.xl-comment-meta span { color: #616161; font-size: 10.5px; }
+.xl-comment-text { white-space: pre-wrap; margin-top: 2px; }

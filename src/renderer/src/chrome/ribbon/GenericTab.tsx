@@ -29,7 +29,7 @@ export function GenericTab({ groups }: { groups: GGroup[] }) {
     <>
       {groups.map((g, gi) => (
         <div key={gi} style={{ display: 'contents' }}>
-          <Group label={g.label}>
+          <Group label={g.label} icon={g.big?.[0]?.icon ?? g.rows?.[0]?.[0]?.icon}>
             {g.big?.map((b, i) => (
               <BigButton key={i} icon={b.icon} label={b.label} menu={b.menu} onClick={b.onClick ?? (() => {})} active={b.active} wide={b.wide ?? b.label.length > 7} tip={{ title: b.label, desc: b.desc, shortcut: b.shortcut }} />
             ))}

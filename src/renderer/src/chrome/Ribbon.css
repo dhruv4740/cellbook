@@ -20,33 +20,33 @@
 .xl-ribbon-display { border: none; background: transparent; cursor: default; color: #666; padding: 4px; border-radius: 3px; }
 .xl-ribbon-display:hover { background: rgba(0,0,0,0.06); }
 
-.xl-group { display: flex; flex-direction: column; padding: 3px 5px 0; min-width: 40px; flex: none; position: relative; }
-.xl-group-body { flex: 1; display: flex; align-items: center; gap: 2px; padding-bottom: 2px; }
-.xl-group-label { font-size: 11px; text-align: center; color: #444; padding: 2px 4px 3px; white-space: nowrap; }
-.xl-group-sep { width: 1px; background: var(--ribbon-border); margin: 6px 2px; flex: none; align-self: stretch; }
+.xl-group { display: flex; flex-direction: column; padding: 3px 4px 0; min-width: 36px; flex: none; position: relative; }
+.xl-group-body { flex: 1; display: flex; align-items: center; gap: 1px; padding-bottom: 2px; }
+.xl-group-label { font-size: 11px; text-align: center; color: #444; padding: 2px 3px 3px; white-space: nowrap; }
+.xl-group-sep { width: 1px; background: var(--ribbon-border); margin: 6px 1px; flex: none; align-self: stretch; }
 .xl-col { display: flex; flex-direction: column; gap: 1px; justify-content: center; flex: none; }
-.xl-align-side { gap: 3px; justify-content: center; margin-left: 2px; }
-.xl-align-side .xl-small-btn { width: 128px; justify-content: flex-start; font-size: 11px; overflow: hidden; }
+.xl-align-side { gap: 2px; justify-content: center; margin-left: 1px; }
+.xl-align-side .xl-small-btn { width: 104px; justify-content: flex-start; font-size: 11px; overflow: hidden; }
 .xl-align-side .xl-small-label { overflow: hidden; text-overflow: ellipsis; }
 .xl-col.xl-stack { justify-content: center; gap: 2px; height: 74px; }
-.xl-row { display: flex; align-items: center; gap: 1px; flex: none; }
+.xl-row { display: flex; align-items: center; gap: 0px; flex: none; }
 
-.xl-big-btn { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 2px; border: 1px solid transparent; background: transparent; padding: 3px 6px 2px; border-radius: 4px; cursor: default; font: inherit; font-size: 10.5px; color: var(--text); width: 56px; min-width: 56px; height: 72px; flex: none; overflow: hidden; }
-.xl-big-btn.wide { width: 80px; min-width: 80px; }
-.xl-big-btn.wide .xl-big-label { max-width: 74px; }
+.xl-big-btn { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 1px; border: 1px solid transparent; background: transparent; padding: 3px 2px 2px; border-radius: 4px; cursor: default; font: inherit; font-size: 10px; color: var(--text); width: 44px; min-width: 44px; height: 72px; flex: none; overflow: hidden; }
+.xl-big-btn.wide { width: 64px; min-width: 64px; }
+.xl-big-btn.wide .xl-big-label { max-width: 60px; }
 .xl-big-btn:hover, .xl-big-btn.active { background: #e0f0e8; border-color: #bfe0cd; }
 .xl-big-icon { position: relative; display: flex; align-items: center; justify-content: center; height: 28px; flex: none; }
-.xl-big-label { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 2px; white-space: normal; line-height: 1.12; max-width: 68px; text-align: center; overflow: hidden; word-break: break-word; overflow-wrap: break-word; }
+.xl-big-label { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 2px; white-space: normal; line-height: 1.1; max-width: 42px; text-align: center; overflow: hidden; word-break: break-word; overflow-wrap: break-word; }
 .xl-drop-caret { flex: none; }
 .xl-color-bar { position: absolute; left: 2px; right: 2px; bottom: 0; height: 4px; border-radius: 1px; }
 
-.xl-split { flex-direction: row; align-items: stretch; height: 72px; width: auto; min-width: 64px; padding: 0; overflow: hidden; }
-.xl-split-main { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 2px; border: none; background: transparent; padding: 3px 4px 2px; cursor: default; font: inherit; font-size: 10.5px; color: var(--text); width: 62px; overflow: hidden; }
+.xl-split { flex-direction: row; align-items: stretch; height: 72px; width: auto; min-width: 52px; padding: 0; overflow: hidden; }
+.xl-split-main { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 1px; border: none; background: transparent; padding: 3px 3px 2px; cursor: default; font: inherit; font-size: 10px; color: var(--text); width: 46px; overflow: hidden; }
 .xl-split-main:hover { background: #e0f0e8; }
-.xl-split-caret { border: none; background: transparent; width: 16px; display: flex; align-items: center; justify-content: center; cursor: default; color: #444; flex: none; }
+.xl-split-caret { border: none; background: transparent; width: 14px; display: flex; align-items: center; justify-content: center; cursor: default; color: #444; flex: none; }
 .xl-split-caret:hover { background: #e0f0e8; }
 
-.xl-stacksplit { display: flex; align-items: stretch; height: 23px; width: 96px; border: 1px solid transparent; border-radius: 3px; flex: none; }
+.xl-stacksplit { display: flex; align-items: stretch; height: 22px; width: 84px; border: 1px solid transparent; border-radius: 3px; flex: none; }
 .xl-stacksplit:hover { background: #e0f0e8; border-color: #bfe0cd; }
 .xl-stacksplit-main { flex: 1; display: flex; align-items: center; gap: 5px; border: none; background: transparent; padding: 0 4px; cursor: default; font: inherit; font-size: 12px; color: var(--text); min-width: 0; }
 .xl-stacksplit-icon { display: flex; align-items: center; flex: none; }
@@ -89,3 +89,12 @@
 .xl-glyph { font: 600 15px/20px var(--ui-font); width: 20px; text-align: center; color: #3b3b3b; }
 .xl-glyph small { font-size: 11px; }
 .xl-ribbon-groups::-webkit-scrollbar { display: none; }
+
+/* Adaptive ribbon scaling: a group that doesn't fit collapses to one button + popup. */
+.xl-group-measure { position: absolute; visibility: hidden; pointer-events: none; left: -9999px; top: -9999px; white-space: nowrap; }
+.xl-group-collapsed { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 2px; border: 1px solid transparent; background: transparent; padding: 3px 4px 2px; border-radius: 4px; cursor: default; font: inherit; font-size: 10px; color: var(--text); width: 62px; min-width: 62px; height: 72px; flex: none; margin: 0 auto; }
+.xl-group-collapsed:hover, .xl-group-collapsed.active { background: #e0f0e8; border-color: #bfe0cd; }
+.xl-group-collapsed .xl-big-icon { height: 28px; }
+.xl-group-collapsed .xl-big-label { display: flex; align-items: center; justify-content: center; gap: 2px; flex-wrap: wrap; max-width: 56px; text-align: center; line-height: 1.15; word-break: normal; overflow-wrap: normal; hyphens: none; }
+.xl-group-popup { position: fixed; background: #fff; border: 1px solid #b0b0b0; box-shadow: 0 3px 10px rgba(0,0,0,0.25); z-index: 6000; padding: 3px 4px 4px; display: flex; align-items: stretch; border-radius: 2px; }
+.xl-group-popup .xl-group { padding: 3px 5px 0; }

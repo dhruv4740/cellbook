@@ -250,9 +250,9 @@ export default function HomeTab() {
     { label: 'Sort &Z to A', onClick: () => cmds.sortSelection('desc') },
     { label: 'Custom Sort...', onClick: () => {} },
     'separator',
-    { label: '&Filter', icon: <Filter20Regular />, onClick: () => {} },
-    { label: 'Clear', onClick: () => {} },
-    { label: 'Reapply', onClick: () => {} }
+    { label: '&Filter', icon: <Filter20Regular />, checked: !!store.active.layout.autoFilter, shortcut: 'Ctrl+Shift+L', onClick: () => store.toggleAutoFilter() },
+    { label: 'Clear', onClick: () => store.clearAllFilters(), disabled: !store.active.layout.autoFilter },
+    { label: 'Reapply', onClick: () => store.reapplyFilter(), disabled: !store.active.layout.autoFilter }
   ]
   const findMenu: MenuItem[] = [
     { label: '&Find...', shortcut: 'Ctrl+F', onClick: () => setUi({ dialog: { kind: 'find' } }) },
@@ -287,7 +287,7 @@ export default function HomeTab() {
 
   return (
     <>
-      <Group label="Clipboard">
+      <Group label="Clipboard" icon={<ClipboardPaste24Regular fontSize={20} />}>
         <div className="xl-col">
           <SplitButton icon={<ClipboardPaste24Regular fontSize={28} />} label="Paste" tip={{ title: 'Paste (Ctrl+V)', desc: 'Paste the contents of the Clipboard.' }} onClick={() => cmds.paste('all')} menu={pasteMenu} />
         </div>
@@ -306,7 +306,7 @@ export default function HomeTab() {
       </Group>
       <GroupSep />
 
-      <Group label="Font">
+      <Group label="Font" icon={<TextFont20Regular />}>
         <div className="xl-col">
           <div className="xl-row">
             <Combo value={style.fontFamily ?? 'Aptos Narrow'} options={FONTS} width={120} tip={{ title: 'Font' }} onChange={(v) => setStyle({ fontFamily: v }, 'Font')} />
@@ -340,7 +340,7 @@ export default function HomeTab() {
       </Group>
       <GroupSep />
 
-      <Group label="Alignment">
+      <Group label="Alignment" icon={<AlignCenterHorizontal20Regular />}>
         <div className="xl-col">
           <div className="xl-row">
             <SmallButton icon={<AlignTop20Regular />} active={style.vAlign === 'top'} tip={{ title: 'Top Align' }} onClick={() => setStyle({ vAlign: 'top' }, 'Align')} />
@@ -367,7 +367,7 @@ export default function HomeTab() {
       </Group>
       <GroupSep />
 
-      <Group label="Number">
+      <Group label="Number" icon={<TextPercent20Regular />}>
         <div className="xl-col">
           <Combo value={curFmtName} options={NUMFMT.map(([n]) => n)} width={122} editable={false} tip={{ title: 'Number Format' }} onPick={(name) => { const f = NUMFMT.find(([n]) => n === name); if (f) setStyle({ numFmt: f[1] }, 'Number Format') }} />
           <div className="xl-row">
@@ -382,7 +382,7 @@ export default function HomeTab() {
       </Group>
       <GroupSep />
 
-      <Group label="Styles">
+      <Group label="Styles" icon={<TableCellsMerge20Regular />}>
         <BigButton wide icon={<TableCellsMerge20Regular fontSize={28} />} label="Conditional Formatting" tip={{ title: 'Conditional Formatting' }} menu={[{ label: 'Highlight Cells Rules', submenu: [{ label: 'Greater Than...', onClick: () => {} }] }, { label: 'Clear Rules', onClick: () => {} }, { label: 'Manage Rules...', onClick: () => {} }]} onClick={() => {}} />
         <BigButton wide icon={<TableSimple20Regular fontSize={28} />} label="Format as Table" tip={{ title: 'Format as Table' }} menu={[{ label: 'New Table Style...', onClick: () => {} }]} onClick={() => {}} />
         <BigButton
@@ -396,7 +396,7 @@ export default function HomeTab() {
       </Group>
       <GroupSep />
 
-      <Group label="Cells">
+      <Group label="Cells" icon={<TableInsertRow20Regular />}>
         <div className="xl-col xl-stack">
           <StackSplit icon={<TableInsertRow20Regular />} label="Insert" tip={{ title: 'Insert Cells' }} menu={insertMenu} onClick={() => cmds.insertCellsDialog()} />
           <StackSplit icon={<Delete20Regular />} label="Delete" tip={{ title: 'Delete Cells' }} menu={deleteMenu} onClick={() => cmds.deleteCellsDialog()} />
@@ -405,7 +405,7 @@ export default function HomeTab() {
       </Group>
       <GroupSep />
 
-      <Group label="Editing">
+      <Group label="Editing" icon={<ArrowSort20Regular />}>
         <div className="xl-col xl-stack">
           <StackSplit icon={<MathFormula20Regular />} label="AutoSum" tip={{ title: 'AutoSum (Alt+=)' }} menu={autoSumMenu} onClick={() => cmds.autoSum('SUM')} />
           <StackSplit icon={<TableInsertRow20Regular />} label="Fill" tip={{ title: 'Fill' }} menu={fillDirMenu} onClick={() => cmds.fill('down')} />
@@ -416,11 +416,11 @@ export default function HomeTab() {
       </Group>
       <GroupSep />
 
-      <Group label="Add-ins">
+      <Group label="Add-ins" icon={<DataFunnel20Regular />}>
         <BigButton icon={<DataFunnel20Regular fontSize={28} />} label="Get Add-ins" tip={{ title: 'Get Add-ins' }} onClick={() => {}} />
       </Group>
       <GroupSep />
-      <Group label="Analysis">
+      <Group label="Analysis" icon={<DataHistogram20Regular />}>
         <BigButton icon={<DataHistogram20Regular fontSize={28} />} label="Analyze Data" tip={{ title: 'Analyze Data' }} onClick={() => {}} />
       </Group>
 

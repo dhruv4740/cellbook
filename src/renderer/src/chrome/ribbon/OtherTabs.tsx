@@ -12,13 +12,20 @@ import {
   Mail20Regular, Ruler20Regular, GridDots20Regular, ColumnTriple20Regular, ArrowMoveInward20Regular,
   ZoomIn20Regular, ZoomFit20Regular, TableFreezeRow20Regular, SplitHorizontal20Regular,
   ArrowRepeatAllOff20Regular, AppsListDetail20Regular, DataHistogram20Regular, DataFunnel20Regular,
-  Filter20Regular, ArrowSort20Regular, TableSimple20Regular, Print20Regular, Cloud20Regular
+  Filter20Regular, ArrowSort20Regular, TableSimple20Regular, Print20Regular, Cloud20Regular,
+  DataBarVertical20Regular, DataBarHorizontal20Regular, DataTrending20Regular, DataPie20Regular, DataScatter20Regular
 } from '@fluentui/react-icons'
 import { GenericTab, GGroup } from './GenericTab'
-import { useStore } from '../../model/store'
+import { useStore, store } from '../../model/store'
 import { useUi, setUi } from '../ui'
 import { MenuItem } from '../../components/Menu'
 import * as cmds from '../../grid/commands'
+import { COLUMN_BAR_GALLERY, LINE_AREA_GALLERY, PIE_DOUGHNUT_GALLERY, SCATTER_BUBBLE_GALLERY, GalleryEntry } from '../../charts/gallery'
+import { insertChartFromSelection } from '../../charts/insertChart'
+
+function chartGalleryMenu(entries: GalleryEntry[]): MenuItem[] {
+  return entries.map((e) => ({ label: e.label, icon: <ChartMultiple20Regular />, onClick: () => insertChartFromSelection(store, e) }))
+}
 
 export function InsertTab() {
   const groups: GGroup[] = [
@@ -142,6 +149,8 @@ export function FormulasTab() {
 }
 
 export function DataTab() {
+  const store = useStore()
+  const filtered = !!store.active.layout.autoFilter
   const groups: GGroup[] = [
     { label: 'Get & Transform Data', big: [
       { label: 'Get Data', icon: <ArrowImport20Regular fontSize={28} /> },
@@ -157,7 +166,12 @@ export function DataTab() {
     { label: 'Data Types', big: [{ label: 'Stocks', icon: <DataHistogram20Regular fontSize={28} /> }, { label: 'Geography', icon: <DataArea20Regular fontSize={28} /> }] },
     { label: 'Sort & Filter', rows: [
       [{ label: 'A→Z', icon: <ArrowSort20Regular />, onClick: () => cmds.sortSelection('asc') }, { label: 'Z→A', icon: <ArrowSort20Regular />, onClick: () => cmds.sortSelection('desc') }, { label: 'Sort', icon: <ArrowSort20Regular /> }],
-      [{ label: 'Filter', icon: <Filter20Regular /> }, { label: 'Clear', icon: <ArrowRepeatAllOff20Regular /> }, { label: 'Reapply', icon: <ArrowRepeatAll20Regular /> }, { label: 'Advanced', icon: <Filter20Regular /> }]
+      [
+        { label: 'Filter', icon: <Filter20Regular />, active: filtered, onClick: () => store.toggleAutoFilter() },
+        { label: 'Clear', icon: <ArrowRepeatAllOff20Regular />, onClick: () => store.clearAllFilters() },
+        { label: 'Reapply', icon: <ArrowRepeatAll20Regular />, onClick: () => store.reapplyFilter() },
+        { label: 'Advanced', icon: <Filter20Regular /> }
+      ]
     ] },
     { label: 'Data Tools', big: [
       { label: 'Text to Columns', icon: <ColumnTriple20Regular fontSize={28} /> },
@@ -181,6 +195,22 @@ export function DataTab() {
 }
 
 export function ReviewTab() {
+  const store = useStore()
+  const active = store.active.selection.active
+  const key = active.r + ',' + active.c
+  const hasComment = !!store.active.layout.comments[key]
+  const hasNote = !!store.active.layout.notes[key]
+  const notesMenu: MenuItem[] = [
+    { label: 'New Note', onClick: () => setUi({ noteEditor: { r: active.r, c: active.c } }) },
+    { label: 'Edit Note', disabled: !hasNote, onClick: () => setUi({ noteEditor: { r: active.r, c: active.c } }) },
+    'separator',
+    { label: 'Previous Note', onClick: () => cmds.previousNote() },
+    { label: 'Next Note', onClick: () => cmds.nextNote() },
+    { label: 'Show/Hide Note', disabled: !hasNote, onClick: () => setUi({ noteEditor: { r: active.r, c: active.c } }) },
+    { label: 'Show All Notes', disabled: !Object.keys(store.active.layout.notes).length, onClick: () => cmds.nextNote() },
+    'separator',
+    { label: 'Convert to Comments', disabled: !Object.keys(store.active.layout.notes).length, onClick: () => store.convertNotesToComments() }
+  ]
   const groups: GGroup[] = [
     { label: 'Proofing', big: [
       { label: 'Spelling', icon: <TextGrammarWand20Regular fontSize={28} />, shortcut: 'F7' },
@@ -191,13 +221,13 @@ export function ReviewTab() {
     { label: 'Insights', big: [{ label: 'Smart Lookup', icon: <Sparkle20Regular fontSize={28} /> }] },
     { label: 'Language', big: [{ label: 'Translate', icon: <TranslateAuto20Regular fontSize={28} /> }] },
     { label: 'Comments', big: [
-      { label: 'New Comment', icon: <CommentAdd20Regular fontSize={28} /> },
-      { label: 'Delete', icon: <CommentMultiple20Regular fontSize={28} /> },
-      { label: 'Previous', icon: <CommentMultiple20Regular fontSize={28} /> },
-      { label: 'Next', icon: <CommentMultiple20Regular fontSize={28} /> },
-      { label: 'Show Comments', icon: <CommentMultiple20Regular fontSize={28} /> }
+      { label: 'New Comment', icon: <CommentAdd20Regular fontSize={28} />, onClick: () => setUi({ commentPanel: { r: active.r, c: active.c } }) },
+      { label: 'Delete', icon: <CommentMultiple20Regular fontSize={28} />, disabled: !hasComment, onClick: () => store.deleteComment(store.active, active.r, active.c) },
+      { label: 'Previous', icon: <CommentMultiple20Regular fontSize={28} />, onClick: () => cmds.previousComment() },
+      { label: 'Next', icon: <CommentMultiple20Regular fontSize={28} />, onClick: () => cmds.nextComment() },
+      { label: 'Show Comments', icon: <CommentMultiple20Regular fontSize={28} />, onClick: () => setUi({ commentPanel: { r: active.r, c: active.c } }) }
     ] },
-    { label: 'Notes', big: [{ label: 'Notes', icon: <Note20Regular fontSize={28} /> }] },
+    { label: 'Notes', big: [{ label: 'Notes', icon: <Note20Regular fontSize={28} />, menu: notesMenu, onClick: () => setUi({ noteEditor: { r: active.r, c: active.c } }) }] },
     { label: 'Protect', big: [
       { label: 'Protect Sheet', icon: <LockClosed20Regular fontSize={28} /> },
       { label: 'Protect Workbook', icon: <LockClosed20Regular fontSize={28} /> },

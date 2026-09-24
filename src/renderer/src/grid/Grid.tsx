@@ -13,6 +13,8 @@ import { Menu, MenuItem, useMenu } from '../components/Menu'
 import { Dialog } from '../components/Dialog'
 import * as cmd from './commands'
 import { shiftFormula } from '../engine/shiftFormula'
+import { AutoFilterMenu } from './AutoFilterMenu'
+import { NoteBox, NoteTooltip, CommentBox, closeNoteEditor, closeCommentPanel } from './Annotations'
 import {
   Cut20Regular, Copy20Regular, ClipboardPaste20Regular, ClipboardTaskRegular, ClipboardCodeRegular,
   ClipboardLink20Regular, ArrowSwap20Regular, PaintBrush20Regular, Delete20Regular, Eraser20Regular,
@@ -70,6 +72,8 @@ export default function Grid() {
   const [ctxMenu, openCtxMenu, closeCtxMenu] = useMenu()
   const [ctxMenuKind, setCtxMenuKind] = useState<'cell' | 'col' | 'row'>('cell')
   const [resizeTip, setResizeTip] = useState<{ x: number; y: number; text: string } | null>(null)
+  const [filterMenu, setFilterMenu] = useState<{ col: number; x: number; y: number } | null>(null)
+  const [hoverCell, setHoverCell] = useState<CellRef | null>(null)
   // Excel's Enter-after-Tab: while chaining Tab across cells in a single-cell selection, Enter
   // commits and moves down to the row below, but back to the column where the Tab-run started.
   const tabAnchorCol = useRef<number | null>(null)
@@ -173,6 +177,24 @@ export default function Grid() {
     const w = colsAxis.totalSize(m.c2 + 1) * z - colsAxis.totalSize(m.c1) * z
     const h = rowsAxis.totalSize(m.r2 + 1) * z - rowsAxis.totalSize(m.r1) * z
     return { x, y, w, h }
+  }
+
+  /** Column index whose AutoFilter dropdown arrow (r,c) = (autoFilter.range.r1, c) is at (x,y), if any. */
+  function filterArrowAt(x: number, y: number): number | null {
+    const af = sheet.layout.autoFilter
+    if (!af) return null
+    const r = af.range.r1
+    const ry = cellScreenY(r)
+    const rh = rowsAxis.size(r) * z
+    if (y < ry || y > ry + rh) return null
+    for (let c = af.range.c1; c <= af.range.c2; c++) {
+      const cx = cellScreenX(c)
+      const cw = colsAxis.size(c) * z
+      if (cw <= 0) continue
+      const boxW = Math.min(16, cw)
+      if (x >= cx + cw - boxW && x <= cx + cw) return c
+    }
+    return null
   }
 
   function visibleCols(fromCol: number, untilCol: number, scrollPx: number, originX: number, availW: number): { c: number; x: number; w: number }[] {
@@ -410,6 +432,57 @@ export default function Grid() {
     }
     ctx.restore()
 
+    // ---------- AutoFilter dropdown arrows ----------
+    const af = sheet.layout.autoFilter
+    if (af) {
+      const hr = af.range.r1
+      const ry = cellScreenY(hr)
+      const rh = rowsAxis.size(hr) * z
+      if (rh > 0 && ry < size.h && ry + rh > headerH) {
+        ctx.save()
+        ctx.beginPath(); ctx.rect(rowHeaderW, headerH, size.w - rowHeaderW, size.h - headerH); ctx.clip()
+        for (let c = af.range.c1; c <= af.range.c2; c++) {
+          const cx = cellScreenX(c)
+          const cw = colsAxis.size(c) * z
+          if (cw <= 0 || cx > size.w || cx + cw < rowHeaderW) continue
+          const boxW = Math.min(16, cw)
+          const bx = cx + cw - boxW
+          ctx.fillStyle = '#eaeaea'
+          ctx.fillRect(bx, ry + 1, boxW - 1, rh - 2)
+          ctx.strokeStyle = '#adadad'
+          ctx.strokeRect(bx + 0.5, ry + 1.5, boxW - 2, rh - 3)
+          const filtered = !!af.columns[c]
+          ctx.fillStyle = filtered ? '#107c41' : '#616161'
+          const mx = bx + boxW / 2, my = ry + rh / 2
+          ctx.beginPath()
+          ctx.moveTo(mx - 4, my - 2); ctx.lineTo(mx + 4, my - 2); ctx.lineTo(mx, my + 3)
+          ctx.closePath(); ctx.fill()
+        }
+        ctx.restore()
+      }
+    }
+
+    // ---------- note & comment indicators ----------
+    if (Object.keys(sheet.layout.notes).length || Object.keys(sheet.layout.comments).length) {
+      ctx.save()
+      ctx.beginPath(); ctx.rect(rowHeaderW, headerH, size.w - rowHeaderW, size.h - headerH); ctx.clip()
+      const drawCorner = (key: string, color: string) => {
+        const [rr, cc] = key.split(',').map(Number)
+        const rc = cellRect(rr, cc)
+        if (rc.x + rc.w < rowHeaderW || rc.x > size.w || rc.y + rc.h < headerH || rc.y > size.h) return
+        ctx.fillStyle = color
+        ctx.beginPath()
+        ctx.moveTo(rc.x + rc.w - 6, rc.y)
+        ctx.lineTo(rc.x + rc.w, rc.y)
+        ctx.lineTo(rc.x + rc.w, rc.y + 6)
+        ctx.closePath()
+        ctx.fill()
+      }
+      Object.keys(sheet.layout.notes).forEach((k) => drawCorner(k, '#c00000'))
+      Object.keys(sheet.layout.comments).forEach((k) => drawCorner(k, '#7719aa'))
+      ctx.restore()
+    }
+
     // ---------- headers ----------
     ctx.save()
     ctx.beginPath(); ctx.rect(0, 0, size.w, size.h); ctx.clip()
@@ -441,16 +514,18 @@ export default function Grid() {
       drawColHeaders(frozen.cols, extent.cols, scroll.x, rowHeaderW + frozenW, size.w - rowHeaderW - frozenW)
       if (frozen.cols > 0) drawColHeaders(0, frozen.cols, 0, rowHeaderW, frozenW)
 
+      const filterActive = !!af && af.filteredOutRows.length > 0
       const drawRowHeaders = (fromR: number, untilR: number, sy: number, oy: number, ah: number) => {
         const rows = visibleRows(fromR, untilR, sy, oy, ah)
         for (const { r, y, h } of rows) {
           const isSel = selectedRows.has(r) && !wholeRowSel
+          const isFilteredRow = filterActive && af!.range && r > af!.range.r1 && r <= af!.range.r2 && !sheet.layout.hiddenRows[r]
           ctx.fillStyle = isSel ? '#d3f0e0' : '#f5f5f5'
           ctx.fillRect(0, y, rowHeaderW, h)
           ctx.strokeStyle = '#d4d4d4'
           ctx.beginPath(); ctx.moveTo(0, y + h - 0.5); ctx.lineTo(rowHeaderW, y + h - 0.5); ctx.stroke()
           ctx.font = `${isSel ? '600 ' : ''}${Math.round(11 * z)}px "Segoe UI", sans-serif`
-          ctx.fillStyle = isSel ? '#107c41' : '#616161'
+          ctx.fillStyle = isSel ? '#107c41' : isFilteredRow ? '#1a73c9' : '#616161'
           ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
           ctx.fillText(String(r + 1), rowHeaderW / 2, y + h / 2 + 1)
           if (isSel) { ctx.strokeStyle = '#107c41'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(rowHeaderW - 1, y); ctx.lineTo(rowHeaderW - 1, y + h); ctx.stroke() }
@@ -678,6 +753,17 @@ export default function Grid() {
       window.addEventListener('mousemove', onFillDrag)
       window.addEventListener('mouseup', onFillUp)
       return
+    }
+
+    // AutoFilter dropdown arrow
+    if (x >= rowHeaderW && y >= headerH) {
+      const fc = filterArrowAt(x, y)
+      if (fc !== null) {
+        if (getUi().edit) commitEdit()
+        const af = sheet.layout.autoFilter!
+        setFilterMenu({ col: fc, x: cellScreenX(fc), y: cellScreenY(af.range.r1) + rowsAxis.size(af.range.r1) * z })
+        return
+      }
     }
 
     // committed pending edit if clicking elsewhere without point mode
@@ -916,6 +1002,14 @@ export default function Grid() {
     beginEdit(r, c, 'Edit')
   }
 
+  function onHostMouseMove(e: React.MouseEvent): void {
+    const rect = hostRef.current!.getBoundingClientRect()
+    const x = e.clientX - rect.left, y = e.clientY - rect.top
+    if (y < headerH || x < rowHeaderW) { if (hoverCell) setHoverCell(null); return }
+    const { r, c } = cellAt(x, y)
+    if (!hoverCell || hoverCell.r !== r || hoverCell.c !== c) setHoverCell({ r, c })
+  }
+
   function autofitOneCol(c: number): void {
     const used2 = store.usedRange(sheet)
     let max = 40
@@ -963,6 +1057,7 @@ export default function Grid() {
       if (mod && e.key.toLowerCase() === 'a') { cmd.selectAll(); e.preventDefault(); return }
       if (mod && e.key === ' ') { const cur = sheet.selection; const rg = cur.ranges[cur.ranges.length - 1]; setSel([{ r1: 0, c1: rg.c1, r2: MAX_ROWS - 1, c2: rg.c2 }], cur.active); e.preventDefault(); return }
       if (e.shiftKey && e.key === ' ') { const cur = sheet.selection; const rg = cur.ranges[cur.ranges.length - 1]; setSel([{ r1: rg.r1, c1: 0, r2: rg.r2, c2: MAX_COLS - 1 }], cur.active); e.preventDefault(); return }
+      if (mod && e.shiftKey && e.key.toLowerCase() === 'l') { store.toggleAutoFilter(sheet); e.preventDefault(); return }
       if (mod && e.key.toLowerCase() === 'z') { store.undo(); e.preventDefault(); return }
       if (mod && e.key.toLowerCase() === 'y') { store.redo(); e.preventDefault(); return }
       if (mod && e.key.toLowerCase() === 'c') { cmd.copy(); e.preventDefault(); return }
@@ -1162,6 +1257,9 @@ export default function Grid() {
     )
   }
 
+  const activeKey = sheet.selection.active.r + ',' + sheet.selection.active.c
+  const hasNote = !!sheet.layout.notes[activeKey]
+  const hasComment = !!sheet.layout.comments[activeKey]
   const cellMenu: MenuItem[] = [
     { label: 'Cu&t', icon: <Cut20Regular />, shortcut: 'Ctrl+X', onClick: () => cmd.cut() },
     { label: '&Copy', icon: <Copy20Regular />, shortcut: 'Ctrl+C', onClick: () => cmd.copy() },
@@ -1176,12 +1274,29 @@ export default function Grid() {
     { label: '&Translate', icon: <Translate20Regular /> },
     { label: '&Quick Analysis', icon: <SquareHintSparkles20Regular /> },
     'separator',
-    { label: 'Filt&er', icon: <Filter20Regular />, submenu: [{ label: 'Filter by Selected Cell\'s Value' }, { label: 'Clear Filter' }] },
+    {
+      label: 'Filt&er', icon: <Filter20Regular />, submenu: [
+        {
+          label: "Filter by Selected Cell's Value",
+          onClick: () => {
+            const { r, c } = sheet.selection.active
+            if (!sheet.layout.autoFilter) store.toggleAutoFilter(sheet)
+            if (sheet.layout.autoFilter) store.setColumnFilter(sheet, c, { selected: [store.getDisplay(sheet, r, c).text] })
+          }
+        },
+        { label: 'Clear Filter', onClick: () => store.clearAllFilters(sheet), disabled: !sheet.layout.autoFilter }
+      ]
+    },
     { label: 'S&ort', icon: <ArrowSort20Regular />, submenu: [{ label: 'Smallest to Largest', onClick: () => cmd.sortSelection('asc') }, { label: 'Largest to Smallest', onClick: () => cmd.sortSelection('desc') }] },
     'separator',
     { label: 'Get Data from Table/Range...' },
-    { label: 'New Co&mment', icon: <Comment20Regular /> },
-    { label: 'New N&ote', icon: <Note20Regular /> },
+    hasComment
+      ? { label: '&Edit Comment', icon: <Comment20Regular />, onClick: () => setUi({ commentPanel: { r: sheet.selection.active.r, c: sheet.selection.active.c } }) }
+      : { label: 'New Co&mment', icon: <Comment20Regular />, onClick: () => setUi({ commentPanel: { r: sheet.selection.active.r, c: sheet.selection.active.c } }) },
+    hasNote
+      ? { label: '&Edit Note', icon: <Note20Regular />, onClick: () => setUi({ noteEditor: { r: sheet.selection.active.r, c: sheet.selection.active.c } }) }
+      : { label: 'New N&ote', icon: <Note20Regular />, onClick: () => setUi({ noteEditor: { r: sheet.selection.active.r, c: sheet.selection.active.c } }) },
+    ...(hasNote ? [{ label: '&Delete Note', icon: <Delete20Regular />, onClick: () => store.deleteNote(sheet, sheet.selection.active.r, sheet.selection.active.c) } as MenuItem] : []),
     'separator',
     { label: '&Format Cells...', icon: <TableCellEdit20Regular />, onClick: () => setUi({ dialog: { kind: 'formatCells' } }) },
     { label: 'Pic&k From Drop-down List...' },
@@ -1228,6 +1343,8 @@ export default function Grid() {
       ref={hostRef}
       tabIndex={0}
       onMouseDown={onMouseDown}
+      onMouseMove={onHostMouseMove}
+      onMouseLeave={() => setHoverCell(null)}
       onDoubleClick={onDoubleClick}
       onContextMenu={onContextMenu}
       onKeyDown={onKeyDown}
@@ -1259,6 +1376,19 @@ export default function Grid() {
           header={ctxMenuKind === 'cell' ? miniToolbar() : undefined}
         />
       )}
+      {filterMenu && sheet.layout.autoFilter && (
+        <AutoFilterMenu sheet={sheet} col={filterMenu.col} x={filterMenu.x} y={filterMenu.y} onClose={() => setFilterMenu(null)} />
+      )}
+      {ui.noteEditor && (
+        <NoteBox sheet={sheet} r={ui.noteEditor.r} c={ui.noteEditor.c} rect={cellRect(ui.noteEditor.r, ui.noteEditor.c)} onClose={closeNoteEditor} />
+      )}
+      {ui.commentPanel && (
+        <CommentBox sheet={sheet} r={ui.commentPanel.r} c={ui.commentPanel.c} rect={cellRect(ui.commentPanel.r, ui.commentPanel.c)} onClose={closeCommentPanel} />
+      )}
+      {hoverCell && !ui.edit && !ui.noteEditor && !filterMenu &&
+        sheet.layout.notes[hoverCell.r + ',' + hoverCell.c] && (
+          <NoteTooltip sheet={sheet} r={hoverCell.r} c={hoverCell.c} rect={cellRect(hoverCell.r, hoverCell.c)} />
+        )}
       <GridDialogs sheet={sheet} />
     </div>
   )

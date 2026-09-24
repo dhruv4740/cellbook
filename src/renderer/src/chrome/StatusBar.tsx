@@ -36,6 +36,9 @@ export default function StatusBar() {
   }
   const showStats = count >= 2 && numCount >= 1
 
+  const af = sheet.layout.autoFilter
+  const recordsText = af ? `${af.range.r2 - af.range.r1 - af.filteredOutRows.length} of ${af.range.r2 - af.range.r1} records found` : null
+
   const zoom = sheet.layout.zoom
   const setZoom = (z: number) => store.updateLayout(sheet, 'Zoom', (l) => (l.zoom = Math.max(10, Math.min(400, Math.round(z)))))
 
@@ -78,6 +81,7 @@ export default function StatusBar() {
     <div className="xl-statusbar" onContextMenu={(e) => { e.preventDefault(); openMenu(e) }}>
       <div className="xl-status-left">
         <span className="xl-status-mode">{store.mode}</span>
+        {recordsText && <span className="xl-status-records">{recordsText}</span>}
         <span className="xl-status-a11y"><CheckmarkCircle20Regular fontSize={14} /> Accessibility: Good to go</span>
         {showStats && (
           <span className="xl-status-stats">

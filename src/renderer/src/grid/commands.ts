@@ -491,6 +491,32 @@ export function freezePanes(kind: 'panes' | 'topRow' | 'firstColumn' | 'unfreeze
   })
 }
 
+// ---------- notes / comments navigation ----------
+function keyToRC(key: string): { r: number; c: number } {
+  const [r, c] = key.split(',').map(Number)
+  return { r, c }
+}
+function sortedKeys(map: Record<string, unknown>): { r: number; c: number }[] {
+  return Object.keys(map).map(keyToRC).sort((a, b) => a.r - b.r || a.c - b.c)
+}
+/** Selects and opens the previous/next note or comment (by reading order) relative to the active cell. */
+function stepAnnotation(map: Record<string, unknown>, dir: 1 | -1, open: (r: number, c: number) => void): void {
+  const keys = sortedKeys(map)
+  if (!keys.length) return
+  const active = store.active.selection.active
+  let idx = keys.findIndex((k) => k.r === active.r && k.c === active.c)
+  if (idx === -1) idx = keys.findIndex((k) => k.r > active.r || (k.r === active.r && k.c > active.c))
+  if (idx === -1) idx = dir === 1 ? 0 : keys.length - 1
+  else idx = (idx + dir + keys.length) % keys.length
+  const { r, c } = keys[idx]
+  store.setSelection({ ranges: [{ r1: r, c1: c, r2: r, c2: c }], active: { r, c } })
+  open(r, c)
+}
+export function previousNote(): void { stepAnnotation(store.active.layout.notes, -1, (r, c) => setUi({ noteEditor: { r, c } })) }
+export function nextNote(): void { stepAnnotation(store.active.layout.notes, 1, (r, c) => setUi({ noteEditor: { r, c } })) }
+export function previousComment(): void { stepAnnotation(store.active.layout.comments, -1, (r, c) => setUi({ commentPanel: { r, c } })) }
+export function nextComment(): void { stepAnnotation(store.active.layout.comments, 1, (r, c) => setUi({ commentPanel: { r, c } })) }
+
 // ---------- merge ----------
 export function mergeCells(kind: 'center' | 'across' | 'merge' | 'unmerge'): void {
   const sheet = store.active

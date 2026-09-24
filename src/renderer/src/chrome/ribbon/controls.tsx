@@ -1,5 +1,6 @@
 // Generic ribbon building blocks: big/small buttons, split buttons, combo boxes, galleries.
-import { ReactNode, useState, useRef, useEffect, CSSProperties } from 'react'
+import { ReactNode, useState, useRef, useEffect, useLayoutEffect, useContext, createContext, CSSProperties, RefObject } from 'react'
+import { createPortal } from 'react-dom'
 import { Menu, MenuItem } from '../../components/Menu'
 import { ChevronDown12Regular } from '@fluentui/react-icons'
 
@@ -170,11 +171,145 @@ export function DialogLauncher({ tip, onClick }: { tip: Tip; onClick: () => void
   )
 }
 
-export function Group({ label, children, style }: { label: string; children: ReactNode; style?: CSSProperties }) {
-  return (
-    <div className="xl-group" style={style}>
+/* ---- Adaptive ribbon scaling ------------------------------------------------------------
+ * Real Excel reduces groups right-to-left as the window narrows, eventually collapsing a
+ * group into a single button (icon + name + chevron) that opens the group at full size in a
+ * popup. RibbonScaleProvider measures each Group's natural width via an off-screen clone and,
+ * given the available width, decides (right-to-left, since later-registered = further right)
+ * which groups must collapse to fit. */
+interface ScaleApi {
+  collapsed: Set<string>
+  report: (label: string, width: number) => void
+}
+const ScaleContext = createContext<ScaleApi | null>(null)
+
+const GROUP_SEP_WIDTH = 3
+const COLLAPSED_GROUP_WIDTH = 66
+
+export function RibbonScaleProvider({ containerRef, children }: { containerRef: RefObject<HTMLDivElement | null>; children: ReactNode }) {
+  const widthsRef = useRef<Map<string, number>>(new Map())
+  const orderRef = useRef<string[]>([])
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+  const [, bump] = useState(0)
+
+  const report = (label: string, width: number) => {
+    if (!orderRef.current.includes(label)) orderRef.current.push(label)
+    if (widthsRef.current.get(label) !== width) {
+      widthsRef.current.set(label, width)
+      bump((n) => n + 1)
+    }
+  }
+
+  const recompute = () => {
+    const el = containerRef.current
+    if (!el) return
+    const avail = el.clientWidth
+    if (!avail) return
+    const labels = orderRef.current
+    let total = 0
+    for (const l of labels) total += (widthsRef.current.get(l) ?? 0) + GROUP_SEP_WIDTH
+    const next = new Set<string>()
+    for (let i = labels.length - 1; i >= 0 && total > avail; i--) {
+      const l = labels[i]
+      const full = widthsRef.current.get(l) ?? 0
+      if (full <= COLLAPSED_GROUP_WIDTH) continue
+      total -= full - COLLAPSED_GROUP_WIDTH
+      next.add(l)
+    }
+    setCollapsed((prev) => (prev.size === next.size && [...prev].every((l) => next.has(l)) ? prev : next))
+  }
+
+  useLayoutEffect(() => { recompute() })
+
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(() => recompute())
+    ro.observe(el)
+    return () => ro.disconnect()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  return <ScaleContext.Provider value={{ collapsed, report }}>{children}</ScaleContext.Provider>
+}
+
+/** Portal panel anchored under a collapsed group's button, showing that group at full size. */
+function GroupPopup({ anchor, onClose, children }: { anchor: HTMLElement | null; onClose: () => void; children: ReactNode }) {
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useLayoutEffect(() => {
+    if (!anchor) return
+    const r = anchor.getBoundingClientRect()
+    setPos({ x: r.left, y: r.bottom + 1 })
+  }, [anchor])
+
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as HTMLElement
+      if (ref.current?.contains(t) || anchor?.contains(t)) return
+      onClose()
+    }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('mousedown', onDown)
+    window.addEventListener('keydown', onKey)
+    return () => { window.removeEventListener('mousedown', onDown); window.removeEventListener('keydown', onKey) }
+  }, [anchor, onClose])
+
+  // Clicking a leaf command (a plain button, not one that itself opens a submenu/caret) closes
+  // the popup after the click is handled; clicking a dropdown caret keeps it open.
+  const onClickCapture = (e: { target: EventTarget | null }) => {
+    const t = e.target as HTMLElement
+    if (t.closest('[class*="caret"]')) return
+    if (t.closest('button, .xl-combo-item')) onClose()
+  }
+
+  if (!pos) return null
+  return createPortal(
+    <div ref={ref} className="xl-group-popup" style={{ left: pos.x, top: pos.y }} onMouseDown={(e) => e.stopPropagation()} onClickCapture={onClickCapture}>
+      {children}
+    </div>,
+    document.body
+  )
+}
+
+export function Group({ label, children, style, icon }: { label: string; children: ReactNode; style?: CSSProperties; icon?: ReactNode }) {
+  const scale = useContext(ScaleContext)
+  const measureRef = useRef<HTMLDivElement>(null)
+  const anchorRef = useRef<HTMLButtonElement>(null)
+  const [open, setOpen] = useState(false)
+  const collapsed = scale?.collapsed.has(label) ?? false
+
+  useLayoutEffect(() => {
+    if (!scale || !measureRef.current) return
+    scale.report(label, measureRef.current.getBoundingClientRect().width)
+  })
+
+  const body = (
+    <>
       <div className="xl-group-body">{children}</div>
       <div className="xl-group-label">{label}</div>
+    </>
+  )
+
+  return (
+    <div className="xl-group" style={style}>
+      {scale && (
+        <div ref={measureRef} className="xl-group xl-group-measure" aria-hidden="true">
+          {body}
+        </div>
+      )}
+      {collapsed ? (
+        <button ref={anchorRef} className={'xl-group-collapsed' + (open ? ' active' : '')} onClick={() => setOpen((o) => !o)}>
+          <span className="xl-big-icon">{icon}</span>
+          <span className="xl-big-label">{label}<ChevronDown12Regular className="xl-drop-caret" /></span>
+        </button>
+      ) : body}
+      {collapsed && open && (
+        <GroupPopup anchor={anchorRef.current} onClose={() => setOpen(false)}>
+          <div className="xl-group">{body}</div>
+        </GroupPopup>
+      )}
     </div>
   )
 }

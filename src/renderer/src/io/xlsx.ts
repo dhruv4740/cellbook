@@ -1,8 +1,9 @@
 // XLSX read/write via exceljs, mapping to/from the app's WorkbookData model.
 import { shiftFormula } from '../engine/shiftFormula'
 import ExcelJS from 'exceljs'
-import type { CellStyle, BorderLineStyle, BorderSide, SheetLayout, Range } from '../model/types'
+import type { CellStyle, BorderLineStyle, BorderSide, SheetLayout, Range, NoteData } from '../model/types'
 import { DEFAULT_ROW_HEIGHT } from '../model/types'
+import { DEFAULT_AUTHOR } from '../model/store'
 import type { WorkbookData } from '../model/store'
 import { defaultLayout } from '../model/store'
 
@@ -212,12 +213,15 @@ export async function readXlsx(data: Uint8Array): Promise<WorkbookData> {
   const sheets: WorkbookData['sheets'] = []
   wb.eachSheet((ws) => {
     const cells: WorkbookData['sheets'][number]['cells'] = {}
+    const notes: Record<string, NoteData> = {}
     ws.eachRow({ includeEmpty: true }, (row, rowNum) => {
       row.eachCell({ includeEmpty: true }, (cell, colNum) => {
         const r = rowNum - 1
         const c = colNum - 1
         const key = r + ',' + c
         const style = readStyle(cell)
+        const noteVal = cell.note as string | ExcelJS.Comment | undefined
+        if (noteVal) notes[key] = readNote(noteVal)
         let raw: string | undefined
         const v = cell.value
         if (v === null || v === undefined) raw = undefined
@@ -287,6 +291,21 @@ export async function readXlsx(data: Uint8Array): Promise<WorkbookData> {
       if (rg) merges.push(rg)
     }
     layout.merges = merges
+    layout.notes = notes
+    layout.comments = {}
+
+    // AutoFilter: exceljs only round-trips the filtered range, not per-column criteria, so a
+    // reopened file shows the dropdown arrows again but with every value re-checked. Any rows the
+    // criteria had hidden stay hidden (via hiddenRows, read above) until Reapply/Clear is used.
+    const af = ws.autoFilter as ExcelJS.AutoFilter | undefined
+    if (af && typeof af === 'object') {
+      const from = typeof af.from === 'object' ? af.from : parseA1CellRef(af.from)
+      const to = typeof af.to === 'object' ? af.to : parseA1CellRef(af.to)
+      if (from && to) {
+        const range: Range = { r1: from.row - 1, c1: from.column - 1, r2: to.row - 1, c2: to.column - 1 }
+        layout.autoFilter = { range, columns: {}, filteredOutRows: Object.keys(hiddenRows).map(Number).filter((r) => r > range.r1 && r <= range.r2) }
+      }
+    }
 
     // frozen panes
     const view = ws.views && ws.views[0]

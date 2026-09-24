@@ -3,15 +3,20 @@ import { useEffect, useRef, useState } from 'react'
 import { useUi, setUi } from './ui'
 import HomeTab from './ribbon/HomeTab'
 import { InsertTab, PageLayoutTab, FormulasTab, DataTab, ReviewTab, ViewTab, AutomateTab, HelpTab } from './ribbon/OtherTabs'
+import { RibbonScaleProvider } from './ribbon/controls'
+import { ChartDesignTab, ChartFormatTab } from '../charts/ChartRibbonTabs'
 import { ChevronUp20Regular, ChevronDown20Regular, CommentAdd20Regular, Share20Regular } from '@fluentui/react-icons'
 import './Ribbon.css'
 
 const TABS = ['File', 'Home', 'Insert', 'Page Layout', 'Formulas', 'Data', 'Review', 'View', 'Automate', 'Help']
+// Contextual tabs (Chart Tools), shown only while a chart is selected.
+const CHART_TABS = ['Chart Design', 'Format']
 
 export default function Ribbon() {
   const ui = useUi()
   const [displayMenu, setDisplayMenu] = useState(false)
   const lastClick = useRef(0)
+  const groupsRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
@@ -20,6 +25,11 @@ export default function Ribbon() {
     window.addEventListener('keydown', key)
     return () => window.removeEventListener('keydown', key)
   }, [ui.ribbonCollapsed])
+
+  // Fall back to Home once the chart is deselected and a chart-only tab was active.
+  useEffect(() => {
+    if (!ui.selectedChart && CHART_TABS.includes(ui.ribbonTab)) setUi({ ribbonTab: 'Home' })
+  }, [ui.selectedChart, ui.ribbonTab])
 
   const selectTab = (t: string) => {
     if (t === 'File') { setUi({ backstage: true }); return }
@@ -42,6 +52,16 @@ export default function Ribbon() {
               {t}
             </div>
           ))}
+          {ui.selectedChart && CHART_TABS.map((t) => (
+            <div
+              key={t}
+              className={'xl-tab' + (ui.ribbonTab === t && !ui.backstage ? ' active' : '')}
+              style={{ color: '#217346', fontWeight: 600 }}
+              onClick={() => selectTab(t)}
+            >
+              {t}
+            </div>
+          ))}
         </div>
         <div className="xl-tabstrip-right">
           <button className="xl-tab-action" title="Comments"><CommentAdd20Regular /><span>Comments</span></button>
@@ -50,16 +70,20 @@ export default function Ribbon() {
       </div>
       {!ui.ribbonCollapsed && (
         <div className="xl-ribbon-body">
-          <div className="xl-ribbon-groups">
-            {ui.ribbonTab === 'Home' && <HomeTab />}
-            {ui.ribbonTab === 'Insert' && <InsertTab />}
-            {ui.ribbonTab === 'Page Layout' && <PageLayoutTab />}
-            {ui.ribbonTab === 'Formulas' && <FormulasTab />}
-            {ui.ribbonTab === 'Data' && <DataTab />}
-            {ui.ribbonTab === 'Review' && <ReviewTab />}
-            {ui.ribbonTab === 'View' && <ViewTab />}
-            {ui.ribbonTab === 'Automate' && <AutomateTab />}
-            {ui.ribbonTab === 'Help' && <HelpTab />}
+          <div className="xl-ribbon-groups" ref={groupsRef}>
+            <RibbonScaleProvider key={ui.ribbonTab} containerRef={groupsRef}>
+              {ui.ribbonTab === 'Home' && <HomeTab />}
+              {ui.ribbonTab === 'Insert' && <InsertTab />}
+              {ui.ribbonTab === 'Page Layout' && <PageLayoutTab />}
+              {ui.ribbonTab === 'Formulas' && <FormulasTab />}
+              {ui.ribbonTab === 'Data' && <DataTab />}
+              {ui.ribbonTab === 'Review' && <ReviewTab />}
+              {ui.ribbonTab === 'View' && <ViewTab />}
+              {ui.ribbonTab === 'Automate' && <AutomateTab />}
+              {ui.ribbonTab === 'Help' && <HelpTab />}
+              {ui.ribbonTab === 'Chart Design' && <ChartDesignTab />}
+              {ui.ribbonTab === 'Format' && ui.selectedChart && <ChartFormatTab />}
+            </RibbonScaleProvider>
           </div>
           <div className="xl-ribbon-collapse">
             <button

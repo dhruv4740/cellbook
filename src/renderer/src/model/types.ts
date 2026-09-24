@@ -47,6 +47,41 @@ export interface Selection {
   active: CellRef // the white cell inside the selection
 }
 
+/** One column's checked-values criteria within an AutoFilter. `selected` lists the display
+ *  values (as text) whose rows stay visible; the sentinel BLANK_TOKEN (engine/filter.ts) stands
+ *  for empty cells. Columns with no entry here are unfiltered. */
+export interface FilterCriteria {
+  selected: string[]
+}
+
+export interface AutoFilter {
+  range: Range // includes the header row at range.r1
+  columns: Record<number, FilterCriteria> // key: absolute column index
+  /** Rows currently hidden by this filter (recomputed on every criteria change), so toggling the
+   *  filter off only unhides rows the filter itself hid, not ones hidden by Home > Hide Rows. */
+  filteredOutRows: number[]
+}
+
+export interface NoteData {
+  text: string
+  author: string
+}
+
+export interface CommentReply {
+  id: string
+  author: string
+  text: string
+  time: string // ISO
+}
+
+export interface CommentThread {
+  author: string
+  text: string
+  time: string // ISO
+  resolved?: boolean
+  replies: CommentReply[]
+}
+
 export interface SheetLayout {
   colWidths: Record<number, number> // px, default DEFAULT_COL_WIDTH
   rowHeights: Record<number, number> // px, default DEFAULT_ROW_HEIGHT
@@ -58,6 +93,63 @@ export interface SheetLayout {
   showHeadings: boolean
   zoom: number // 10..400 percent
   tabColor?: string
+  autoFilter?: AutoFilter
+  notes: Record<string, NoteData> // key 'r,c'
+  comments: Record<string, CommentThread> // key 'r,c'
+  /** Floating chart objects on this sheet. Optional so existing layouts still typecheck. */
+  charts?: ChartSpec[]
+}
+
+// ---------- Charts ----------
+export type ChartType = 'bar' | 'line' | 'pie' | 'scatter'
+export type ChartSubtype =
+  | 'clusteredColumn' | 'stackedColumn' | 'percentStackedColumn'
+  | 'clusteredBar' | 'stackedBar' | 'percentStackedBar'
+  | 'line' | 'stackedLine' | 'lineMarkers'
+  | 'area' | 'stackedArea'
+  | 'pie' | 'doughnut'
+  | 'scatter' | 'scatterSmooth'
+
+export type LegendPosition = 'right' | 'top' | 'bottom' | 'left' | 'none'
+
+export interface ChartElementsVisible {
+  title: boolean
+  legend: boolean
+  gridlines: boolean
+  dataLabels: boolean
+  axes: boolean
+  axisTitles: boolean
+}
+
+/** Anchors the chart's top-left corner to a cell, offset by pixels within that cell (at 100% zoom). */
+export interface ChartAnchor {
+  r: number
+  c: number
+  dx: number
+  dy: number
+}
+
+export interface ChartSpec {
+  id: string
+  type: ChartType
+  subtype: ChartSubtype
+  /** Source range the chart plots (Excel's "current region" when inserted, or an explicit Select Data range). */
+  dataRange: Range
+  /** true: each column of dataRange is a series (categories run down rows). false: each row is a series. */
+  seriesInColumns: boolean
+  title: string
+  anchor: ChartAnchor
+  width: number // px at 100% zoom
+  height: number
+  legendPosition: LegendPosition
+  axisTitles?: { x?: string; y?: string }
+  elements: ChartElementsVisible
+  /** Index into the Change Colors gallery (theme color rotation variants). */
+  colorSetId?: number
+  /** Index into the Chart Styles gallery. */
+  styleId?: number
+  /** Series indices hidden via the Chart Filters funnel (Select Data still lists them). */
+  hiddenSeriesIdx?: number[]
 }
 
 export type CellValue = number | string | boolean | null | CellError
