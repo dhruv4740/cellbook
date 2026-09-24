@@ -257,11 +257,16 @@ function GroupPopup({ anchor, onClose, children }: { anchor: HTMLElement | null;
   }, [anchor, onClose])
 
   // Clicking a leaf command (a plain button, not one that itself opens a submenu/caret) closes
-  // the popup after the click is handled; clicking a dropdown caret keeps it open.
+  // the popup after the click is handled; clicking a dropdown caret, or a button that is itself
+  // nothing but a dropdown trigger (e.g. Insert > Charts' gallery buttons), keeps it open so its
+  // own menu can appear instead of being unmounted along with the popup.
   const onClickCapture = (e: { target: EventTarget | null }) => {
     const t = e.target as HTMLElement
     if (t.closest('[class*="caret"]')) return
-    if (t.closest('button, .xl-combo-item')) onClose()
+    const btn = t.closest('button, .xl-combo-item') as HTMLElement | null
+    if (!btn) return
+    if (btn.querySelector('[class*="caret"]')) return
+    onClose()
   }
 
   if (!pos) return null

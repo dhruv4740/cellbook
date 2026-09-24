@@ -72,6 +72,20 @@ describe('extractChartData', () => {
     const data = extractChartData(cells, { r1: 0, c1: 0, r2: 1, c2: 2 }, true)
     expect(data.categories).toEqual(['1', '2'])
   })
+
+  it('detects a single-column header next to row labels (common two-column pie data)', () => {
+    // Only one header cell ("Share") sits to the right of the corner — still a real header row,
+    // even though it alone wouldn't satisfy a "row is all text" check that included the corner.
+    const cells = grid([
+      ['', 'Share'],
+      ['Apples', 40],
+      ['Pears', 25],
+      ['Grapes', 35]
+    ])
+    const data = extractChartData(cells, { r1: 0, c1: 0, r2: 3, c2: 1 }, true)
+    expect(data.categories).toEqual(['Apples', 'Pears', 'Grapes'])
+    expect(data.series).toEqual([{ name: 'Share', values: [40, 25, 35] }])
+  })
 })
 
 describe('defaultSeriesInColumns', () => {

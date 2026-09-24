@@ -34,42 +34,43 @@ function isBlank(v: CellValue): boolean {
   return v === null || v === undefined || v === ''
 }
 
-/** True if every non-blank cell in the row is text, with at least two of them (a lone label isn't enough evidence of a header). */
+/** True if every non-blank cell in [c1, c2] of row r is text, with at least one of them. */
 function rowIsAllText(cells: CellReader, r: number, c1: number, c2: number): boolean {
-  let count = 0
+  let any = false
   for (let c = c1; c <= c2; c++) {
     const v = cells.get(r, c)
     if (isBlank(v)) continue
     if (typeof v !== 'string') return false
-    count++
+    any = true
   }
-  return count >= 2
+  return any
 }
 
-/** True if every non-blank cell in the column is text, with at least two of them. */
+/** True if every non-blank cell in [r1, r2] of column c is text, with at least one of them. */
 function colIsAllText(cells: CellReader, c: number, r1: number, r2: number): boolean {
-  let count = 0
+  let any = false
   for (let r = r1; r <= r2; r++) {
     const v = cells.get(r, c)
     if (isBlank(v)) continue
     if (typeof v !== 'string') return false
-    count++
+    any = true
   }
-  return count >= 2
+  return any
 }
 
 /**
  * Extracts categories + series from `range`, matching Excel's default read of a selected range:
  * a text top row becomes series names (or category labels, depending on orientation) and a text
- * left column becomes the other axis's labels, when present.
+ * left column becomes the other axis's labels, when present. The two checks each skip the shared
+ * corner cell, so it never has to double as both a series name and a category label to count.
  */
 export function extractChartData(cells: CellReader, range: Range, seriesInColumns: boolean): ExtractedChartData {
   const { r1, c1, r2, c2 } = normRange(range)
   const rows = r2 - r1 + 1
   const cols = c2 - c1 + 1
 
-  const hasColHeader = rows > 1 && rowIsAllText(cells, r1, c1, c2)
-  const hasRowHeader = cols > 1 && colIsAllText(cells, c1, r1, r2)
+  const hasColHeader = rows > 1 && rowIsAllText(cells, r1, c1 + 1, c2)
+  const hasRowHeader = cols > 1 && colIsAllText(cells, c1, r1 + 1, r2)
 
   const dataR1 = r1 + (hasColHeader ? 1 : 0)
   const dataC1 = c1 + (hasRowHeader ? 1 : 0)

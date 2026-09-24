@@ -44,7 +44,12 @@ export function InsertTab() {
       { label: 'My Add-ins', icon: <AppsListDetail20Regular fontSize={28} /> }
     ] },
     { label: 'Charts', big: [
-      { label: 'Recommended Charts', icon: <ChartMultiple20Regular fontSize={28} /> },
+      { label: 'Recommended Charts', icon: <ChartMultiple20Regular fontSize={28} />, onClick: () => insertChartFromSelection(store, COLUMN_BAR_GALLERY[0]) },
+      { label: 'Insert Column or Bar Chart', icon: <DataBarVertical20Regular fontSize={28} />, wide: true, menu: chartGalleryMenu(COLUMN_BAR_GALLERY) },
+      { label: 'Insert Line or Area Chart', icon: <DataTrending20Regular fontSize={28} />, wide: true, menu: chartGalleryMenu(LINE_AREA_GALLERY) },
+      { label: 'Insert Pie or Doughnut Chart', icon: <DataPie20Regular fontSize={28} />, wide: true, menu: chartGalleryMenu(PIE_DOUGHNUT_GALLERY) },
+      { label: 'Insert Scatter (X, Y) or Bubble Chart', icon: <DataScatter20Regular fontSize={28} />, wide: true, menu: chartGalleryMenu(SCATTER_BUBBLE_GALLERY) },
+      { label: 'Maps', icon: <DataBarHorizontal20Regular fontSize={28} /> },
       { label: 'PivotChart', icon: <DataHistogram20Regular fontSize={28} /> }
     ] },
     { label: 'Tours', big: [{ label: '3D Map', icon: <DataArea20Regular fontSize={28} /> }] },
@@ -222,7 +227,7 @@ export function ReviewTab() {
     { label: 'Language', big: [{ label: 'Translate', icon: <TranslateAuto20Regular fontSize={28} /> }] },
     { label: 'Comments', big: [
       { label: 'New Comment', icon: <CommentAdd20Regular fontSize={28} />, onClick: () => setUi({ commentPanel: { r: active.r, c: active.c } }) },
-      { label: 'Delete', icon: <CommentMultiple20Regular fontSize={28} />, disabled: !hasComment, onClick: () => store.deleteComment(store.active, active.r, active.c) },
+      { label: 'Delete', icon: <CommentMultiple20Regular fontSize={28} />, onClick: () => { if (hasComment) store.deleteComment(store.active, active.r, active.c) } },
       { label: 'Previous', icon: <CommentMultiple20Regular fontSize={28} />, onClick: () => cmds.previousComment() },
       { label: 'Next', icon: <CommentMultiple20Regular fontSize={28} />, onClick: () => cmds.nextComment() },
       { label: 'Show Comments', icon: <CommentMultiple20Regular fontSize={28} />, onClick: () => setUi({ commentPanel: { r: active.r, c: active.c } }) }

@@ -54,6 +54,8 @@ let nextUid = 1
 
 // US-locale input parsing, matching Excel en-US.
 const HF_CONFIG = {
+  maxRows: 1048576,
+  maxColumns: 16384,
   licenseKey: 'gpl-v3',
   undoLimit: 0,
   useArrayArithmetic: true,
@@ -688,24 +690,27 @@ export class WorkbookStore {
 
   // ---------- whole workbook ----------
   load(data: WorkbookData, fileName: string, filePath: string | null): void {
-    this.hf.destroy()
-    this.hf = HyperFormula.buildEmpty(HF_CONFIG)
+    // Build HyperFormula in one pass from dense 2-D arrays: setting cells one by one
+    // (even inside a batch) is orders of magnitude slower on large files.
+    const contents: Record<string, (string | null)[][]> = {}
     this.sheets = []
-    // Add all sheets first so cross-sheet formulas resolve.
-    data.sheets.forEach((sd, i) => {
-      const s = this.addSheetRaw(sd.name, i)
-      s.layout = { ...defaultLayout(), ...sd.layout }
+    data.sheets.forEach((sd) => {
+      const rows: (string | null)[][] = []
+      const s: SheetState = { uid: nextUid++, name: sd.name, styles: new Map(), layout: { ...defaultLayout(), ...sd.layout }, selection: defaultSelection() }
+      for (const k in sd.cells) {
+        const cell = sd.cells[k]
+        const comma = k.indexOf(',')
+        const r = +k.slice(0, comma), c = +k.slice(comma + 1)
+        if (cell.raw) (rows[r] ??= [])[c] = cell.raw
+        if (cell.style && Object.keys(cell.style).length) s.styles.set(k, cell.style)
+      }
+      // HyperFormula wants no holes in the outer array.
+      for (let r = 0; r < rows.length; r++) rows[r] ??= []
+      contents[sd.name] = rows
+      this.sheets.push(s)
     })
-    this.batch(() => {
-      data.sheets.forEach((sd, i) => {
-        const s = this.sheets[i]
-        for (const [k, cell] of Object.entries(sd.cells)) {
-          const [r, c] = k.split(',').map(Number)
-          if (cell.raw) this.writeRaw(s, r, c, cell.raw)
-          if (cell.style) this.writeStyle(s, r, c, cell.style)
-        }
-      })
-    })
+    this.hf.destroy()
+    this.hf = data.sheets.length ? HyperFormula.buildFromSheets(contents, HF_CONFIG) : HyperFormula.buildEmpty(HF_CONFIG)
     if (!this.sheets.length) this.addSheetRaw('Sheet1', 0)
     this.activeIndex = Math.min(data.activeSheet ?? 0, this.sheets.length - 1)
     this.fileName = fileName

@@ -91,7 +91,7 @@ export function AutoFilterMenu({ sheet, col, x, y, onClose }: Props): React.Reac
     onClose()
   }
 
-  const label = colName(col)
+  const label = getDisplay(af.range.r1, col) || colName(col)
 
   return createPortal(
     <>

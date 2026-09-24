@@ -84,7 +84,6 @@ export default function ChartOverlay({ sheet, geo }: { sheet: SheetState; geo: C
   return (
     <div
       style={{ position: 'absolute', left: rowHeaderW, top: headerH, width: Math.max(0, viewport.w - rowHeaderW), height: Math.max(0, viewport.h - headerH), overflow: 'hidden', pointerEvents: 'none' }}
-      onMouseDownCapture={() => panel && setPanel(null)}
     >
       {charts.map((spec) => {
         const box = boxOf(spec)
@@ -97,6 +96,7 @@ export default function ChartOverlay({ sheet, geo }: { sheet: SheetState; geo: C
             z={z}
             selected={selected}
             sheet={sheet}
+            store={store}
             onSelect={() => setUi({ selectedChart: spec.id })}
             onContextMenu={(x, y) => { setUi({ selectedChart: spec.id }); setCtxMenu({ x, y, id: spec.id }) }}
             onCommitBox={(b) => commitBox(spec.id, b)}
@@ -141,19 +141,19 @@ function contextMenuItems(store: ReturnType<typeof useStore>, sheet: SheetState,
   ]
 }
 
-function ChartBox({ spec, box, z, selected, sheet, onSelect, onContextMenu, onCommitBox, panel, onPanel }: {
+function ChartBox({ spec, box, z, selected, sheet, store, onSelect, onContextMenu, onCommitBox, panel, onPanel }: {
   spec: ChartSpec
   box: { left: number; top: number; width: number; height: number }
   z: number
   selected: boolean
   sheet: SheetState
+  store: ReturnType<typeof useStore>
   onSelect: () => void
   onContextMenu: (x: number, y: number) => void
   onCommitBox: (box: { left: number; top: number; width: number; height: number }) => void
   panel: null | 'elements' | 'styles' | 'filters'
   onPanel: (p: null | 'elements' | 'styles' | 'filters') => void
 }) {
-  const store = useStore()
   const [drag, setDrag] = useState<{ box: typeof box } | null>(null)
   const startRef = useRef<{ mx: number; my: number; box: typeof box; handle?: Handle } | null>(null)
 
@@ -207,7 +207,7 @@ function ChartBox({ spec, box, z, selected, sheet, onSelect, onContextMenu, onCo
       }}
       onMouseDown={(e) => beginDrag(e)}
       onClick={onSelect}
-      onContextMenu={(e) => { e.preventDefault(); onContextMenu(e.clientX, e.clientY) }}
+      onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onContextMenu(e.clientX, e.clientY) }}
     >
       <ChartRenderer spec={spec} data={data} width={Math.max(1, liveBox.width / z)} height={Math.max(1, liveBox.height / z)} />
       {selected && (
@@ -219,7 +219,7 @@ function ChartBox({ spec, box, z, selected, sheet, onSelect, onContextMenu, onCo
               style={{ position: 'absolute', width: 7, height: 7, background: '#fff', border: '1px solid #217346', borderRadius: '50%', ...handlePos(h) }}
             />
           ))}
-          <FloatingButtons spec={spec} sheet={sheet} panel={panel} onPanel={onPanel} />
+          <FloatingButtons spec={spec} sheet={sheet} store={store} panel={panel} onPanel={onPanel} />
         </>
       )}
     </div>
@@ -240,9 +240,8 @@ function handlePos(h: Handle): React.CSSProperties {
   }
 }
 
-function FloatingButtons({ spec, sheet, panel, onPanel }: { spec: ChartSpec; sheet: SheetState; panel: null | 'elements' | 'styles' | 'filters'; onPanel: (p: null | 'elements' | 'styles' | 'filters') => void }) {
-  const store = useStore()
-  const btn = (icon: React.ReactNode, key: 'elements' | 'styles' | 'filters', title: string): JSX.Element => (
+function FloatingButtons({ spec, sheet, store, panel, onPanel }: { spec: ChartSpec; sheet: SheetState; store: ReturnType<typeof useStore>; panel: null | 'elements' | 'styles' | 'filters'; onPanel: (p: null | 'elements' | 'styles' | 'filters') => void }) {
+  const btn = (icon: React.ReactNode, key: 'elements' | 'styles' | 'filters', title: string): React.ReactElement => (
     <button
       title={title}
       onMouseDown={(e) => e.stopPropagation()}

@@ -13,6 +13,7 @@ import { Menu, MenuItem, useMenu } from '../components/Menu'
 import { Dialog } from '../components/Dialog'
 import * as cmd from './commands'
 import { shiftFormula } from '../engine/shiftFormula'
+import ChartOverlay from '../charts/ChartOverlay'
 import { AutoFilterMenu } from './AutoFilterMenu'
 import { NoteBox, NoteTooltip, CommentBox, closeNoteEditor, closeCommentPanel } from './Annotations'
 import {
@@ -712,6 +713,9 @@ export default function Grid() {
   function onMouseDown(e: React.MouseEvent): void {
     if (e.button === 2) return
     tabAnchorCol.current = null
+    // A chart's own mousedown handler stops propagation, so getting here means the click landed
+    // on the grid itself: deselect any floating chart.
+    if (getUi().selectedChart) setUi({ selectedChart: null })
     const rect = hostRef.current!.getBoundingClientRect()
     const x = e.clientX - rect.left, y = e.clientY - rect.top
     editorRef.current?.blur()
@@ -761,7 +765,8 @@ export default function Grid() {
       if (fc !== null) {
         if (getUi().edit) commitEdit()
         const af = sheet.layout.autoFilter!
-        setFilterMenu({ col: fc, x: cellScreenX(fc), y: cellScreenY(af.range.r1) + rowsAxis.size(af.range.r1) * z })
+        const hostRect = hostRef.current!.getBoundingClientRect() // menu is position:fixed, so use client coordinates
+        setFilterMenu({ col: fc, x: hostRect.left + cellScreenX(fc), y: hostRect.top + cellScreenY(af.range.r1) + rowsAxis.size(af.range.r1) * z })
         return
       }
     }
@@ -1354,6 +1359,10 @@ export default function Grid() {
         <div style={{ width: sizerW, height: sizerH }} />
       </div>
       <canvas ref={canvasRef} className="xl-canvas" style={{ width: size.w, height: size.h }} />
+      <ChartOverlay
+        sheet={sheet}
+        geo={{ colsAxis, rowsAxis, frozen, scroll, z, rowHeaderW, headerH, viewport: size }}
+      />
       {edit && edit.source === 'cell' && (
         <textarea
           ref={editorRef}

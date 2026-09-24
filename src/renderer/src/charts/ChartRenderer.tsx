@@ -1,5 +1,6 @@
 // Draws a ChartSpec + its extracted data as inline SVG, styled like an Office 2023+ default chart
 // (Aptos font, theme accent colors, light gridlines, "Chart Title" placeholder).
+import type { ReactElement } from 'react'
 import { ChartSpec } from '../model/types'
 import { ExtractedChartData } from './dataExtraction'
 import { CHART_FONT, GRIDLINE_COLOR, AXIS_COLOR, TITLE_COLOR, TEXT_COLOR, colorSet } from './theme'
@@ -29,7 +30,9 @@ function niceMax(v: number): number {
 }
 
 export function ChartRenderer({ spec, data, width, height }: ChartRendererProps) {
-  const colors = colorSet(spec.colorSetId ?? 0, Math.max(1, data.series.length || 1))
+  // Pie/doughnut charts have one series but color each category slice separately.
+  const colorCount = spec.type === 'pie' ? data.categories.length : data.series.length
+  const colors = colorSet(spec.colorSetId ?? 0, Math.max(1, colorCount || 1))
   const el = spec.elements
   const titleH = el.title ? 26 : 6
   const legendPos = el.legend ? spec.legendPosition : 'none'
@@ -199,7 +202,7 @@ function BarBody({ inner, data, colors, subtype, gridlines, axes, dataLabels }: 
   }
   max = percent ? 100 : niceMax(max)
 
-  const bars: JSX.Element[] = []
+  const bars: ReactElement[] = []
   const catStep = (horizontal ? inner.h : inner.w) / n
   const groupPad = catStep * 0.18
   const groupW = catStep - groupPad * 2
@@ -278,7 +281,7 @@ function LineBody({ inner, data, colors, subtype, gridlines, axes, dataLabels }:
   const step = n > 1 ? inner.w / (n - 1) : inner.w
 
   const stackAcc = new Array(n).fill(0)
-  const shapes: JSX.Element[] = []
+  const shapes: ReactElement[] = []
   data.series.forEach((s, si) => {
     const pts: [number, number][] = s.values.map((v, i) => {
       const raw = Math.max(0, v ?? 0)
@@ -326,7 +329,7 @@ function ScatterBody({ inner, data, colors, smooth, gridlines, axes }: {
   maxY = niceMax(maxY)
   const step = n > 1 ? inner.w / (n - 1) : inner.w
 
-  const shapes: JSX.Element[] = []
+  const shapes: ReactElement[] = []
   data.series.forEach((s, si) => {
     const pts: [number, number][] = s.values.map((v, i) => [inner.x + step * i, inner.y + inner.h - (Math.max(0, v ?? 0) / maxY) * inner.h])
     if (smooth) shapes.push(<path key={'p' + si} d={pathFor(pts, true)} fill="none" stroke={colors[si % colors.length]} strokeWidth={2} />)
@@ -359,8 +362,8 @@ function PieBody({ inner, data, colors, doughnut, dataLabels }: {
   const r = Math.min(inner.w, inner.h) / 2 - 4
   const rInner = doughnut ? r * 0.55 : 0
   let angle = -Math.PI / 2
-  const slices: JSX.Element[] = []
-  const labels: JSX.Element[] = []
+  const slices: ReactElement[] = []
+  const labels: ReactElement[] = []
   values.forEach((v, i) => {
     const frac = v / total
     const a0 = angle

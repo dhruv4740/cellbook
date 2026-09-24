@@ -34,3 +34,88 @@ describe('input parsing', () => {
     expect(s.getValue(s.active, 0, 0)).toBe(45688)
   })
 })
+
+describe('AutoFilter', () => {
+  function makeTable(): WorkbookStore {
+    const s = new WorkbookStore()
+    const sh = s.active
+    s.setRangeRaw(sh, 0, 0, [['Fruit', 'Qty'], ['Apple', '3'], ['Banana', '1'], ['Apple', '5']])
+    s.setSelection({ ranges: [{ r1: 0, c1: 0, r2: 0, c2: 0 }], active: { r: 0, c: 0 } }, sh)
+    return s
+  }
+
+  it('toggles on over the current region and hides rows failing criteria', () => {
+    const s = makeTable()
+    const sh = s.active
+    s.toggleAutoFilter(sh)
+    expect(sh.layout.autoFilter?.range).toEqual({ r1: 0, c1: 0, r2: 3, c2: 1 })
+    s.setColumnFilter(sh, 0, { selected: ['Apple'] })
+    expect(sh.layout.hiddenRows[2]).toBe(true) // Banana row
+    expect(sh.layout.hiddenRows[1]).toBeUndefined()
+    expect(sh.layout.hiddenRows[3]).toBeUndefined()
+  })
+
+  it('undoes a filter change in one step', () => {
+    const s = makeTable()
+    const sh = s.active
+    s.toggleAutoFilter(sh)
+    s.setColumnFilter(sh, 0, { selected: ['Apple'] })
+    s.undo()
+    expect(sh.layout.hiddenRows[2]).toBeUndefined()
+  })
+
+  it('clearAllFilters unhides rows but keeps the dropdowns', () => {
+    const s = makeTable()
+    const sh = s.active
+    s.toggleAutoFilter(sh)
+    s.setColumnFilter(sh, 0, { selected: ['Apple'] })
+    s.clearAllFilters(sh)
+    expect(sh.layout.autoFilter).toBeDefined()
+    expect(Object.keys(sh.layout.hiddenRows).length).toBe(0)
+  })
+
+  it('turning the filter off only unhides filter-caused rows, not manually hidden ones', () => {
+    const s = makeTable()
+    const sh = s.active
+    s.updateLayout(sh, 'Hide', (l) => (l.hiddenRows[1] = true)) // manually hide the first data row
+    s.toggleAutoFilter(sh)
+    s.setColumnFilter(sh, 0, { selected: ['Apple'] }) // hides Banana row (2)
+    s.toggleAutoFilter(sh) // off
+    expect(sh.layout.autoFilter).toBeUndefined()
+    expect(sh.layout.hiddenRows[1]).toBe(true) // still manually hidden
+    expect(sh.layout.hiddenRows[2]).toBeUndefined() // filter-hidden row is back
+  })
+})
+
+describe('Notes & Comments', () => {
+  it('sets, edits and deletes a note as one undo step each', () => {
+    const s = new WorkbookStore()
+    const sh = s.active
+    s.setNote(sh, 0, 0, 'Check this value', 'Ann')
+    expect(sh.layout.notes['0,0']).toEqual({ text: 'Check this value', author: 'Ann' })
+    s.undo()
+    expect(sh.layout.notes['0,0']).toBeUndefined()
+    s.redo()
+    s.deleteNote(sh, 0, 0)
+    expect(sh.layout.notes['0,0']).toBeUndefined()
+  })
+
+  it('adds a comment thread and a reply, then resolves it', () => {
+    const s = new WorkbookStore()
+    const sh = s.active
+    s.addComment(sh, 1, 1, 'What does this mean?', 'Ann')
+    s.replyToComment(sh, 1, 1, 'It means X', 'Bo')
+    expect(sh.layout.comments['1,1'].replies).toHaveLength(1)
+    s.resolveComment(sh, 1, 1, true)
+    expect(sh.layout.comments['1,1'].resolved).toBe(true)
+  })
+
+  it('convertNotesToComments moves every note into a comment thread', () => {
+    const s = new WorkbookStore()
+    const sh = s.active
+    s.setNote(sh, 0, 0, 'A note', 'Ann')
+    s.convertNotesToComments(sh)
+    expect(sh.layout.notes['0,0']).toBeUndefined()
+    expect(sh.layout.comments['0,0'].text).toBe('A note')
+  })
+})

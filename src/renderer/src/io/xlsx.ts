@@ -344,6 +344,25 @@ function colLetterToIndex(s: string): number {
   for (const ch of s) n = n * 26 + (ch.charCodeAt(0) - 64)
   return n - 1
 }
+function parseA1CellRef(s: string | undefined): { row: number; column: number } | null {
+  if (!s) return null
+  const m = /^([A-Z]+)(\d+)$/.exec(s.split(':')[0])
+  if (!m) return null
+  return { row: +m[2], column: colLetterToIndex(m[1]) + 1 }
+}
+
+// ---------- notes (exceljs "note" = the classic cell comment box, not a threaded Comment) ----------
+function readNote(v: string | ExcelJS.Comment): NoteData {
+  if (typeof v === 'string') return { text: v, author: DEFAULT_AUTHOR }
+  const runs = v.texts ?? []
+  if (runs.length && runs[0].font?.bold && /:\s*$/.test(runs[0].text)) {
+    return { author: runs[0].text.replace(/:\s*$/, '').trim(), text: runs.slice(1).map((r) => r.text).join('') }
+  }
+  return { author: DEFAULT_AUTHOR, text: runs.map((r) => r.text).join('') }
+}
+function writeNote(note: NoteData): ExcelJS.Comment {
+  return { texts: [{ font: { bold: true }, text: note.author + ':\n' }, { text: note.text }] }
+}
 
 // ---------- write ----------
 export async function writeXlsx(data: WorkbookData): Promise<Uint8Array> {
@@ -375,6 +394,11 @@ export async function writeXlsx(data: WorkbookData): Promise<Uint8Array> {
       if (cell.style) writeStyle(target, cell.style)
     }
 
+    for (const [key, note] of Object.entries(layout.notes ?? {})) {
+      const [r, c] = key.split(',').map(Number)
+      ws.getCell(r + 1, c + 1).note = writeNote(note)
+    }
+
     for (const [c, px] of Object.entries(layout.colWidths)) {
       ws.getColumn(+c + 1).width = pxToColWidth(px)
     }
@@ -396,6 +420,13 @@ export async function writeXlsx(data: WorkbookData): Promise<Uint8Array> {
     }
     if (layout.tabColor) {
       ws.properties.tabColor = { argb: hexToArgb(layout.tabColor) }
+    }
+    if (layout.autoFilter) {
+      const { range } = layout.autoFilter
+      ws.autoFilter = {
+        from: { row: range.r1 + 1, column: range.c1 + 1 },
+        to: { row: range.r2 + 1, column: range.c2 + 1 }
+      }
     }
 
     const view: Partial<ExcelJS.WorksheetView> = {
