@@ -1,6 +1,6 @@
 // Commands that act on the active sheet's current selection. Called from the grid (keyboard,
 // right-click menus) and from the ribbon, so both stay consistent.
-import { store } from '../model/store'
+import { store, SheetState } from '../model/store'
 import { setUi, getUi } from '../chrome/ui'
 import { CellStyle, Range, normRange, colName, MAX_ROWS, MAX_COLS, parseA1 } from '../model/types'
 import { shiftFormula } from '../engine/shiftFormula'
@@ -18,17 +18,28 @@ function activeRange(): Range {
 // ---------- clipboard ----------
 interface ClipCell { r: number; c: number; raw: string; style?: CellStyle }
 
-function readRange(rg: Range): ClipCell[] {
+/** Intersection of a range with the sheet's used range (cells outside it are empty). */
+function clampUsed(sheet: SheetState, rg: Range): Range | null {
   const n = normRange(rg)
+  const used = store.usedRange(sheet)
+  if (!used) return null
+  const out = { r1: n.r1, c1: n.c1, r2: Math.min(n.r2, used.r2), c2: Math.min(n.c2, used.c2) }
+  return out.r1 > out.r2 || out.c1 > out.c2 ? null : out
+}
+
+function readRange(rg: Range, sheet: SheetState = store.active): ClipCell[] {
+  const n = clampUsed(sheet, rg)
   const out: ClipCell[] = []
+  if (!n) return out
   for (let r = n.r1; r <= n.r2; r++)
     for (let c = n.c1; c <= n.c2; c++)
-      out.push({ r, c, raw: store.getRaw(store.active, r, c), style: store.getStyle(store.active, r, c) })
+      out.push({ r, c, raw: store.getRaw(sheet, r, c), style: store.getStyle(sheet, r, c) })
   return out
 }
 
 function toTSV(rg: Range): string {
-  const n = normRange(rg)
+  const n = clampUsed(store.active, rg)
+  if (!n) return ''
   const rows: string[] = []
   for (let r = n.r1; r <= n.r2; r++) {
     const cells: string[] = []
@@ -39,7 +50,8 @@ function toTSV(rg: Range): string {
 }
 
 function toHTML(rg: Range): string {
-  const n = normRange(rg)
+  const n = clampUsed(store.active, rg)
+  if (!n) return '<table></table>'
   let html = '<table>'
   for (let r = n.r1; r <= n.r2; r++) {
     html += '<tr>'
@@ -91,7 +103,7 @@ export async function copy(): Promise<void> {
   store.notify()
 }
 
-function pasteCellsAt(dest: Range, src: ClipCell[], srcRange: Range, kind: PasteKind): void {
+function pasteCellsAt(dest: Range, src: ClipCell[], srcRange: Range, kind: PasteKind, srcSheet: SheetState = store.active): void {
   const sheet = store.active
   const n = normRange(srcRange)
   const transpose = kind === 'transpose'
@@ -105,11 +117,12 @@ function pasteCellsAt(dest: Range, src: ClipCell[], srcRange: Range, kind: Paste
     let raw = cell.raw
     if (kind === 'formats' || kind === 'columnWidths') raw = store.getRaw(sheet, dr, dc)
     else if (kind === 'values') {
-      const v = store.getValue(sheet, cell.r, cell.c)
+      const v = store.getValue(srcSheet, cell.r, cell.c)
       raw = v === null || v === undefined ? '' : typeof v === 'boolean' ? (v ? 'TRUE' : 'FALSE') : typeof v === 'object' ? (v as { error: string }).error : String(v)
-    } else if (raw.startsWith('=') && !transpose) {
-      raw = shiftFormula(raw, dr - cell.r, dc - cell.c)
-    } else if (raw.startsWith('=') && transpose) {
+    } else if (kind === 'link') {
+      const prefix = srcSheet === sheet ? '' : "'" + srcSheet.name.replace(/'/g, "''") + "'!"
+      raw = '=' + prefix + colName(cell.c) + (cell.r + 1)
+    } else if (raw.startsWith('=')) {
       raw = shiftFormula(raw, dr - cell.r, dc - cell.c)
     }
     let style = kind === 'values' ? store.getStyle(sheet, dr, dc) : cell.style
@@ -134,16 +147,17 @@ export async function paste(kind: PasteKind = 'all'): Promise<void> {
   if (clip && clip.sheetUid !== undefined) {
     const srcSheet = store.sheetByUid(clip.sheetUid)
     if (srcSheet) {
-      const src = clip.sheetUid === sheet.uid ? readRange(clip.range) : readRange(clip.range) // same-workbook only
+      const src = readRange(clip.range, srcSheet)
       store.transact('Paste', () => {
-        pasteCellsAt(dest, src, clip.range, kind)
         if (clip.cut) {
-          const n = normRange(clip.range)
+          // Clear the source first so an overlapping destination keeps the pasted cells.
+          const n = clampUsed(srcSheet, clip.range)
           const clears: { r: number; c: number; raw: string }[] = []
-          for (let r = n.r1; r <= n.r2; r++) for (let c = n.c1; c <= n.c2; c++) clears.push({ r, c, raw: '' })
+          if (n) for (let r = n.r1; r <= n.r2; r++) for (let c = n.c1; c <= n.c2; c++) clears.push({ r, c, raw: '' })
           store.setCells(srcSheet, clears, 'Paste')
           store.clipboard = null
         }
+        pasteCellsAt(dest, src, clip.range, clip.cut ? 'all' : kind, srcSheet)
       })
       return
     }
@@ -206,9 +220,8 @@ function moveBlock(rg: Range, dr: number, dc: number): void {
   const n = normRange(rg)
   const src = readRange(n)
   store.transact('Move Cells', () => {
-    // Clear source first (cells not covered by the destination), then write shifted cells.
-    const clears: { r: number; c: number; raw: string }[] = []
-    for (let r = n.r1; r <= n.r2; r++) for (let c = n.c1; c <= n.c2; c++) clears.push({ r, c, raw: '' })
+    // Clear the source first, then write the shifted cells.
+    const clears: { r: number; c: number; raw: string }[] = src.map((x) => ({ r: x.r, c: x.c, raw: '' }))
     store.setCells(sheet, clears, 'Move Cells')
     const cells = src
       .map((cell) => ({
@@ -237,8 +250,13 @@ export function deleteShift(kind: 'left' | 'up' | 'row' | 'col'): void {
   if (kind === 'col') { deleteSheetColumns(); return }
   const width = rg.c2 - rg.c1 + 1
   const height = rg.r2 - rg.r1 + 1
-  const bound = kind === 'left' ? { r1: rg.r1, c1: rg.c1, r2: rg.r2, c2: MAX_COLS - 1 } : { r1: rg.r1, c1: rg.c1, r2: MAX_ROWS - 1, c2: rg.c2 }
-  moveBlock(bound, kind === 'left' ? 0 : -height, kind === 'left' ? -width : 0)
+  // Clear the deleted cells, then move everything after them left/up into the gap.
+  const trailing = kind === 'left' ? { r1: rg.r1, c1: rg.c2 + 1, r2: rg.r2, c2: MAX_COLS - 1 } : { r1: rg.r2 + 1, c1: rg.c1, r2: MAX_ROWS - 1, c2: rg.c2 }
+  const deleted = readRange(rg).map((x) => ({ r: x.r, c: x.c, raw: '' }))
+  store.transact('Delete', () => {
+    store.setCells(store.active, deleted, 'Delete')
+    if (trailing.c1 < MAX_COLS && trailing.r1 < MAX_ROWS) moveBlock(trailing, kind === 'left' ? 0 : -height, kind === 'left' ? -width : 0)
+  })
 }
 
 // ---------- clear / sort ----------
@@ -249,7 +267,8 @@ export function clearSelection(what: 'all' | 'contents' | 'formats'): void {
 export function sortSelection(order: 'asc' | 'desc'): void {
   const rg = activeRange()
   const sheet = store.active
-  const n = normRange(rg)
+  const n = clampUsed(sheet, rg)
+  if (!n) return
   const rows: ClipCell[][] = []
   for (let r = n.r1; r <= n.r2; r++) {
     const row: ClipCell[] = []
@@ -270,7 +289,12 @@ export function sortSelection(order: 'asc' | 'desc'): void {
     return order === 'asc' ? cmp : -cmp
   })
   const cells: { r: number; c: number; raw: string; style?: CellStyle }[] = []
-  sorted.forEach((row, i) => row.forEach((cell, j) => cells.push({ r: n.r1 + i, c: n.c1 + j, raw: cell.raw, style: cell.style })))
+  sorted.forEach((row, i) =>
+    row.forEach((cell, j) => {
+      const r = n.r1 + i
+      cells.push({ r, c: n.c1 + j, raw: cell.raw.startsWith('=') ? shiftFormula(cell.raw, r - cell.r, 0) : cell.raw, style: cell.style })
+    })
+  )
   store.setCells(sheet, cells, 'Sort')
 }
 
