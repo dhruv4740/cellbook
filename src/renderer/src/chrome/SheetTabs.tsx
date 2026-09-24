@@ -1,6 +1,7 @@
 // Sheet navigation strip: prev/next arrows, tabs, new-sheet button, drag reorder, right-click menu.
 import { useRef, useState } from 'react'
 import { useStore } from '../model/store'
+import { useUi, setUi } from './ui'
 import { Menu, MenuItem, useMenu } from '../components/Menu'
 import { Dialog } from '../components/Dialog'
 import { ChevronLeft20Regular, ChevronRight20Regular, Add20Regular } from '@fluentui/react-icons'
@@ -8,6 +9,8 @@ import './SheetTabs.css'
 
 export default function SheetTabs() {
   const store = useStore()
+  const ui = useUi()
+  const grouped = ui.groupedSheets && ui.groupedSheets.length > 1 ? ui.groupedSheets : null
   const [menu, openMenu, closeMenu] = useMenu()
   const [menuIndex, setMenuIndex] = useState(0)
   const [renaming, setRenaming] = useState<number | null>(null)
@@ -61,13 +64,13 @@ export default function SheetTabs() {
         {store.sheets.map((s, i) => (
           <div
             key={s.uid}
-            className={'xl-sheet-tab' + (i === store.activeIndex ? ' active' : '') + (dragOver === i ? ' drag-over' : '')}
+            className={'xl-sheet-tab' + (i === store.activeIndex ? ' active' : '') + (dragOver === i ? ' drag-over' : '') + (grouped?.includes(i) ? ' grouped' : '')}
             draggable
             onDragStart={() => (dragFrom.current = i)}
             onDragOver={(e) => { e.preventDefault(); setDragOver(i) }}
             onDragLeave={() => setDragOver((d) => (d === i ? null : d))}
             onDrop={(e) => { e.preventDefault(); if (dragFrom.current !== null && dragFrom.current !== i) store.moveSheet(dragFrom.current, i); dragFrom.current = null; setDragOver(null) }}
-            onClick={() => store.setActiveSheet(i)}
+            onClick={(e) => { if (!e.shiftKey && !e.ctrlKey && !e.metaKey) setUi({ groupedSheets: null }); store.setActiveSheet(i) }}
             onDoubleClick={() => startRename(i)}
             onContextMenu={(e) => { e.preventDefault(); setMenuIndex(i); openMenu(e) }}
             style={s.layout.tabColor ? { boxShadow: `inset 0 -3px 0 ${s.layout.tabColor}` } : undefined}

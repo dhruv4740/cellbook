@@ -50,10 +50,21 @@ export interface BtnProps {
   active?: boolean
   disabled?: boolean
   color?: string // small color swatch under the icon (Font Color / Fill Color)
+  /** Excel KeyTip access-key sequence for this command (e.g. 'FN', 'B', 'AT'), shown as a badge
+   *  over the button while KeyTips are active (Alt / F10). See chrome/KeyTips.tsx. */
+  keytip?: string
+}
+
+/** The little yellow-bordered badge Excel draws over a command while KeyTips are active.
+ *  Always rendered (so the KeyTips engine can find it by data-keytip) but hidden by CSS
+ *  unless an ancestor carries .xl-keytips-active. */
+export function KeyTipBadge({ code }: { code?: string }) {
+  if (!code) return null
+  return <span className="xl-keytip-badge" data-keytip={code}>{code}</span>
 }
 
 /** Large ribbon button: icon on top, label wraps below, used for group headline commands. */
-export function BigButton({ icon, label, tip, onClick, active, disabled, color, menu, wide }: BtnProps & { menu?: MenuItem[]; wide?: boolean }) {
+export function BigButton({ icon, label, tip, onClick, active, disabled, color, menu, wide, keytip }: BtnProps & { menu?: MenuItem[]; wide?: boolean }) {
   const [open, setOpen] = useState<{ x: number; y: number } | null>(null)
   const ref = useRef<HTMLButtonElement>(null)
   return (
@@ -69,9 +80,10 @@ export function BigButton({ icon, label, tip, onClick, active, disabled, color, 
           } else onClick?.()
         }}
       >
-        <span className="xl-big-icon">
+        <span className="xl-big-icon" style={{ position: 'relative' }}>
           {icon}
           {color && <span className="xl-color-bar" style={{ background: color }} />}
+          <KeyTipBadge code={keytip} />
         </span>
         {label && <span className="xl-big-label">{label}{menu && <ChevronDown12Regular className="xl-drop-caret" />}</span>}
       </button>
@@ -81,16 +93,17 @@ export function BigButton({ icon, label, tip, onClick, active, disabled, color, 
 }
 
 /** Split button: left = default action (icon+label), right = separate dropdown caret. */
-export function SplitButton({ icon, label, tip, onClick, active, color, menu }: BtnProps & { menu: MenuItem[] }) {
+export function SplitButton({ icon, label, tip, onClick, active, color, menu, keytip }: BtnProps & { menu: MenuItem[] }) {
   const [open, setOpen] = useState<{ x: number; y: number } | null>(null)
   const ref = useRef<HTMLDivElement>(null)
   return (
     <TipWrap tip={tip}>
       <div ref={ref} className={'xl-big-btn xl-split' + (active ? ' active' : '')}>
         <button className="xl-split-main" onClick={onClick}>
-          <span className="xl-big-icon">
+          <span className="xl-big-icon" style={{ position: 'relative' }}>
             {icon}
             {color && <span className="xl-color-bar" style={{ background: color }} />}
+            <KeyTipBadge code={keytip} />
           </span>
           {label && <span className="xl-big-label">{label}</span>}
         </button>
@@ -110,14 +123,14 @@ export function SplitButton({ icon, label, tip, onClick, active, color, menu }: 
 }
 
 /** Row split button: icon + label + caret in a single ~24px-tall row, used 3-stacked (Cells, Editing groups). */
-export function StackSplit({ icon, label, tip, onClick, menu }: BtnProps & { menu: MenuItem[] }) {
+export function StackSplit({ icon, label, tip, onClick, menu, keytip }: BtnProps & { menu: MenuItem[] }) {
   const [open, setOpen] = useState<{ x: number; y: number } | null>(null)
   const ref = useRef<HTMLDivElement>(null)
   return (
     <TipWrap tip={tip}>
       <div ref={ref} className="xl-stacksplit">
         <button className="xl-stacksplit-main" onClick={onClick}>
-          <span className="xl-stacksplit-icon">{icon}</span>
+          <span className="xl-stacksplit-icon" style={{ position: 'relative' }}>{icon}<KeyTipBadge code={keytip} /></span>
           {label && <span className="xl-stacksplit-label">{label}</span>}
         </button>
         <button
@@ -136,7 +149,7 @@ export function StackSplit({ icon, label, tip, onClick, menu }: BtnProps & { men
 }
 
 /** Small (16px) ribbon button used stacked 2-3 per group, or in a row. */
-export function SmallButton({ icon, label, tip, onClick, onDoubleClick, active, disabled, menu }: BtnProps & { menu?: MenuItem[]; onDoubleClick?: () => void }) {
+export function SmallButton({ icon, label, tip, onClick, onDoubleClick, active, disabled, menu, keytip }: BtnProps & { menu?: MenuItem[]; onDoubleClick?: () => void }) {
   const [open, setOpen] = useState<{ x: number; y: number } | null>(null)
   const ref = useRef<HTMLButtonElement>(null)
   return (
@@ -153,7 +166,7 @@ export function SmallButton({ icon, label, tip, onClick, onDoubleClick, active, 
           } else onClick?.()
         }}
       >
-        <span className="xl-small-icon">{icon}</span>
+        <span className="xl-small-icon" style={{ position: 'relative' }}>{icon}<KeyTipBadge code={keytip} /></span>
         {label && <span className="xl-small-label">{label}</span>}
         {menu && <ChevronDown12Regular className="xl-drop-caret" />}
       </button>
@@ -325,7 +338,7 @@ export function GroupSep() {
 
 /** Editable combo box (font name / size / number format). */
 export function Combo({
-  value, options, onChange, onPick, width = 110, tip, editable = true
+  value, options, onChange, onPick, width = 110, tip, editable = true, keytip
 }: {
   value: string
   options: string[]
@@ -334,6 +347,7 @@ export function Combo({
   width?: number
   tip?: Tip
   editable?: boolean
+  keytip?: string
 }) {
   const [open, setOpen] = useState(false)
   const [text, setText] = useState(value)
@@ -347,7 +361,8 @@ export function Combo({
   }, [open])
   return (
     <TipWrap tip={tip}>
-      <div className="xl-combo" ref={ref} style={{ width }}>
+      <div className="xl-combo" ref={ref} style={{ width, position: 'relative' }}>
+        <KeyTipBadge code={keytip} />
         <input
           readOnly={!editable}
           value={text}

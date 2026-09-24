@@ -2,6 +2,7 @@
 import { save } from '../io/fileOps'
 import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../model/store'
+import { useUi } from './ui'
 import { Menu, MenuItem } from '../components/Menu'
 import {
   Save20Regular, ArrowUndo20Regular, ArrowRedo20Regular, ChevronDown12Regular,
@@ -12,6 +13,8 @@ import './TitleBar.css'
 
 export default function TitleBar() {
   const store = useStore()
+  const ui = useUi()
+  const grouped = !!(ui.groupedSheets && ui.groupedSheets.length > 1)
   const [autoSave, setAutoSave] = useState(false)
   const [maximized, setMaximized] = useState(false)
   const [undoMenu, setUndoMenu] = useState<{ x: number; y: number } | null>(null)
@@ -20,7 +23,7 @@ export default function TitleBar() {
   const undoBtn = useRef<HTMLDivElement>(null)
   const qatBtn = useRef<HTMLButtonElement>(null)
 
-  const title = store.fileName + (store.filePath ? '' : '') + ' - Excel'
+  const title = store.fileName + (store.filePath ? '' : '') + (grouped ? ' [Group]' : '') + ' - Excel'
   useEffect(() => {
     document.title = title
     window.api?.setTitle?.(title)
@@ -45,9 +48,9 @@ export default function TitleBar() {
         </button>
 
         <div className="xl-qat">
-          <button className="xl-qat-btn" title="Save (Ctrl+S)" onClick={() => void save()}><Save20Regular /></button>
+          <button className="xl-qat-btn" title="Save (Ctrl+S)" onClick={() => void save()} style={{ position: 'relative' }}><Save20Regular /><span className="xl-keytip-badge" data-keytip="1">1</span></button>
           <div className="xl-qat-split" ref={undoBtn}>
-            <button className="xl-qat-btn" title="Undo (Ctrl+Z)" disabled={!store.canUndo} onClick={() => store.undo()}><ArrowUndo20Regular /></button>
+            <button className="xl-qat-btn" title="Undo (Ctrl+Z)" disabled={!store.canUndo} onClick={() => store.undo()} style={{ position: 'relative' }}><ArrowUndo20Regular /><span className="xl-keytip-badge" data-keytip="2">2</span></button>
             <button
               className="xl-qat-caret"
               disabled={!store.canUndo}
@@ -56,14 +59,14 @@ export default function TitleBar() {
               <ChevronDown12Regular />
             </button>
           </div>
-          <button className="xl-qat-btn" title="Redo (Ctrl+Y)" disabled={!store.canRedo} onClick={() => store.redo()}><ArrowRedo20Regular /></button>
+          <button className="xl-qat-btn" title="Redo (Ctrl+Y)" disabled={!store.canRedo} onClick={() => store.redo()} style={{ position: 'relative' }}><ArrowRedo20Regular /><span className="xl-keytip-badge" data-keytip="3">3</span></button>
           <button ref={qatBtn} className="xl-qat-btn" title="Customize Quick Access Toolbar" onClick={() => { const r = qatBtn.current!.getBoundingClientRect(); setQatMenu({ x: r.left, y: r.bottom }) }}>
             <ChevronDown12Regular />
           </button>
         </div>
 
         <div className="xl-titlebar-center">
-          <span className="xl-filename">{store.fileName}</span>
+          <span className="xl-filename">{store.fileName}{grouped ? ' [Group]' : ''}</span>
           <span className="xl-saved">{store.dirty ? '' : '• Saved to this PC'}</span>
         </div>
 

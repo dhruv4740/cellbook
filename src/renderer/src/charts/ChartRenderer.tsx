@@ -1,5 +1,5 @@
 // Draws a ChartSpec + its extracted data as inline SVG, styled like an Office 2023+ default chart
-// (Aptos font, theme accent colors, light gridlines, "Chart Title" placeholder).
+// (Calibri font, theme accent colors, light gridlines, "Chart Title" placeholder).
 import type { ReactElement } from 'react'
 import { ChartSpec } from '../model/types'
 import { ExtractedChartData } from './dataExtraction'
@@ -21,12 +21,18 @@ const isLineMarkers = (sub: string) => sub === 'lineMarkers'
 const isDoughnut = (sub: string) => sub === 'doughnut'
 const isSmooth = (sub: string) => sub === 'scatterSmooth'
 
-function niceMax(v: number): number {
-  if (v <= 0) return 1
-  const mag = Math.pow(10, Math.floor(Math.log10(v)))
-  const norm = v / mag
-  const step = norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10
-  return step * mag
+/** Excel-style automatic value axis: a 1/2/5 x 10^k major unit giving about 5-10 intervals,
+ *  and one extra unit of headroom when the data max lands on or near the top gridline
+ *  (e.g. data max 5 -> axis 0..6 step 1, as Excel draws it). */
+export function axisScale(v: number): { max: number; ticks: number } {
+  if (!(v > 0)) return { max: 1, ticks: 5 }
+  const raw = v / 5
+  const mag = Math.pow(10, Math.floor(Math.log10(raw)))
+  const norm = raw / mag
+  const step = (norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10) * mag
+  let ticks = Math.ceil(v / step - 1e-9)
+  if (ticks * step - v < step * 0.05) ticks++
+  return { max: ticks * step, ticks }
 }
 
 export function ChartRenderer({ spec, data, width, height }: ChartRendererProps) {
@@ -129,8 +135,7 @@ function Gridlines({ inner, ticks }: { inner: { x: number; y: number; w: number;
   return <g>{lines}</g>
 }
 
-function ValueAxis({ inner, max, percent }: { inner: { x: number; y: number; w: number; h: number }; max: number; percent?: boolean }) {
-  const ticks = 4
+function ValueAxis({ inner, max, ticks, percent }: { inner: { x: number; y: number; w: number; h: number }; max: number; ticks: number; percent?: boolean }) {
   const labels = []
   for (let i = 0; i <= ticks; i++) {
     const v = (max * i) / ticks
@@ -145,8 +150,8 @@ function ValueAxis({ inner, max, percent }: { inner: { x: number; y: number; w: 
 }
 
 function formatAxisNum(v: number): string {
-  if (Math.abs(v) >= 1000) return (v / 1000).toFixed(v % 1000 === 0 ? 0 : 1) + 'K'
-  return Number.isInteger(v) ? String(v) : v.toFixed(1)
+  // Excel's General axis format with the source column's thousands separator.
+  return (Math.round(v * 1e6) / 1e6).toLocaleString('en-US', { maximumFractionDigits: 6 })
 }
 
 function CategoryAxis({ inner, categories, horizontal }: { inner: { x: number; y: number; w: number; h: number }; categories: string[]; horizontal?: boolean }) {
@@ -200,7 +205,8 @@ function BarBody({ inner, data, colors, subtype, gridlines, axes, dataLabels }: 
   } else {
     for (const s of data.series) for (const v of s.values) max = Math.max(max, v ?? 0)
   }
-  max = percent ? 100 : niceMax(max)
+  const scale = percent ? { max: 100, ticks: 10 } : axisScale(max)
+  max = scale.max
 
   const bars: ReactElement[] = []
   const catStep = (horizontal ? inner.h : inner.w) / n
@@ -231,13 +237,13 @@ function BarBody({ inner, data, colors, subtype, gridlines, axes, dataLabels }: 
 
   return (
     <g>
-      {gridlines && <Gridlines inner={inner} ticks={4} />}
+      {gridlines && <Gridlines inner={inner} ticks={scale.ticks} />}
       {bars}
       {axes && (
         <>
           <line x1={inner.x} x2={inner.x} y1={inner.y} y2={inner.y + inner.h} stroke={AXIS_COLOR} />
           <line x1={inner.x} x2={inner.x + inner.w} y1={inner.y + inner.h} y2={inner.y + inner.h} stroke={AXIS_COLOR} />
-          {!horizontal && <ValueAxis inner={inner} max={max} percent={percent} />}
+          {!horizontal && <ValueAxis inner={inner} max={max} ticks={scale.ticks} percent={percent} />}
           {horizontal && <CategoryAxis inner={inner} categories={data.categories} horizontal />}
           {!horizontal && <CategoryAxis inner={inner} categories={data.categories} />}
         </>
@@ -247,7 +253,7 @@ function BarBody({ inner, data, colors, subtype, gridlines, axes, dataLabels }: 
 }
 
 function fmtVal(v: number): string {
-  return Number.isInteger(v) ? String(v) : v.toFixed(1)
+  return String(Math.round(v * 1e6) / 1e6)
 }
 
 function pathFor(points: [number, number][], smooth: boolean): string {
@@ -277,7 +283,8 @@ function LineBody({ inner, data, colors, subtype, gridlines, axes, dataLabels }:
   } else {
     for (const s of data.series) for (const v of s.values) max = Math.max(max, v ?? 0)
   }
-  max = niceMax(max)
+  const scale = axisScale(max)
+  max = scale.max
   const step = n > 1 ? inner.w / (n - 1) : inner.w
 
   const stackAcc = new Array(n).fill(0)
@@ -303,13 +310,13 @@ function LineBody({ inner, data, colors, subtype, gridlines, axes, dataLabels }:
 
   return (
     <g>
-      {gridlines && <Gridlines inner={inner} ticks={4} />}
+      {gridlines && <Gridlines inner={inner} ticks={scale.ticks} />}
       {shapes}
       {axes && (
         <>
           <line x1={inner.x} x2={inner.x} y1={inner.y} y2={inner.y + inner.h} stroke={AXIS_COLOR} />
           <line x1={inner.x} x2={inner.x + inner.w} y1={inner.y + inner.h} y2={inner.y + inner.h} stroke={AXIS_COLOR} />
-          <ValueAxis inner={inner} max={max} />
+          <ValueAxis inner={inner} max={max} ticks={scale.ticks} />
           <CategoryAxis inner={inner} categories={data.categories} />
         </>
       )}
@@ -326,7 +333,8 @@ function ScatterBody({ inner, data, colors, smooth, gridlines, axes }: {
   const n = Math.max(1, data.categories.length)
   let maxY = 1
   for (const s of data.series) for (const v of s.values) maxY = Math.max(maxY, v ?? 0)
-  maxY = niceMax(maxY)
+  const scale = axisScale(maxY)
+  maxY = scale.max
   const step = n > 1 ? inner.w / (n - 1) : inner.w
 
   const shapes: ReactElement[] = []
@@ -338,13 +346,13 @@ function ScatterBody({ inner, data, colors, smooth, gridlines, axes }: {
 
   return (
     <g>
-      {gridlines && <Gridlines inner={inner} ticks={4} />}
+      {gridlines && <Gridlines inner={inner} ticks={scale.ticks} />}
       {shapes}
       {axes && (
         <>
           <line x1={inner.x} x2={inner.x} y1={inner.y} y2={inner.y + inner.h} stroke={AXIS_COLOR} />
           <line x1={inner.x} x2={inner.x + inner.w} y1={inner.y + inner.h} y2={inner.y + inner.h} stroke={AXIS_COLOR} />
-          <ValueAxis inner={inner} max={maxY} />
+          <ValueAxis inner={inner} max={maxY} ticks={scale.ticks} />
           <CategoryAxis inner={inner} categories={data.categories} />
         </>
       )}

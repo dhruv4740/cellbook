@@ -2,15 +2,21 @@
 import { useEffect, useRef, useState } from 'react'
 import { useUi, setUi } from './ui'
 import HomeTab from './ribbon/HomeTab'
-import { InsertTab, PageLayoutTab, FormulasTab, DataTab, ReviewTab, ViewTab, AutomateTab, HelpTab } from './ribbon/OtherTabs'
+import { InsertTab, PageLayoutTab, FormulasTab, DataTab, ReviewTab, ViewTab, DrawTab, HelpTab } from './ribbon/OtherTabs'
 import { RibbonScaleProvider } from './ribbon/controls'
 import { ChartDesignTab, ChartFormatTab } from '../charts/ChartRibbonTabs'
 import { ChevronUp20Regular, ChevronDown20Regular, CommentAdd20Regular, Share20Regular } from '@fluentui/react-icons'
+import KeyTips from './KeyTips'
 import './Ribbon.css'
 
-const TABS = ['File', 'Home', 'Insert', 'Page Layout', 'Formulas', 'Data', 'Review', 'View', 'Automate', 'Help']
+const TABS = ['File', 'Home', 'Insert', 'Draw', 'Page Layout', 'Formulas', 'Data', 'Review', 'View', 'Help']
 // Contextual tabs (Chart Tools), shown only while a chart is selected.
 const CHART_TABS = ['Chart Design', 'Format']
+/** Excel 2021's real tab KeyTips (Alt/F10, then the letter(s)). */
+export const TAB_KEYTIPS: Record<string, string> = {
+  File: 'F', Home: 'H', Insert: 'N', Draw: 'JI', 'Page Layout': 'P', Formulas: 'M',
+  Data: 'A', Review: 'R', View: 'W', Help: 'Y'
+}
 
 export default function Ribbon() {
   const ui = useUi()
@@ -41,6 +47,7 @@ export default function Ribbon() {
 
   return (
     <div className="xl-ribbon">
+      <KeyTips />
       <div className="xl-tabstrip">
         <div className="xl-tabstrip-left">
           {TABS.map((t) => (
@@ -48,8 +55,10 @@ export default function Ribbon() {
               key={t}
               className={'xl-tab' + (t === 'File' ? ' file-tab' : '') + (ui.ribbonTab === t && !ui.backstage ? ' active' : '')}
               onClick={() => selectTab(t)}
+              style={{ position: 'relative' }}
             >
               {t}
+              <span className="xl-keytip-badge xl-keytip-tab" data-keytip={TAB_KEYTIPS[t]}>{TAB_KEYTIPS[t]}</span>
             </div>
           ))}
           {ui.selectedChart && CHART_TABS.map((t) => (
@@ -74,12 +83,12 @@ export default function Ribbon() {
             <RibbonScaleProvider key={ui.ribbonTab} containerRef={groupsRef}>
               {ui.ribbonTab === 'Home' && <HomeTab />}
               {ui.ribbonTab === 'Insert' && <InsertTab />}
+              {ui.ribbonTab === 'Draw' && <DrawTab />}
               {ui.ribbonTab === 'Page Layout' && <PageLayoutTab />}
               {ui.ribbonTab === 'Formulas' && <FormulasTab />}
               {ui.ribbonTab === 'Data' && <DataTab />}
               {ui.ribbonTab === 'Review' && <ReviewTab />}
               {ui.ribbonTab === 'View' && <ViewTab />}
-              {ui.ribbonTab === 'Automate' && <AutomateTab />}
               {ui.ribbonTab === 'Help' && <HelpTab />}
               {ui.ribbonTab === 'Chart Design' && <ChartDesignTab />}
               {ui.ribbonTab === 'Format' && ui.selectedChart && <ChartFormatTab />}

@@ -10,7 +10,9 @@
     "start": "electron-vite preview",
     "web": "vite --config vite.web.config.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "dist": "npm run build && electron-builder --win --x64",
+    "dist:dir": "npm run build && electron-builder --linux dir"
   },
   "dependencies": {
     "@fluentui/react-icons": "^2.0.341",
@@ -31,5 +33,44 @@
     "typescript": "^7.0.2",
     "vite": "^7.3.6",
     "vitest": "^3.2.7"
+  },
+  "build": {
+    "appId": "com.ramanroadways.cellbook",
+    "productName": "Cellbook",
+    "copyright": "Copyright © 2026",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Cellbook",
+      "artifactName": "Cellbook Setup ${version}.exe"
+    },
+    "fileAssociations": [
+      { "ext": "xlsx", "name": "Excel Workbook", "description": "Excel Workbook", "role": "Editor" },
+      { "ext": "xlsm", "name": "Excel Macro-Enabled Workbook", "description": "Excel Macro-Enabled Workbook", "role": "Editor" },
+      { "ext": "xls", "name": "Excel 97-2003 Workbook", "description": "Excel 97-2003 Workbook", "role": "Editor" },
+      { "ext": "csv", "name": "CSV File", "description": "Comma Separated Values File", "role": "Editor" }
+    ],
+    "linux": {
+      "target": ["dir"],
+      "category": "Office"
+    }
   }
 }

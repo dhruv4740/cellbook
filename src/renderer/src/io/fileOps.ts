@@ -44,6 +44,11 @@ function setTitle(): void {
   else document.title = title
 }
 
+/** Tells main this window's current file name/path/dirty flag (used to decide window reuse on Open). */
+function reportState(): void {
+  window.api?.reportState?.({ fileName: store.fileName, filePath: store.filePath, dirty: store.dirty })
+}
+
 /** Shows Excel's "Want to save your changes?" prompt if needed. Returns false if the caller should abort. */
 async function confirmDiscard(): Promise<boolean> {
   if (!store.dirty) return true
@@ -82,18 +87,21 @@ function browserDownload(name: string, data: Uint8Array | string, mime: string):
 
 // ---------- core operations ----------
 
-/** Returns true when a workbook was opened. */
+/**
+ * Returns true when the pick actually went somewhere (Electron: main routes it to a window —
+ * this one or a new one — asynchronously; browser: loads into this tab synchronously-ish).
+ */
 export async function openFile(): Promise<boolean> {
-  if (!(await confirmDiscard())) return false
+  if (window.api) return window.api.pickAndOpen()
 
-  if (window.api) {
-    const r = await window.api.openFile()
-    if (!r) return false
-    await loadFromBytes(r.data, r.path.split(/[\\/]/).pop() || 'Book1.xlsx', r.path)
-  } else {
-    const picked = await browserPickFile()
-    if (!picked) return false
+  if (!(await confirmDiscard())) return false
+  const picked = await browserPickFile()
+  if (!picked) return false
+  try {
     await loadFromBytes(picked.data, picked.name, null)
+  } catch {
+    window.alert(`Excel cannot open the file '${picked.name}' because the file format or file extension is not valid. Verify that the file has not been corrupted and that the file extension matches the format of the file.`)
+    return false
   }
   return true
 }
@@ -101,11 +109,7 @@ export async function openFile(): Promise<boolean> {
 /** Opens a file from the Recent list. Falls back to the picker when the path can't be read (browser, moved file). */
 export async function openRecent(f: RecentFile): Promise<boolean> {
   if (!window.api || !f.path) return openFile()
-  if (!(await confirmDiscard())) return false
-  const data = await window.api.readFile(f.path).catch(() => null)
-  if (!data) return openFile()
-  await loadFromBytes(data, f.path.split(/[\\/]/).pop() || f.name, f.path)
-  return true
+  return window.api.openPathRequest(f.path)
 }
 
 async function loadFromBytes(data: Uint8Array, fileName: string, path: string | null): Promise<void> {
@@ -167,15 +171,28 @@ export function downloadCsv(): void {
   browserDownload(store.fileName + '.csv', writeActiveCsv(), CSV_MIME)
 }
 
-/** Returns false when the user cancelled the save prompt. */
+/**
+ * Ctrl+N / File > New > Blank workbook: Excel always opens a NEW window for this, it never
+ * reuses the current one. In the browser fallback (no window.api) there's only one "window",
+ * so it resets in place instead.
+ */
 export async function newWorkbook(): Promise<boolean> {
+  if (window.api) {
+    await window.api.newWindow()
+    return true
+  }
   if (!(await confirmDiscard())) return false
   store.newWorkbook()
   setTitle()
   return true
 }
 
+/** Ctrl+W / Ctrl+F4: closes this workbook's window (with the save prompt); the last window quits the app. */
 export async function closeWorkbook(): Promise<boolean> {
+  if (window.api) {
+    await window.api.windowControl('close') // main re-asks via onCloseRequested below if there are unsaved changes
+    return true
+  }
   if (!(await confirmDiscard())) return false
   store.newWorkbook()
   setTitle()
@@ -190,18 +207,65 @@ export function installFileShortcuts(): void {
   installed = true
 
   window.addEventListener('keydown', (e) => {
-    if (!(e.ctrlKey || e.metaKey) && e.key !== 'F12') return
+    const ctrl = e.ctrlKey || e.metaKey
+    if (!ctrl && e.key !== 'F12') return
     const k = e.key.toLowerCase()
-    if ((e.ctrlKey || e.metaKey) && k === 'n') { e.preventDefault(); void newWorkbook() }
-    else if ((e.ctrlKey || e.metaKey) && k === 'o') { e.preventDefault(); void openFile() }
-    else if ((e.ctrlKey || e.metaKey) && k === 's') { e.preventDefault(); void save() }
+    if (ctrl && k === 'n') { e.preventDefault(); void newWorkbook() }
+    else if (ctrl && k === 'o') { e.preventDefault(); void openFile() }
+    else if (ctrl && k === 's') { e.preventDefault(); void save() }
     else if (e.key === 'F12') { e.preventDefault(); void saveAs() }
-    else if ((e.ctrlKey || e.metaKey) && k === 'w') { e.preventDefault(); void closeWorkbook() }
+    else if (ctrl && (k === 'w' || e.key === 'F4')) { e.preventDefault(); void closeWorkbook() }
+    else if (ctrl && (k === 'tab' || e.key === 'F6')) { e.preventDefault(); void window.api?.cycleWindow(e.shiftKey ? -1 : 1) }
   })
 
   // Electron: the main process asks before actually closing the window when there are unsaved changes.
   window.api?.onCloseRequested?.(async () => {
     const ok = await confirmDiscard()
     await window.api!.confirmClose(ok)
+  })
+
+  // A spare pre-loaded window is handed its "BookN" name only once it's actually shown.
+  window.api?.onAssignBook?.((name) => {
+    store.fileName = name
+    store.notify()
+    setTitle()
+    reportState()
+  })
+
+  // External opens: file associations, second-instance launches, Recent, and Ctrl+O all funnel
+  // through main, which pushes the bytes here once it has decided which window they belong in.
+  window.api?.onOpenPath?.(async ({ path, data }) => {
+    if (!(await confirmDiscard())) return
+    const name = path.split(/[\\/]/).pop() || 'Book1.xlsx'
+    try {
+      await loadFromBytes(data, name, path)
+    } catch {
+      // Corrupt file / wrong format, e.g. a renamed non-workbook file — leave this window's
+      // current workbook untouched instead of crashing, matching Excel's own error prompt.
+      window.alert(`Excel cannot open the file '${name}' because the file format or file extension is not valid. Verify that the file has not been corrupted and that the file extension matches the format of the file.`)
+    }
+  })
+
+  // Report this window's state whenever the workbook changes (name/path/dirty), so main can
+  // decide window reuse correctly and keep its Switch Windows list in sync.
+  store.subscribe(reportState)
+  reportState()
+
+  installDropToOpen()
+}
+
+/** Drag a workbook file onto the window to open it, like dropping it onto Excel's icon. */
+function installDropToOpen(): void {
+  window.addEventListener('dragover', (e) => {
+    if (e.dataTransfer?.types.includes('Files')) e.preventDefault()
+  })
+  window.addEventListener('drop', (e) => {
+    const files = e.dataTransfer?.files
+    if (!files?.length || !window.api?.getPathForFile) return
+    e.preventDefault()
+    for (const f of Array.from(files)) {
+      const path = window.api.getPathForFile(f)
+      if (/\.(xlsx|xlsm|xls|csv)$/i.test(path)) void window.api.openPathRequest(path)
+    }
   })
 }

@@ -13,6 +13,24 @@ npm test
 npm run build      # production build into out/
 ```
 
+## Windows installer
+
+`npm run dist` builds a Windows NSIS installer ("Cellbook Setup &lt;version&gt;.exe") via
+electron-builder, using the `build` config in `package.json`. Building the Windows `.exe`
+requires **wine** and can only be done on Windows itself (or macOS/Linux with wine installed) —
+electron-builder's NSIS target shells out to `signtool.exe`/NSIS via wine, which this
+Linux container doesn't have. Run `npm run dist` on a Windows machine (or a Linux/macOS
+machine with wine + mono installed) to produce the real installer.
+
+To sanity-check the electron-builder config itself without wine, `npm run dist:dir` builds an
+unpacked Linux app into `release/linux-unpacked/` — it exercises packaging, native module
+rebuilding and file associations config, just not the NSIS installer step.
+
+The installer offers a per-machine or per-user install, Start Menu + desktop shortcuts, and
+registers `.xlsx`, `.xlsm`, `.xls` and `.csv` file associations. It currently uses Electron's
+default icon — **TODO: add a real `build/icon.ico`** (and reference it from `build.win.icon`
+in `package.json`) before shipping to the pilot machines.
+
 ## Layout
 
 - `src/main`, `src/preload` — Electron window, file dialogs, IPC.

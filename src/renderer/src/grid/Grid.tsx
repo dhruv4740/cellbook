@@ -14,6 +14,8 @@ import { Dialog } from '../components/Dialog'
 import * as cmd from './commands'
 import { shiftFormula } from '../engine/shiftFormula'
 import ChartOverlay from '../charts/ChartOverlay'
+import { insertChartFromSelection } from '../charts/insertChart'
+import { COLUMN_BAR_GALLERY } from '../charts/gallery'
 import { AutoFilterMenu } from './AutoFilterMenu'
 import { NoteBox, NoteTooltip, CommentBox, closeNoteEditor, closeCommentPanel } from './Annotations'
 import {
@@ -33,11 +35,11 @@ const REF_COLORS = ['#2563eb', '#dc2626', '#7c3aed', '#059669', '#d97706', '#089
 
 function fontString(style: CellStyle | undefined, z: number): string {
   const size = Math.round((style?.fontSize ?? 11) * z)
-  const fam = style?.fontFamily ?? 'Aptos Narrow'
+  const fam = style?.fontFamily ?? 'Calibri'
   let s = ''
   if (style?.italic) s += 'italic '
   if (style?.bold) s += 'bold '
-  return `${s}${size}px "${fam}", sans-serif`
+  return `${s}${size}px "${fam}", "Carlito", sans-serif`
 }
 
 interface Pt { x: number; y: number }
@@ -254,7 +256,7 @@ export default function Grid() {
       if (style?.fill) { ctx.fillStyle = style.fill; ctx.fillRect(x, y, w, h) }
       const editingHere = ui.edit && ui.edit.r === r && ui.edit.c === c
       if (editingHere) return
-      const disp = store.getDisplay(sheet, r, c)
+      const disp = ui.formulasVisible ? { text: store.getRaw(sheet, r, c), color: undefined, align: 'left' as const } : store.getDisplay(sheet, r, c)
       if (!disp.text) return
       ctx.font = fontString(style, z)
       ctx.fillStyle = style?.color ?? disp.color ?? '#000000'
@@ -1031,10 +1033,61 @@ export default function Grid() {
     const editing = !!getUi().edit
     const mod = e.ctrlKey || e.metaKey
     if (!editing) {
-      if (e.key === 'ArrowDown') { tabAnchorCol.current = null; moveActive(1, 0, e.shiftKey, { jump: mod }); e.preventDefault(); return }
-      if (e.key === 'ArrowUp') { tabAnchorCol.current = null; moveActive(-1, 0, e.shiftKey, { jump: mod }); e.preventDefault(); return }
-      if (e.key === 'ArrowLeft') { tabAnchorCol.current = null; moveActive(0, -1, e.shiftKey, { jump: mod }); e.preventDefault(); return }
-      if (e.key === 'ArrowRight') { tabAnchorCol.current = null; moveActive(0, 1, e.shiftKey, { jump: mod }); e.preventDefault(); return }
+      const extending = e.shiftKey || getUi().selectMode !== 'none'
+      // ---- Scroll Lock: arrows scroll the viewport, active cell doesn't move ----
+      if (getUi().scrollLock && !mod && (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+        const el = scrollRef.current
+        if (el) {
+          if (e.key === 'ArrowDown') el.scrollTop += DEFAULT_ROW_HEIGHT * z
+          else if (e.key === 'ArrowUp') el.scrollTop -= DEFAULT_ROW_HEIGHT * z
+          else if (e.key === 'ArrowRight') el.scrollLeft += DEFAULT_COL_WIDTH * z
+          else el.scrollLeft -= DEFAULT_COL_WIDTH * z
+        }
+        e.preventDefault(); return
+      }
+      if (e.key === 'ArrowDown') { tabAnchorCol.current = null; const j = mod || getUi().endMode; moveActive(1, 0, extending, { jump: j }); if (getUi().endMode) setUi({ endMode: false }); e.preventDefault(); return }
+      if (e.key === 'ArrowUp') { tabAnchorCol.current = null; const j = mod || getUi().endMode; moveActive(-1, 0, extending, { jump: j }); if (getUi().endMode) setUi({ endMode: false }); e.preventDefault(); return }
+      if (e.key === 'ArrowLeft') { tabAnchorCol.current = null; const j = mod || getUi().endMode; moveActive(0, -1, extending, { jump: j }); if (getUi().endMode) setUi({ endMode: false }); e.preventDefault(); return }
+      if (e.key === 'ArrowRight') { tabAnchorCol.current = null; const j = mod || getUi().endMode; moveActive(0, 1, extending, { jump: j }); if (getUi().endMode) setUi({ endMode: false }); e.preventDefault(); return }
+      // ---- Scroll Lock toggle ----
+      if (e.key === 'ScrollLock') { setUi({ scrollLock: !getUi().scrollLock }); e.preventDefault(); return }
+      // ---- End mode: arm, then the next arrow jumps once (see ArrowDown/Up/Left/Right above) ----
+      if (e.key === 'End' && !mod) { setUi({ endMode: !getUi().endMode }); e.preventDefault(); return }
+      // ---- Alt+Down: pick-from-list ----
+      if (e.key === 'ArrowDown' && e.altKey && !mod) {
+        const values = cmd.pickListValues()
+        if (values.length) {
+          const a = sheet.selection.active
+          const rect = cellRect(a.r, a.c)
+          const hostR = hostRef.current!.getBoundingClientRect()
+          setUi({ pickList: { r: a.r, c: a.c, x: hostR.left + rect.x, y: hostR.top + rect.y + rect.h, values } })
+        }
+        e.preventDefault(); return
+      }
+      // ---- Ctrl+[ / Ctrl+] precedents/dependents, Ctrl+Shift+{ / } all levels ----
+      if (mod && !e.shiftKey && e.key === '[') { cmd.selectPrecedents(false); e.preventDefault(); return }
+      if (mod && !e.shiftKey && e.key === ']') { cmd.selectDependents(false); e.preventDefault(); return }
+      if (mod && e.shiftKey && e.key === '{') { cmd.selectPrecedents(true); e.preventDefault(); return }
+      if (mod && e.shiftKey && e.key === '}') { cmd.selectDependents(true); e.preventDefault(); return }
+      // ---- Ctrl+/: select the current array ----
+      if (mod && !e.shiftKey && e.key === '/') { cmd.selectCurrentArray(); e.preventDefault(); return }
+      // ---- Alt+;: select only visible cells ----
+      if (e.altKey && e.key === ';') { cmd.selectVisibleCells(); e.preventDefault(); return }
+      // ---- Ctrl+F2: Print in the backstage ----
+      if (mod && e.key === 'F2') { setUi({ backstage: true, backstageTab: 'print' }); e.preventDefault(); return }
+      // ---- Ctrl+Shift+PageUp/PageDown: group-select adjacent sheet tabs ----
+      if (mod && e.shiftKey && (e.key === 'PageDown' || e.key === 'PageUp')) {
+        const dir = e.key === 'PageDown' ? 1 : -1
+        const cur = getUi().groupedSheets
+        const base = cur && cur.includes(store.activeIndex) ? cur : [store.activeIndex]
+        const next = Math.max(0, Math.min(store.sheets.length - 1, store.activeIndex + dir))
+        const grouped = Array.from(new Set([...base, next])).sort((a, b) => a - b)
+        setUi({ groupedSheets: grouped })
+        store.setActiveSheet(next)
+        e.preventDefault(); return
+      }
+      if (e.key === 'F8' && !e.shiftKey && !mod) { setUi({ selectMode: getUi().selectMode === 'extend' ? 'none' : 'extend' }); e.preventDefault(); return }
+      if (e.key === 'F8' && e.shiftKey) { setUi({ selectMode: getUi().selectMode === 'add' ? 'none' : 'add' }); e.preventDefault(); return }
       if (e.key === 'Tab') {
         if (tabAnchorCol.current === null) tabAnchorCol.current = sheet.selection.active.c
         moveWithinOrGrid(0, e.shiftKey ? -1 : 1)
@@ -1080,6 +1133,65 @@ export default function Grid() {
       if (mod && !e.shiftKey && e.key === ';') { const a = sheet.selection.active; const d = new Date(); store.setRaw(sheet, a.r, a.c, `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`); e.preventDefault(); return }
       if (mod && e.shiftKey && (e.key === ':' || e.key === ';')) { const a = sheet.selection.active; const d = new Date(); store.setRaw(sheet, a.r, a.c, `${d.getHours() % 12 || 12}:${String(d.getMinutes()).padStart(2, '0')} ${d.getHours() >= 12 ? 'PM' : 'AM'}`); e.preventDefault(); return }
       if (mod && e.key === 'Enter') { const a = sheet.selection.active; const raw = store.getRaw(sheet, a.r, a.c); cmd.clearSelection('contents'); void raw; e.preventDefault(); return }
+      if (e.key === 'Escape') { setUi({ selectMode: 'none' }); e.preventDefault(); return }
+      // ---- number format shortcuts: Ctrl+Shift+~ ! @ # $ % ^ ----
+      if (mod && e.key === '~') { cmd.applyNumFmtShortcut('general'); e.preventDefault(); return }
+      if (mod && e.key === '!') { cmd.applyNumFmtShortcut('number'); e.preventDefault(); return }
+      if (mod && e.key === '@') { cmd.applyNumFmtShortcut('time'); e.preventDefault(); return }
+      if (mod && e.key === '#') { cmd.applyNumFmtShortcut('date'); e.preventDefault(); return }
+      if (mod && e.key === '$') { cmd.applyNumFmtShortcut('currency'); e.preventDefault(); return }
+      if (mod && e.key === '%') { cmd.applyNumFmtShortcut('percent'); e.preventDefault(); return }
+      if (mod && e.key === '^') { cmd.applyNumFmtShortcut('scientific'); e.preventDefault(); return }
+      // ---- quick borders: Ctrl+Shift+& / Ctrl+Shift+_ ----
+      if (mod && e.key === '&') { cmd.applyOutlineBorder('box'); e.preventDefault(); return }
+      if (mod && e.key === '_') { cmd.applyOutlineBorder('none'); e.preventDefault(); return }
+      // ---- Ctrl+2/3/4/5: bold / italic / underline / strikethrough ----
+      if (mod && !e.shiftKey && e.key === '2') { toggleStyle('bold'); e.preventDefault(); return }
+      if (mod && !e.shiftKey && e.key === '3') { toggleStyle('italic'); e.preventDefault(); return }
+      if (mod && !e.shiftKey && e.key === '4') { toggleStyle('underline'); e.preventDefault(); return }
+      if (mod && !e.shiftKey && e.key === '5') { const rg = sheet.selection.ranges; const st = store.getStyle(sheet, sheet.selection.active.r, sheet.selection.active.c); store.applyStyle(sheet, rg, { strike: !st?.strike }, 'Strikethrough'); e.preventDefault(); return }
+      // ---- Ctrl+9/0 hide rows/columns, Ctrl+Shift+( / ) unhide ----
+      if (mod && !e.shiftKey && e.key === '9') { cmd.hideRows(true); e.preventDefault(); return }
+      if (mod && !e.shiftKey && e.key === '0') { cmd.hideColumns(true); e.preventDefault(); return }
+      if (mod && e.key === '(') { cmd.hideRows(false); e.preventDefault(); return }
+      if (mod && e.key === ')') { cmd.hideColumns(false); e.preventDefault(); return }
+      // ---- Ctrl+` show formulas ----
+      if (mod && e.key === '`') { setUi({ formulasVisible: !getUi().formulasVisible }); e.preventDefault(); return }
+      // ---- sheet navigation: Ctrl+PgUp/PgDn switch sheet, Shift+F11 / Alt+Shift+F1 insert sheet ----
+      if (mod && e.key === 'PageDown') { store.setActiveSheet(Math.min(store.sheets.length - 1, store.activeIndex + 1)); e.preventDefault(); return }
+      if (mod && e.key === 'PageUp') { store.setActiveSheet(Math.max(0, store.activeIndex - 1)); e.preventDefault(); return }
+      if (e.key === 'F11' && e.shiftKey && !mod) { store.addSheet(); e.preventDefault(); return }
+      if (e.key === 'F1' && e.altKey && e.shiftKey) { store.addSheet(); e.preventDefault(); return }
+      // ---- Alt+F1: embedded chart of the default type (clustered column) from the selection ----
+      if (e.key === 'F1' && e.altKey && !e.shiftKey && !mod) { insertChartFromSelection(store, COLUMN_BAR_GALLERY[0]); e.preventDefault(); return }
+      // ---- F9 / Shift+F9: calculate now / calculate active sheet (calc is always automatic here,
+      // so these force a redraw rather than changing any calculation mode) ----
+      if ((e.key === 'F9') && !mod) { store.notify(); e.preventDefault(); return }
+      // ---- Shift+F3: Insert Function ----
+      if (e.key === 'F3' && e.shiftKey) { const a = sheet.selection.active; setUi({ edit: { r: a.r, c: a.c, text: '=', source: 'bar', mode: 'Enter' } }); e.preventDefault(); return }
+      // ---- Ctrl+Alt+V: Paste Special ----
+      if (mod && e.altKey && e.key.toLowerCase() === 'v') { setUi({ dialog: { kind: 'pasteSpecial' } }); e.preventDefault(); return }
+      // ---- copy value/formula from the cell above ----
+      if (mod && e.shiftKey && e.key === '"') { cmd.copyFromAbove('value'); e.preventDefault(); return }
+      if (mod && e.key === "'") { cmd.copyFromAbove('formula'); e.preventDefault(); return }
+      // ---- Ctrl+Shift+*: select current region ----
+      if (mod && e.key === '*') { cmd.selectCurrentRegion(); e.preventDefault(); return }
+      // ---- Shift+Backspace: collapse selection to the active cell ----
+      if (e.shiftKey && e.key === 'Backspace') { cmd.collapseToActiveCell(); e.preventDefault(); return }
+      // ---- Ctrl+Shift+Space: select all (approximates Excel's current-region-then-sheet escalation) ----
+      if (mod && e.shiftKey && e.key === ' ') { cmd.selectAll(); e.preventDefault(); return }
+      // ---- Ctrl+Shift+F / Ctrl+Shift+P: Format Cells > Font ----
+      if (mod && e.shiftKey && (e.key.toLowerCase() === 'f' || e.key.toLowerCase() === 'p')) { setUi({ dialog: { kind: 'formatCells', props: { tab: 'Font' } } }); e.preventDefault(); return }
+      // ---- Shift+F10 / ContextMenu key: open the right-click menu at the active cell ----
+      if ((e.key === 'F10' && e.shiftKey) || e.key === 'ContextMenu') {
+        const a = sheet.selection.active
+        const rect = cellRect(a.r, a.c)
+        const hostR = hostRef.current!.getBoundingClientRect()
+        setCtxMenuKind('cell')
+        openCtxMenu({ clientX: hostR.left + rect.x + rect.w / 2, clientY: hostR.top + rect.y + rect.h / 2 })
+        e.preventDefault()
+        return
+      }
       if (e.key.length === 1 && !mod && !e.altKey) {
         const a = sheet.selection.active
         beginEdit(a.r, a.c, 'Enter', e.key)
@@ -1163,6 +1275,37 @@ export default function Grid() {
       moveActive(dr, dc, false)
       hostRef.current?.focus()
       e.preventDefault()
+      return
+    }
+    // F4: while editing a formula, cycles the $-lock style of the reference at/before the caret
+    // (A1 -> $A$1 -> A$1 -> $A1 -> A1), Excel's "toggle absolute/relative reference".
+    if (e.key === 'F4' && !e.ctrlKey && !e.altKey) {
+      const ta = e.target as HTMLTextAreaElement
+      const text = edit.text
+      const caret = ta.selectionEnd ?? edit.caret ?? text.length
+      const re = /\$?[A-Za-z]{1,3}\$?\d{1,7}/g
+      let m: RegExpExecArray | null
+      let hit: RegExpExecArray | null = null
+      while ((m = re.exec(text))) { if (m.index < caret && m.index + m[0].length >= caret) { hit = m; break } }
+      if (hit) {
+        const ref = hit[0]
+        const colAbs = ref.startsWith('$')
+        const rest = colAbs ? ref.slice(1) : ref
+        const dollarBeforeRow = rest.indexOf('$')
+        const rowAbs = dollarBeforeRow >= 0
+        const col = (rowAbs ? rest.slice(0, dollarBeforeRow) : rest.replace(/\d+$/, ''))
+        const row = rowAbs ? rest.slice(dollarBeforeRow + 1) : rest.replace(/^[A-Za-z]+/, '')
+        const next =
+          !colAbs && !rowAbs ? `$${col}$${row}` :
+          colAbs && rowAbs ? `${col}$${row}` :
+          !colAbs && rowAbs ? `$${col}${row}` :
+          `${col}${row}`
+        const newText = text.slice(0, hit.index) + next + text.slice(hit.index + ref.length)
+        const newCaret = hit.index + next.length
+        setUi({ edit: { ...edit, text: newText, caret: newCaret } })
+        requestAnimationFrame(() => { ta.setSelectionRange(newCaret, newCaret) })
+        e.preventDefault()
+      }
       return
     }
   }
@@ -1393,6 +1536,17 @@ export default function Grid() {
       )}
       {ui.commentPanel && (
         <CommentBox sheet={sheet} r={ui.commentPanel.r} c={ui.commentPanel.c} rect={cellRect(ui.commentPanel.r, ui.commentPanel.c)} onClose={closeCommentPanel} />
+      )}
+      {ui.pickList && (
+        <Menu
+          x={ui.pickList.x}
+          y={ui.pickList.y}
+          onClose={() => setUi({ pickList: null })}
+          items={ui.pickList.values.map((v) => ({
+            label: v || '(blank)',
+            onClick: () => { store.setRaw(sheet, ui.pickList!.r, ui.pickList!.c, v); setUi({ pickList: null }); hostRef.current?.focus() }
+          }))}
+        />
       )}
       {hoverCell && !ui.edit && !ui.noteEditor && !filterMenu &&
         sheet.layout.notes[hoverCell.r + ',' + hoverCell.c] && (

@@ -98,3 +98,29 @@
 .xl-group-collapsed .xl-big-label { display: flex; align-items: center; justify-content: center; gap: 2px; flex-wrap: wrap; max-width: 56px; text-align: center; line-height: 1.15; word-break: normal; overflow-wrap: normal; hyphens: none; }
 .xl-group-popup { position: fixed; background: #fff; border: 1px solid #b0b0b0; box-shadow: 0 3px 10px rgba(0,0,0,0.25); z-index: 6000; padding: 3px 4px 4px; display: flex; align-items: stretch; border-radius: 2px; }
 .xl-group-popup .xl-group { padding: 3px 5px 0; }
+
+/* ---- KeyTips (Alt / F10) --------------------------------------------------------------- */
+.xl-keytip-badge {
+  display: none;
+  position: absolute;
+  left: 50%; top: 100%;
+  transform: translate(-50%, 2px);
+  background: #fff; color: #217346; border: 1px solid #b7b7b7; border-radius: 2px;
+  font: 700 11px/1 "Segoe UI", sans-serif; padding: 2px 4px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.35);
+  z-index: 7000; pointer-events: none; white-space: nowrap;
+}
+body.xl-keytips-tabs .xl-keytip-tab { display: inline-block; }
+body.xl-keytips-tabs .xl-qat .xl-keytip-badge { display: inline-block; }
+body.xl-keytips-commands .xl-ribbon-body .xl-keytip-badge:not(.xl-keytip-tab) { display: inline-block; }
+.xl-keytip-badge.xl-keytip-tab { top: auto; bottom: -4px; transform: translate(-50%, 100%); }
+
+
+/* Buttons clip their contents (ellipsis labels), which would also clip the KeyTip badges they
+   carry. While command KeyTips show, let badges spill out and sit above neighbouring controls. */
+body.xl-keytips-commands .xl-ribbon-body button,
+body.xl-keytips-commands .xl-ribbon-body .xl-split,
+body.xl-keytips-commands .xl-ribbon-body .xl-split-main,
+body.xl-keytips-commands .xl-ribbon-body .xl-small-split-main,
+body.xl-keytips-commands .xl-ribbon-groups { overflow: visible; }
+body.xl-keytips-commands .xl-ribbon-body .xl-keytip-badge { z-index: 7000; }

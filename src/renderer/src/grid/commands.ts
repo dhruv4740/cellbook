@@ -517,6 +517,80 @@ export function nextNote(): void { stepAnnotation(store.active.layout.notes, 1, 
 export function previousComment(): void { stepAnnotation(store.active.layout.comments, -1, (r, c) => setUi({ commentPanel: { r, c } })) }
 export function nextComment(): void { stepAnnotation(store.active.layout.comments, 1, (r, c) => setUi({ commentPanel: { r, c } })) }
 
+// ---------- number format shortcuts (Ctrl+Shift+~ ! @ # $ % ^) ----------
+export function applyNumFmtShortcut(kind: 'general' | 'number' | 'time' | 'date' | 'currency' | 'percent' | 'scientific'): void {
+  const fmt = {
+    general: 'General',
+    number: '#,##0.00',
+    time: 'h:mm AM/PM',
+    date: 'm/d/yyyy',
+    currency: '$#,##0.00;($#,##0.00)',
+    percent: '0%',
+    scientific: '0.00E+00'
+  }[kind]
+  store.applyStyle(store.active, sel(), { numFmt: fmt === 'General' ? undefined : fmt }, 'Number Format')
+}
+
+// ---------- quick borders (Ctrl+Shift+& / Ctrl+Shift+_) ----------
+export function applyOutlineBorder(kind: 'box' | 'none'): void {
+  const sheet = store.active
+  const thin = { style: 'thin', color: '#000000' } as const
+  sel().forEach((rg) => {
+    const n = normRange(rg)
+    store.applyStyle(sheet, [rg], (s, r, c) => {
+      if (kind === 'none') { const { borders, ...rest } = s; void borders; return rest }
+      const b: NonNullable<CellStyle['borders']> = { ...s.borders }
+      if (r === n.r1) b.top = thin
+      if (r === n.r2) b.bottom = thin
+      if (c === n.c1) b.left = thin
+      if (c === n.c2) b.right = thin
+      return { ...s, borders: b }
+    }, 'Borders')
+  })
+}
+
+// ---------- hide/unhide via Ctrl+9 / Ctrl+0 / Ctrl+Shift+( / Ctrl+Shift+) ----------
+export { hideRows as ctrlHideRows, hideColumns as ctrlHideColumns }
+
+// ---------- copy value/formula from the cell above (Ctrl+Shift+" / Ctrl+') ----------
+export function copyFromAbove(kind: 'value' | 'formula'): void {
+  const sheet = store.active
+  const active = sheet.selection.active
+  if (active.r === 0) return
+  if (kind === 'formula') {
+    const raw = store.getRaw(sheet, active.r - 1, active.c)
+    store.setRaw(sheet, active.r, active.c, raw.startsWith('=') ? shiftFormula(raw, 1, 0) : raw)
+  } else {
+    const v = store.getValue(sheet, active.r - 1, active.c)
+    store.setRaw(sheet, active.r, active.c, v === null || v === undefined ? '' : typeof v === 'boolean' ? (v ? 'TRUE' : 'FALSE') : typeof v === 'object' ? (v as { error: string }).error : String(v))
+  }
+}
+
+// ---------- select current region (Ctrl+Shift+*) ----------
+export function selectCurrentRegion(): void {
+  const sheet = store.active
+  const active = sheet.selection.active
+  if (store.getRaw(sheet, active.r, active.c) === '') return
+  let r1 = active.r, r2 = active.r, c1 = active.c, c2 = active.c
+  const has = (r: number, c: number): boolean => r >= 0 && c >= 0 && r < MAX_ROWS && c < MAX_COLS && store.getRaw(sheet, r, c) !== ''
+  let grew = true
+  while (grew) {
+    grew = false
+    if ([...Array(c2 - c1 + 1)].some((_, i) => has(r1 - 1, c1 + i))) { r1--; grew = true }
+    if ([...Array(c2 - c1 + 1)].some((_, i) => has(r2 + 1, c1 + i))) { r2++; grew = true }
+    if ([...Array(r2 - r1 + 1)].some((_, i) => has(r1 + i, c1 - 1))) { c1--; grew = true }
+    if ([...Array(r2 - r1 + 1)].some((_, i) => has(r1 + i, c2 + 1))) { c2++; grew = true }
+  }
+  store.setSelection({ ranges: [{ r1, c1, r2, c2 }], active }, sheet)
+}
+
+// ---------- collapse a multi-range selection down to just the active cell (Shift+Backspace) ----------
+export function collapseToActiveCell(): void {
+  const sheet = store.active
+  const a = sheet.selection.active
+  store.setSelection({ ranges: [{ r1: a.r, c1: a.c, r2: a.r, c2: a.c }], active: a }, sheet)
+}
+
 // ---------- merge ----------
 export function mergeCells(kind: 'center' | 'across' | 'merge' | 'unmerge'): void {
   const sheet = store.active
@@ -562,4 +636,133 @@ export function mergeCells(kind: 'center' | 'across' | 'merge' | 'unmerge'): voi
     if (confirm('Merging cells only keeps the upper-left value and discards other values.'))
       proceed()
   } else proceed()
+}
+
+// ---------- Ctrl+[ / Ctrl+] precedents/dependents, Ctrl+Shift+{ / } all levels ----------
+type HfAddr = { sheet: number; row: number; col: number }
+type HfRange = { start: HfAddr; end: HfAddr }
+function isHfRange(x: HfAddr | HfRange): x is HfRange {
+  return 'start' in x
+}
+function hfToRange(x: HfAddr | HfRange): Range {
+  if (isHfRange(x)) return { r1: x.start.row, c1: x.start.col, r2: x.end.row, c2: x.end.col }
+  return { r1: x.row, c1: x.col, r2: x.row, c2: x.col }
+}
+function hfSheetId(x: HfAddr | HfRange): number {
+  return isHfRange(x) ? x.start.sheet : x.sheet
+}
+
+/** Walk precedents/dependents on the active sheet only (cross-sheet refs aren't selectable here
+ *  since a Range/Selection is scoped to one sheet), optionally recursing to "all levels". */
+function traceCells(all: boolean, direction: 'precedents' | 'dependents'): Range[] {
+  const sheet = store.active
+  const sheetId = store.hfId(sheet)
+  const seen = new Set<string>()
+  const out: Range[] = []
+  const visited = new Set<string>()
+  const queue: HfAddr[] = [{ sheet: sheetId, row: sheet.selection.active.r, col: sheet.selection.active.c }]
+  let first = true
+  while (queue.length) {
+    const addr = queue.shift()!
+    const key = addr.sheet + ':' + addr.row + ':' + addr.col
+    if (visited.has(key)) continue
+    visited.add(key)
+    let related: (HfAddr | HfRange)[]
+    try {
+      related = direction === 'precedents' ? store.hf.getCellPrecedents(addr) : store.hf.getCellDependents(addr)
+    } catch { related = [] }
+    for (const rel of related) {
+      if (hfSheetId(rel) !== sheetId) continue // cross-sheet: not representable in this sheet's selection
+      const rg = hfToRange(rel)
+      const k = `${rg.r1},${rg.c1},${rg.r2},${rg.c2}`
+      if (!seen.has(k)) { seen.add(k); out.push(rg) }
+      if (all && !isHfRange(rel)) queue.push(rel)
+    }
+    if (!all) break
+    first = false
+  }
+  void first
+  return out
+}
+
+export function selectPrecedents(all: boolean): void {
+  const ranges = traceCells(all, 'precedents')
+  if (!ranges.length) return
+  const a = ranges[0]
+  store.setSelection({ ranges, active: { r: a.r1, c: a.c1 } }, store.active)
+}
+export function selectDependents(all: boolean): void {
+  const ranges = traceCells(all, 'dependents')
+  if (!ranges.length) return
+  const a = ranges[0]
+  store.setSelection({ ranges, active: { r: a.r1, c: a.c1 } }, store.active)
+}
+
+// ---------- Ctrl+/: select the current array (CSE) formula's cells ----------
+export function selectCurrentArray(): void {
+  const sheet = store.active
+  const a = sheet.selection.active
+  const raw = store.getRaw(sheet, a.r, a.c)
+  if (!raw.startsWith('=')) return
+  // Grow a block of cells sharing the exact same formula text (this app has no distinct CSE
+  // marker, so an identical-formula contiguous block is the closest equivalent).
+  let r1 = a.r, r2 = a.r, c1 = a.c, c2 = a.c
+  const same = (r: number, c: number): boolean => r >= 0 && c >= 0 && r < MAX_ROWS && c < MAX_COLS && store.getRaw(sheet, r, c) === raw
+  let grew = true
+  while (grew) {
+    grew = false
+    if ([...Array(c2 - c1 + 1)].some((_, i) => same(r1 - 1, c1 + i))) { r1--; grew = true }
+    if ([...Array(c2 - c1 + 1)].some((_, i) => same(r2 + 1, c1 + i))) { r2++; grew = true }
+    if ([...Array(r2 - r1 + 1)].some((_, i) => same(r1 + i, c1 - 1))) { c1--; grew = true }
+    if ([...Array(r2 - r1 + 1)].some((_, i) => same(r1 + i, c2 + 1))) { c2++; grew = true }
+  }
+  store.setSelection({ ranges: [{ r1, c1, r2, c2 }], active: a }, sheet)
+}
+
+// ---------- Alt+;: select only the visible cells in the current selection (filter-aware) ----------
+export function selectVisibleCells(): void {
+  const sheet = store.active
+  const hiddenRows = sheet.layout.hiddenRows ?? {}
+  const hiddenCols = sheet.layout.hiddenCols ?? {}
+  const filteredOut = new Set(sheet.layout.autoFilter?.filteredOutRows ?? [])
+  const out: Range[] = []
+  for (const raw of sel()) {
+    const n = normRange(raw)
+    let blockStart: number | null = null
+    for (let r = n.r1; r <= n.r2 + 1; r++) {
+      const visible = r <= n.r2 && !hiddenRows[r] && !filteredOut.has(r)
+      if (visible && blockStart === null) blockStart = r
+      else if (!visible && blockStart !== null) { out.push({ r1: blockStart, c1: n.c1, r2: r - 1, c2: n.c2 }); blockStart = null }
+    }
+  }
+  const finalRanges = out.filter((rg) => {
+    for (let c = rg.c1; c <= rg.c2; c++) if (!hiddenCols[c]) return true
+    return false
+  })
+  if (finalRanges.length) store.setSelection({ ranges: finalRanges, active: store.active.selection.active }, sheet)
+}
+
+// ---------- Alt+Down: pick-from-list ----------
+/** Unique text values from the contiguous data block above/below the active cell, most-recent
+ *  first, for the Alt+Down "pick from list" autocomplete. */
+export function pickListValues(): string[] {
+  const sheet = store.active
+  const a = sheet.selection.active
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (let r = a.r - 1; r >= 0; r--) {
+    const raw = store.getRaw(sheet, r, a.c)
+    if (raw === '') { if (r < a.r - 1 && out.length) break; continue }
+    if (raw.startsWith('=')) continue
+    const disp = store.getDisplay(sheet, r, a.c).text
+    if (!seen.has(disp)) { seen.add(disp); out.push(disp) }
+  }
+  for (let r = a.r + 1; r < MAX_ROWS; r++) {
+    const raw = store.getRaw(sheet, r, a.c)
+    if (raw === '') break
+    if (raw.startsWith('=')) continue
+    const disp = store.getDisplay(sheet, r, a.c).text
+    if (!seen.has(disp)) { seen.add(disp); out.push(disp) }
+  }
+  return out
 }

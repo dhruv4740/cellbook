@@ -25,7 +25,7 @@ export function pxToPt(px: number): number {
 }
 
 // ---------- Office default theme colors (Office 2013+ theme) ----------
-const THEME_COLORS = [
+export const THEME_COLORS = [
   'FFFFFF', // 0 bg1 (light1)
   '000000', // 1 tx1 (dark1)
   'E7E6E6', // 2 bg2 (light2)
@@ -38,7 +38,7 @@ const THEME_COLORS = [
   '70AD47' // 9 accent6
 ]
 
-function applyTint(hex: string, tint: number): string {
+export function applyTint(hex: string, tint: number): string {
   // Excel tint: positive lightens toward white, negative darkens toward black.
   const r = parseInt(hex.slice(0, 2), 16)
   const g = parseInt(hex.slice(2, 4), 16)
@@ -74,7 +74,7 @@ function hexToArgb(hex: string): string {
 }
 
 // ---------- borders ----------
-const BORDER_STYLES: BorderLineStyle[] = [
+export const BORDER_STYLES: BorderLineStyle[] = [
   'thin', 'medium', 'thick', 'double', 'dotted', 'dashed', 'hair',
   'mediumDashed', 'dashDot', 'mediumDashDot', 'dashDotDot', 'mediumDashDotDot', 'slantDashDot'
 ]
@@ -204,8 +204,8 @@ function isDateFormat(fmt: string | undefined): boolean {
   return /[ymdhs]/i.test(stripped) && !/^general$/i.test(fmt)
 }
 
-// ---------- read ----------
-export async function readXlsx(data: Uint8Array): Promise<WorkbookData> {
+// ---------- read (exceljs, kept for the differential test against the fast reader) ----------
+export async function readXlsxExceljs(data: Uint8Array): Promise<WorkbookData> {
   const wb = new ExcelJS.Workbook()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await wb.xlsx.load(data as any)
@@ -334,12 +334,12 @@ export async function readXlsx(data: Uint8Array): Promise<WorkbookData> {
   return { sheets, activeSheet }
 }
 
-function parseRangeStr(s: string): Range | null {
+export function parseRangeStr(s: string): Range | null {
   const m = /^([A-Z]+)(\d+):([A-Z]+)(\d+)$/.exec(s)
   if (!m) return null
   return { r1: +m[2] - 1, c1: colLetterToIndex(m[1]), r2: +m[4] - 1, c2: colLetterToIndex(m[3]) }
 }
-function colLetterToIndex(s: string): number {
+export function colLetterToIndex(s: string): number {
   let n = 0
   for (const ch of s) n = n * 26 + (ch.charCodeAt(0) - 64)
   return n - 1
@@ -449,4 +449,40 @@ export async function writeXlsx(data: WorkbookData): Promise<Uint8Array> {
 
   const buf = await wb.xlsx.writeBuffer()
   return new Uint8Array(buf as ArrayBuffer)
+}
+
+// ---------- read (fast path) ----------
+// Parsing is the hot path for big files, so the real work lives in fastXlsx.ts (fflate unzip + a
+// hand-written XML scanner, no exceljs/DOMParser). In a browser/Electron renderer it runs inside a
+// Web Worker so the UI thread never blocks; in Node (tests, tooling) it falls back to parsing inline.
+export async function readXlsx(data: Uint8Array): Promise<WorkbookData> {
+  if (typeof Worker !== 'undefined' && typeof window !== 'undefined') {
+    return new Promise<WorkbookData>((resolve, reject) => {
+      let worker: Worker
+      try {
+        worker = new Worker(new URL('./xlsx.worker.ts', import.meta.url), { type: 'module' })
+      } catch {
+        // Worker construction unsupported in this host (e.g. certain test runners) - fall back inline.
+        void parseXlsxInline(data).then(resolve, reject)
+        return
+      }
+      const ab = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer
+      worker.onmessage = (ev: MessageEvent<{ ok: true; data: WorkbookData } | { ok: false; error: string }>): void => {
+        worker.terminate()
+        if (ev.data.ok) resolve(ev.data.data)
+        else reject(new Error(ev.data.error))
+      }
+      worker.onerror = (ev: ErrorEvent): void => {
+        worker.terminate()
+        reject(ev.error instanceof Error ? ev.error : new Error(ev.message || 'xlsx worker failed'))
+      }
+      worker.postMessage(ab, [ab])
+    })
+  }
+  return parseXlsxInline(data)
+}
+
+async function parseXlsxInline(data: Uint8Array): Promise<WorkbookData> {
+  const { parseXlsx } = await import('./fastXlsx')
+  return parseXlsx(data)
 }

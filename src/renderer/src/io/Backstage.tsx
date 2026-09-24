@@ -39,16 +39,36 @@ export default function Backstage() {
   const [tab, setTab] = useState<Tab>('home')
 
   useEffect(() => {
+    // Alt,F then a nav-item letter (KeyTips.tsx exits its own overlay the instant the File tab
+    // opens the backstage, since this view has no ribbon-style badges of its own) - Excel 2021's
+    // real backstage access keys: N New, O Open, I Info, S Save, A Save As, P Print, E Export,
+    // C Close. The single Alt keypress that opened the backstage still has its keyup pending, so
+    // this only reacts to the letter itself (no Alt required), matching what a user types next.
+    const NAV_KEYS: Record<string, () => void> = {
+      N: () => go('new'), O: () => go('open'), I: () => go('info'), S: () => void save(),
+      A: () => go('saveas'), P: () => go('print'), E: () => go('export'), C: () => void closeWorkbook().then((ok) => ok && close())
+    }
     const key = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') close()
+      if (e.key === 'Escape') { close(); return }
+      if (e.ctrlKey || e.metaKey || e.altKey || e.key.length !== 1) return
+      const fn = NAV_KEYS[e.key.toUpperCase()]
+      if (fn && !(e.target instanceof HTMLInputElement) && !(e.target instanceof HTMLTextAreaElement)) {
+        e.preventDefault()
+        fn()
+      }
     }
     window.addEventListener('keydown', key)
     return () => window.removeEventListener('keydown', key)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Excel always opens the backstage on the Home page, however it was left last time.
   useEffect(() => {
-    if (ui.backstage) setTab('home')
+    if (ui.backstage) {
+      setTab((ui.backstageTab as Tab) ?? 'home')
+      if (ui.backstageTab) setUi({ backstageTab: null })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ui.backstage])
 
   if (!ui.backstage) return null

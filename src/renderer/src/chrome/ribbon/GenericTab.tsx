@@ -15,6 +15,8 @@ export interface GBtn {
   onClick?: () => void
   active?: boolean
   wide?: boolean
+  /** Excel KeyTip access-key sequence for this command, e.g. 'FN', shown when KeyTips are active. */
+  keytip?: string
 }
 export interface GGroup {
   label: string
@@ -31,14 +33,14 @@ export function GenericTab({ groups }: { groups: GGroup[] }) {
         <div key={gi} style={{ display: 'contents' }}>
           <Group label={g.label} icon={g.big?.[0]?.icon ?? g.rows?.[0]?.[0]?.icon}>
             {g.big?.map((b, i) => (
-              <BigButton key={i} icon={b.icon} label={b.label} menu={b.menu} onClick={b.onClick ?? (() => {})} active={b.active} wide={b.wide ?? b.label.length > 7} tip={{ title: b.label, desc: b.desc, shortcut: b.shortcut }} />
+              <BigButton key={i} icon={b.icon} label={b.label} menu={b.menu} onClick={b.onClick ?? (() => {})} active={b.active} wide={b.wide ?? b.label.length > 7} tip={{ title: b.label, desc: b.desc, shortcut: b.shortcut }} keytip={b.keytip} />
             ))}
             {g.rows && (
               <div className="xl-col xl-stack">
                 {g.rows.map((row, ri) => (
                   <div className="xl-row" key={ri}>
                     {row.map((b, bi) => (
-                      <SmallButton key={bi} icon={b.icon} label={b.label} menu={b.menu} onClick={b.onClick ?? (() => {})} active={b.active} tip={{ title: b.label, desc: b.desc, shortcut: b.shortcut }} />
+                      <SmallButton key={bi} icon={b.icon} label={b.label} menu={b.menu} onClick={b.onClick ?? (() => {})} active={b.active} tip={{ title: b.label, desc: b.desc, shortcut: b.shortcut }} keytip={b.keytip} />
                     ))}
                   </div>
                 ))}
