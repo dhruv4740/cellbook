@@ -1,3 +1,4 @@
+import { shiftFormula } from '../engine/shiftFormula'
 // Small UI-only state shared between chrome pieces (not part of the workbook, not undoable).
 import { useSyncExternalStore } from 'react'
 import { store } from '../model/store'
@@ -93,10 +94,47 @@ export function commitEdit(): boolean {
     return false
   }
   setUi({ edit: null })
+  const text = normalizeEntry(e.text)
   const raw = store.getRaw(sheet, e.r, e.c)
-  if (raw !== e.text) store.setRaw(sheet, e.r, e.c, e.text)
+  if (raw !== text) store.setRaw(sheet, e.r, e.c, text)
   store.setMode('Ready')
   return true
+}
+
+/** Excel's entry fix-ups: "+A1"/"-A1" become formulas, and unclosed "(" get their ")". */
+export function normalizeEntry(text: string): string {
+  let t = text
+  if (/^[+-]/.test(t) && !/^[+-]?\s*[\d.,]+%?\s*$/.test(t) && !/^[+-]+$/.test(t)) t = '=' + t
+  if (t.startsWith('=') && t.length > 1) {
+    let depth = 0
+    let inStr = false
+    for (const ch of t) {
+      if (ch === '"') inStr = !inStr
+      else if (!inStr && ch === '(') depth++
+      else if (!inStr && ch === ')') depth--
+    }
+    if (!inStr && depth > 0) t += ')'.repeat(depth)
+  }
+  return t
+}
+
+/** Ctrl+Enter: writes the entry into every selected cell (formulas adjusted per cell), keeps the selection. */
+export function commitEditToSelection(): void {
+  const e = state.edit
+  if (!e) return
+  const sheet = store.active
+  const text = normalizeEntry(e.text)
+  const cells: { r: number; c: number; raw: string }[] = []
+  for (const rg of sheet.selection.ranges) {
+    const r1 = Math.min(rg.r1, rg.r2), r2 = Math.max(rg.r1, rg.r2)
+    const c1 = Math.min(rg.c1, rg.c2), c2 = Math.max(rg.c1, rg.c2)
+    if ((r2 - r1 + 1) * (c2 - c1 + 1) > 1_000_000) continue
+    for (let r = r1; r <= r2; r++)
+      for (let c = c1; c <= c2; c++) cells.push({ r, c, raw: text.startsWith('=') ? shiftFormula(text, r - e.r, c - e.c) : text })
+  }
+  setUi({ edit: null })
+  store.setCells(sheet, cells, 'Typing')
+  store.setMode('Ready')
 }
 
 export function cancelEdit(): void {

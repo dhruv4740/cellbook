@@ -871,16 +871,19 @@ function parseSingleOrRange(ref: string): Range | null {
  *  need one or two named attributes each, and searching the shared backing string with bounds is
  *  cheaper than copying a small substring per tag just to search it. */
 function attrVal(s: string, start: number, end: number, name: string): string | undefined {
+  // Search only inside [start, end): an unbounded indexOf scans the rest of the sheet whenever the
+  // attribute is absent, which made loading quadratic in the number of rows.
+  const seg = s.slice(start, end)
   const needle = name + '="'
-  let i = s.indexOf(needle, start)
-  while (i !== -1 && i < end) {
-    const before = i === start ? 32 : s.charCodeAt(i - 1)
+  let i = seg.indexOf(needle)
+  while (i !== -1) {
+    const before = i === 0 ? 32 : seg.charCodeAt(i - 1)
     if (before === 32 || before === 9 || before === 10 || before === 13 || before === 47) {
       const vstart = i + needle.length
-      const vend = s.indexOf('"', vstart)
-      return vend === -1 || vend > end ? undefined : s.slice(vstart, vend)
+      const vend = seg.indexOf('"', vstart)
+      return vend === -1 ? undefined : seg.slice(vstart, vend)
     }
-    i = s.indexOf(needle, i + 1)
+    i = seg.indexOf(needle, i + 1)
   }
   return undefined
 }
@@ -889,7 +892,9 @@ function attrVal(s: string, start: number, end: number, name: string): string | 
  *  bounded the same way as attrVal - used for `<v>`/`<is>`, which are never self-closing with
  *  attributes in practice. */
 function tagText(s: string, start: number, end: number, tag: string): string | undefined {
-  const idx = s.indexOf('<' + tag, start)
+  // Bounded search (see attrVal): a missing <v> must not scan the rest of the sheet.
+  const rel = s.slice(start, end).indexOf('<' + tag)
+  const idx = rel === -1 ? -1 : start + rel
   if (idx === -1 || idx >= end) return undefined
   const after = idx + tag.length + 1
   const ch = s.charCodeAt(after)
@@ -904,8 +909,8 @@ function tagText(s: string, start: number, end: number, tag: string): string | u
     if (s.charCodeAt(gt - 1) === 47) return ''
     contentStart = gt + 1
   }
-  const close = s.indexOf('</' + tag + '>', contentStart)
-  const closeEnd = close === -1 || close > end ? end : close
+  const relClose = s.slice(contentStart, end).indexOf('</' + tag + '>')
+  const closeEnd = relClose === -1 ? end : contentStart + relClose
   return s.slice(contentStart, closeEnd)
 }
 
@@ -966,7 +971,8 @@ function parseCellsInRow(
     const innerEnd = closeC === -1 ? end : closeC
     pos = closeC === -1 ? end : closeC + 4
 
-    const fIdx = xml.indexOf('<f', innerStart)
+    const fRel = xml.slice(innerStart, innerEnd).indexOf('<f')
+    const fIdx = fRel === -1 ? -1 : innerStart + fRel
     if (fIdx !== -1 && fIdx < innerEnd) {
       const fAfter = fIdx + 2
       const fCh = xml.charCodeAt(fAfter)

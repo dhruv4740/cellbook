@@ -3,7 +3,7 @@
 // interacts with them.
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { store, useStore, SheetState } from '../model/store'
-import { getUi, setUi, useUi, commitEdit, cancelEdit } from '../chrome/ui'
+import { getUi, setUi, useUi, commitEdit, cancelEdit, commitEditToSelection } from '../chrome/ui'
 import {
   CellStyle, Range, CellRef, Selection, normRange, inRange, colName, a1, rangeA1, parseA1,
   DEFAULT_COL_WIDTH, DEFAULT_ROW_HEIGHT, MAX_ROWS, MAX_COLS
@@ -683,6 +683,8 @@ export default function Grid() {
   }
 
   function beginEdit(r: number, c: number, mode: 'Enter' | 'Edit', initialText?: string): void {
+    pointCur.current = null
+    pointedLen.current = 0
     const raw = initialText ?? store.getRaw(sheet, r, c)
     setUi({ edit: { r, c, text: initialText ?? (mode === 'Enter' ? '' : raw), caret: (initialText ?? raw).length, source: 'cell', mode } })
     store.setMode(mode)
@@ -811,17 +813,20 @@ export default function Grid() {
     if (getUi().selectedChart) setUi({ selectedChart: null })
     const rect = hostRef.current!.getBoundingClientRect()
     const x = e.clientX - rect.left, y = e.clientY - rect.top
-    editorRef.current?.blur()
-
-    // Point mode: editing a formula, click on grid inserts a reference instead of navigating.
-    if (getUi().edit && getUi().edit!.text.startsWith('=') && y > headerH && x > rowHeaderW) {
+    // Point mode: editing a formula where a reference can go (after =, an operator, "(" or ","),
+    // or right after a pointed reference: clicking inserts/replaces a reference instead of committing.
+    if (canPoint() && y > headerH && x > rowHeaderW) {
+      e.preventDefault() // keep the editor focused
       const { r, c } = cellAt(x, y)
+      pointCur.current = { ar: r, ac: c, r, c }
       insertRefIntoEdit(r, c, r, c)
+      requestAnimationFrame(() => editorRef.current?.focus())
       drag.current = { kind: 'cells', anchor: { r, c }, extendOnly: true, base: [] }
       window.addEventListener('mousemove', onPointDrag)
       window.addEventListener('mouseup', onPointUp)
       return
     }
+    editorRef.current?.blur()
 
     // select-all corner
     if (showHead && x < rowHeaderW && y < headerH) { cmd.selectAll(); return }
@@ -1065,6 +1070,16 @@ export default function Grid() {
     window.removeEventListener('mouseup', onResizeUp)
   }
 
+  const pointedLen = useRef(0)
+  const pointCur = useRef<{ ar: number; ac: number; r: number; c: number } | null>(null)
+  function canPoint(): boolean {
+    const e = getUi().edit
+    if (!e || !e.text.startsWith('=')) return false
+    if (pointCur.current) return true
+    const before = e.text.slice(0, e.caret ?? e.text.length)
+    return /[=(,+\-*/^&<>:;%{]\s*$/.test(before)
+  }
+
   function insertRefIntoEdit(ar: number, ac: number, r: number, c: number): void {
     const e = getUi().edit
     if (!e) return
@@ -1073,7 +1088,8 @@ export default function Grid() {
     const caret = e.caret ?? base.length
     // Replace a trailing in-progress ref token (from a previous point-mode step) if present.
     const m = /(\$?[A-Za-z]{1,3}\$?\d{1,7}(?::\$?[A-Za-z]{1,3}\$?\d{1,7})?)$/.exec(base.slice(0, caret))
-    const start = m ? caret - m[1].length : caret
+    const start = m && pointedLen.current === m[1].length ? caret - m[1].length : caret
+    pointedLen.current = ref.length
     const text = base.slice(0, start) + ref + base.slice(caret)
     setUi({ edit: { ...e, text, caret: start + ref.length } })
     store.setMode('Point')
@@ -1205,8 +1221,8 @@ export default function Grid() {
         const u = store.usedRange(sheet) ?? { r1: 0, c1: 0, r2: 0, c2: 0 }
         selectSingle(u.r2, u.c2); ensureVisible(u.r2, u.c2); e.preventDefault(); return
       }
-      if (e.key === 'PageDown' && !e.altKey) { pageMove(1); e.preventDefault(); return }
-      if (e.key === 'PageUp' && !e.altKey) { pageMove(-1); e.preventDefault(); return }
+      if (e.key === 'PageDown' && !e.altKey && !mod) { pageMove(1); e.preventDefault(); return }
+      if (e.key === 'PageUp' && !e.altKey && !mod) { pageMove(-1); e.preventDefault(); return }
       if (e.key === 'PageDown' && e.altKey) { moveActive(0, 10, e.shiftKey); e.preventDefault(); return }
       if (e.key === 'PageUp' && e.altKey) { moveActive(0, -10, e.shiftKey); e.preventDefault(); return }
       if (e.key === 'F2') { tabAnchorCol.current = null; const a = sheet.selection.active; beginEdit(a.r, a.c, 'Edit'); e.preventDefault(); return }
@@ -1220,7 +1236,7 @@ export default function Grid() {
       if (mod && e.key.toLowerCase() === 'y') { store.redo(); e.preventDefault(); return }
       if (mod && e.key.toLowerCase() === 'c') { cmd.copy(); e.preventDefault(); return }
       if (mod && e.key.toLowerCase() === 'x') { cmd.cut(); e.preventDefault(); return }
-      if (mod && e.key.toLowerCase() === 'v') { cmd.paste(); e.preventDefault(); return }
+      if (mod && !e.altKey && e.key.toLowerCase() === 'v') { cmd.paste(); e.preventDefault(); return }
       if (mod && e.key.toLowerCase() === 'd') { cmd.fill('down'); e.preventDefault(); return }
       if (mod && e.key.toLowerCase() === 'r') { cmd.fill('right'); e.preventDefault(); return }
       if (mod && !e.shiftKey && e.key.toLowerCase() === 'b') { toggleStyle('bold'); e.preventDefault(); return }
@@ -1228,11 +1244,10 @@ export default function Grid() {
       if (mod && !e.shiftKey && e.key.toLowerCase() === 'u') { toggleStyle('underline'); e.preventDefault(); return }
       if (mod && e.key === '1') { setUi({ dialog: { kind: 'formatCells' } }); e.preventDefault(); return }
       if (mod && !e.shiftKey && e.key === '-') { cmd.deleteCellsDialog(); e.preventDefault(); return }
-      if (mod && e.shiftKey && e.key === '=') { cmd.insertCellsDialog(); e.preventDefault(); return }
+      if (mod && (e.key === '+' || (e.shiftKey && e.key === '='))) { cmd.insertCellsDialog(); e.preventDefault(); return }
       if (e.altKey && e.key === '=') { cmd.autoSum(); e.preventDefault(); return }
       if (mod && !e.shiftKey && e.key === ';') { const a = sheet.selection.active; const d = new Date(); store.setRaw(sheet, a.r, a.c, `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`); e.preventDefault(); return }
       if (mod && e.shiftKey && (e.key === ':' || e.key === ';')) { const a = sheet.selection.active; const d = new Date(); store.setRaw(sheet, a.r, a.c, `${d.getHours() % 12 || 12}:${String(d.getMinutes()).padStart(2, '0')} ${d.getHours() >= 12 ? 'PM' : 'AM'}`); e.preventDefault(); return }
-      if (mod && e.key === 'Enter') { const a = sheet.selection.active; const raw = store.getRaw(sheet, a.r, a.c); cmd.clearSelection('contents'); void raw; e.preventDefault(); return }
       if (e.key === 'Escape') { setUi({ selectMode: 'none' }); e.preventDefault(); return }
       // ---- number format shortcuts: Ctrl+Shift+~ ! @ # $ % ^ ----
       if (mod && e.key === '~') { cmd.applyNumFmtShortcut('general'); e.preventDefault(); return }
@@ -1352,6 +1367,12 @@ export default function Grid() {
   function onEditorKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>): void {
     const edit = getUi().edit!
     if (e.key === 'Escape') { tabAnchorCol.current = null; cancelEdit(); e.preventDefault(); hostRef.current?.focus(); return }
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.altKey) {
+      commitEditToSelection()
+      hostRef.current?.focus()
+      e.preventDefault()
+      return
+    }
     if (e.key === 'Enter' && !e.altKey) {
       commitEdit()
       commitEnterAfterTabAware(e.shiftKey)
@@ -1367,7 +1388,23 @@ export default function Grid() {
       e.preventDefault()
       return
     }
-    if (edit.mode === 'Enter' && (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+    const isArrow = e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight'
+    if (!isArrow && e.key !== 'Shift' && e.key !== 'Control' && e.key !== 'F4') { pointCur.current = null; pointedLen.current = 0 }
+    // Keyboard Point mode: arrows move a reference cursor and write its address into the formula.
+    if (isArrow && edit.mode === 'Enter' && canPoint()) {
+      const dr = e.key === 'ArrowDown' ? 1 : e.key === 'ArrowUp' ? -1 : 0
+      const dc = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0
+      const p0 = pointCur.current ?? { ar: edit.r, ac: edit.c, r: edit.r, c: edit.c }
+      const r = Math.max(0, Math.min(MAX_ROWS - 1, p0.r + dr))
+      const c = Math.max(0, Math.min(MAX_COLS - 1, p0.c + dc))
+      const next = e.shiftKey && pointCur.current ? { ...p0, r, c } : { ar: r, ac: c, r, c }
+      pointCur.current = next
+      insertRefIntoEdit(next.ar, next.ac, next.r, next.c)
+      ensureVisible(r, c)
+      e.preventDefault()
+      return
+    }
+    if (edit.mode === 'Enter' && isArrow) {
       tabAnchorCol.current = null
       commitEdit()
       const dr = e.key === 'ArrowDown' ? 1 : e.key === 'ArrowUp' ? -1 : 0
