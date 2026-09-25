@@ -26,6 +26,7 @@ export default function App() {
       <SheetTabs />
       <StatusBar />
       <DialogHost />
+      {ui.toast && <div className="xl-toast" role="status">{ui.toast}</div>}
     </div>
   )
 }

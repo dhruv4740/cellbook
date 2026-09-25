@@ -1,4 +1,5 @@
 // File menu operations: New, Open, Save, Save As, Close — Electron-backed, with a browser fallback.
+import { setUi } from '../chrome/ui'
 import { store } from '../model/store'
 import { readXlsx, writeXlsx } from './xlsx'
 import { readCsv, writeCsv } from './csv'
@@ -337,6 +338,7 @@ export function installFileShortcuts(): void {
     if (ctrl && k === 'n') { e.preventDefault(); void newWorkbook() }
     else if (ctrl && k === 'o') { e.preventDefault(); void openFile() }
     else if (ctrl && k === 's') { e.preventDefault(); void save() }
+    else if (ctrl && k === 'p' && !e.shiftKey) { e.preventDefault(); setUi({ backstage: true, backstageTab: 'print' }) }
     else if (e.key === 'F12') { e.preventDefault(); void saveAs() }
     else if (ctrl && (k === 'w' || e.key === 'F4')) { e.preventDefault(); void closeWorkbook() }
     else if (ctrl && (k === 'tab' || e.key === 'F6')) { e.preventDefault(); void window.api?.cycleWindow(e.shiftKey ? -1 : 1) }

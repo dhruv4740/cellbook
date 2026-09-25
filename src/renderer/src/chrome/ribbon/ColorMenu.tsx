@@ -1,5 +1,5 @@
 // Excel's color picker popup: Theme Colors (10x6), Standard Colors, No Fill/Automatic, More Colors.
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 
 // Office 2023+ theme: 10 columns x 6 rows (base + 5 tint/shade steps).
@@ -19,11 +19,16 @@ export function ColorMenu({
 }: { x: number; y: number; onClose: () => void; onPick: (color: string | undefined) => void; mode: 'font' | 'fill' }) {
   const [more, setMore] = useState(false)
   const [custom, setCustom] = useState('#000000')
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); onClose() } }
+    window.addEventListener('keydown', key)
+    return () => window.removeEventListener('keydown', key)
+  }, [onClose])
   const Swatch = ({ c, title }: { c: string; title: string }) => (
     <div className="xl-color-swatch" title={title} style={{ background: c }} onMouseDown={(e) => { e.preventDefault(); onPick(c); onClose() }} />
   )
   return createPortal(
-    <div className="xl-menu-layer" onMouseDown={onClose}>
+    <div className="xl-menu-layer" style={{ pointerEvents: 'auto' }} onMouseDown={onClose}>
       <div className="xl-color-menu" style={{ left: x, top: y }} onMouseDown={(e) => e.stopPropagation()}>
         {!more ? (
           <>

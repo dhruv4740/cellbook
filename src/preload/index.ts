@@ -71,6 +71,10 @@ const api = {
   /** true, or the reason the save failed. */
   writeFile: (path: string, data: Uint8Array): Promise<true | string> => ipcRenderer.invoke('file:write', path, data),
   readFile: (path: string): Promise<Uint8Array> => ipcRenderer.invoke('file:read', path),
+  openLink: (target: string): Promise<true | string> => ipcRenderer.invoke('shell:openLink', target),
+  /** Prints (system dialog) or saves as PDF a print document; true, null if cancelled, or an error. */
+  printDocument: (opts: { html: string; mode: 'print' | 'pdf'; landscape: boolean; pageSize: 'A4' | 'Letter' | 'Legal'; defaultName: string }): Promise<true | string | null> =>
+    ipcRenderer.invoke('print:run', opts),
   /** Resolves a dropped File to an absolute path (Electron's replacement for File.path). */
   getPathForFile: (file: File): string => webUtils.getPathForFile(file),
 

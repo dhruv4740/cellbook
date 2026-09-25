@@ -1,7 +1,8 @@
 // Sheet navigation strip: prev/next arrows, tabs, new-sheet button, drag reorder, right-click menu.
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { hideSheet } from './sheetCommands'
 import { useStore } from '../model/store'
-import { useUi, setUi } from './ui'
+import { useUi, setUi, notAvailable } from './ui'
 import { Menu, MenuItem, useMenu } from '../components/Menu'
 import { Dialog } from '../components/Dialog'
 import { ChevronLeft20Regular, ChevronRight20Regular, Add20Regular } from '@fluentui/react-icons'
@@ -31,14 +32,19 @@ export default function SheetTabs() {
     setRenaming(null)
   }
 
+  // Home > Format > Rename Sheet puts the active tab into rename mode, like Excel.
+  useEffect(() => {
+    if (ui.dialog?.kind === 'renameSheet') { setUi({ dialog: null }); startRename(store.activeIndex) }
+  })
+
   const items = (i: number): MenuItem[] => [
     { label: '&Insert...', onClick: () => store.addSheet(undefined, i) },
     { label: '&Delete', onClick: () => store.deleteSheet(i) },
     { label: '&Rename', onClick: () => startRename(i) },
-    { label: '&Move or Copy...', onClick: () => {} },
+    { label: '&Move or Copy...', onClick: () => setUi({ dialog: { kind: 'moveCopySheet', props: { index: i } } }) },
     'separator',
-    { label: 'View &Code', onClick: () => {} },
-    { label: '&Protect Sheet...', onClick: () => {} },
+    { label: 'View &Code', onClick: () => notAvailable('View Code') },
+    { label: '&Protect Sheet...', onClick: () => notAvailable('Protect Sheet') },
     {
       label: 'Ta&b Color',
       submenu: ['#FF0000', '#FFC000', '#FFFF00', '#00B050', '#00B0F0', '#0070C0', '#7030A0', 'No Color'].map((c) => ({
@@ -47,21 +53,21 @@ export default function SheetTabs() {
         onClick: () => store.updateLayout(store.sheets[i], 'Tab Color', (l) => (l.tabColor = c === 'No Color' ? undefined : c))
       }))
     },
-    { label: '&Hide', onClick: () => {} },
-    { label: 'Unhide...', onClick: () => {} },
+    { label: '&Hide', onClick: () => hideSheet(i) },
+    { label: 'Unhide...', disabled: !store.sheets.some((s) => s.layout.sheetHidden === 'hidden'), onClick: () => setUi({ dialog: { kind: 'unhideSheet' } }) },
     'separator',
-    { label: 'Select All Sheets', onClick: () => {} }
+    { label: 'Select All Sheets', onClick: () => setUi({ groupedSheets: store.sheets.map((_, k) => k).filter((k) => !store.sheets[k].layout.sheetHidden) }) }
   ]
 
   return (
     <div className="xl-sheettabs">
       <div className="xl-sheet-nav">
-        <button className="xl-sheet-navbtn" title="Activate First Sheet" onClick={() => store.setActiveSheet(0)}><ChevronLeft20Regular /></button>
-        <button className="xl-sheet-navbtn" title="Activate Previous Sheet" onClick={() => store.setActiveSheet(Math.max(0, store.activeIndex - 1))}><ChevronRight20Regular style={{ transform: 'rotate(180deg)' }} /></button>
-        <button className="xl-sheet-navbtn" title="Activate Next Sheet" onClick={() => store.setActiveSheet(Math.min(store.sheets.length - 1, store.activeIndex + 1))}><ChevronRight20Regular /></button>
+        <button className="xl-sheet-navbtn" title="Activate First Sheet" onClick={() => store.setActiveSheet(store.sheets.findIndex((s) => !s.layout.sheetHidden))}><ChevronLeft20Regular /></button>
+        <button className="xl-sheet-navbtn" title="Activate Previous Sheet" onClick={() => { for (let k = store.activeIndex - 1; k >= 0; k--) if (!store.sheets[k].layout.sheetHidden) { store.setActiveSheet(k); break } }}><ChevronRight20Regular style={{ transform: 'rotate(180deg)' }} /></button>
+        <button className="xl-sheet-navbtn" title="Activate Next Sheet" onClick={() => { for (let k = store.activeIndex + 1; k < store.sheets.length; k++) if (!store.sheets[k].layout.sheetHidden) { store.setActiveSheet(k); break } }}><ChevronRight20Regular /></button>
       </div>
       <div className="xl-sheet-list">
-        {store.sheets.map((s, i) => (
+        {store.sheets.map((s, i) => s.layout.sheetHidden ? null : (
           <div
             key={s.uid}
             className={'xl-sheet-tab' + (i === store.activeIndex ? ' active' : '') + (dragOver === i ? ' drag-over' : '') + (grouped?.includes(i) ? ' grouped' : '')}

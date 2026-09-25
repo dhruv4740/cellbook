@@ -2,6 +2,7 @@
 import { ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import './Menu.css'
+import { notAvailable } from '../chrome/ui'
 
 export type MenuItem =
   | 'separator'
@@ -74,7 +75,8 @@ function MenuList({ x, y, items, onClose, depth }: { x: number; y: number; items
             onClick={() => {
               if (it.disabled || it.submenu) return
               onClose()
-              it.onClick?.()
+              if (it.onClick) it.onClick()
+              else notAvailable(it.label) // never let a menu item silently do nothing
             }}
           >
             <span className="xl-menu-icon">{it.checked ? '✓' : it.icon}</span>

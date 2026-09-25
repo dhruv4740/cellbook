@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, ClipboardItem, dialog, ipcMain, screen } from 'electron'
+import { app, BrowserWindow, clipboard, ClipboardItem, dialog, ipcMain, screen, shell } from 'electron'
 import { join, basename } from 'path'
 import { promises as fs, existsSync } from 'fs'
 
@@ -575,6 +575,50 @@ ipcMain.handle('recover:takeOne', async () => {
     }
   } catch { /* no folder yet */ }
   return null
+})
+
+// Clicking a cell hyperlink: web and mail links open in the default app; anything else is treated
+// as a file path (Excel opens those with their associated program). Returns an error, or true.
+ipcMain.handle('shell:openLink', async (_e, target: string): Promise<true | string> => {
+  try {
+    if (/^(https?:|mailto:)/i.test(target)) { await shell.openExternal(target); return true }
+    const p = target.replace(/^file:\/\/\/?/i, '')
+    const err = await shell.openPath(decodeURIComponent(p))
+    return err || true
+  } catch (err) {
+    return (err as Error).message || String(err)
+  }
+})
+
+// File > Print / Export PDF: the renderer builds a print document of the sheet; main renders it in a
+// hidden window and either opens the system print dialog or saves a PDF.
+ipcMain.handle('print:run', async (e, opts: { html: string; mode: 'print' | 'pdf'; landscape: boolean; pageSize: 'A4' | 'Letter' | 'Legal'; defaultName: string }): Promise<true | string | null> => {
+  const owner = BrowserWindow.fromWebContents(e.sender) ?? undefined
+  const tmp = join(app.getPath('temp'), `cellbook-print-${process.pid}-${Date.now()}.html`)
+  const pw = new BrowserWindow({ show: false, webPreferences: { javascript: false, sandbox: true } })
+  try {
+    await fs.writeFile(tmp, opts.html, 'utf8')
+    await pw.loadFile(tmp)
+    if (opts.mode === 'pdf') {
+      const target = owner
+        ? await dialog.showSaveDialog(owner, { defaultPath: opts.defaultName.replace(/\.[^.]+$/, '') + '.pdf', filters: [{ name: 'PDF', extensions: ['pdf'] }] })
+        : await dialog.showSaveDialog({ defaultPath: opts.defaultName + '.pdf' })
+      if (target.canceled || !target.filePath) return null
+      const pdf = await pw.webContents.printToPDF({ landscape: opts.landscape, pageSize: opts.pageSize, printBackground: true, preferCSSPageSize: true })
+      await fs.writeFile(target.filePath, pdf)
+      return true
+    }
+    return await new Promise<true | string | null>((resolve) => {
+      pw.webContents.print({ silent: false, printBackground: true, landscape: opts.landscape, pageSize: opts.pageSize }, (ok, reason) => {
+        resolve(ok ? true : reason === 'cancelled' || reason === 'Print job canceled' ? null : reason || 'Printing failed.')
+      })
+    })
+  } catch (err) {
+    return (err as Error).message || String(err)
+  } finally {
+    pw.destroy()
+    fs.rm(tmp, { force: true }).catch(() => {})
+  }
 })
 
 // Safe save, like Excel: write a temporary file next to the target, then swap it in, so a failed

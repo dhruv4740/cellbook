@@ -40,19 +40,32 @@ export interface UiState {
   groupedSheets: number[] | null
   /** Alt+Down "pick from list": the open dropdown of unique values from the column above/below. */
   pickList: null | { r: number; c: number; x: number; y: number; values: string[] }
+  /** Short message shown bottom-centre for a few seconds (e.g. a command Cellbook doesn't have yet). */
+  toast: string | null
 }
 
 let state: UiState = {
   backstage: false, ribbonTab: 'Home', ribbonCollapsed: false, hideFormulaBar: false, dialog: null,
   formatPainter: null, edit: null, noteEditor: null, commentPanel: null, selectedChart: null,
   formulasVisible: false, selectMode: 'none', backstageTab: null, scrollLock: false, endMode: false,
-  groupedSheets: null, pickList: null
+  groupedSheets: null, pickList: null, toast: null
 }
 const listeners = new Set<() => void>()
 
 export function setUi(patch: Partial<UiState>): void {
   state = { ...state, ...patch }
   listeners.forEach((l) => l())
+}
+let toastTimer = 0
+/** Tells the user something happened (or didn't) without a modal dialog. */
+export function showToast(msg: string): void {
+  window.clearTimeout(toastTimer)
+  setUi({ toast: msg })
+  toastTimer = window.setTimeout(() => setUi({ toast: null }), 4000)
+}
+/** Used by every command Cellbook doesn't implement yet, so no button silently does nothing. */
+export function notAvailable(name: string): void {
+  showToast(`"${name.replace(/&/g, '').replace(/\.\.\.$/, '')}" isn't available in Cellbook yet.`)
 }
 export function getUi(): UiState {
   return state

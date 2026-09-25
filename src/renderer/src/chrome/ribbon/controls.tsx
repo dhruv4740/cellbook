@@ -150,9 +150,26 @@ export function StackSplit({ icon, label, tip, onClick, menu, keytip }: BtnProps
 }
 
 /** Small (16px) ribbon button used stacked 2-3 per group, or in a row. */
-export function SmallButton({ icon, label, tip, onClick, onDoubleClick, active, disabled, menu, keytip }: BtnProps & { menu?: MenuItem[]; onDoubleClick?: () => void }) {
+export function SmallButton({ icon, label, tip, onClick, onDoubleClick, active, disabled, menu, keytip, split }: BtnProps & { menu?: MenuItem[]; onDoubleClick?: () => void; split?: boolean }) {
   const [open, setOpen] = useState<{ x: number; y: number } | null>(null)
   const ref = useRef<HTMLButtonElement>(null)
+  const wrap = useRef<HTMLDivElement>(null)
+  if (split && menu) {
+    // Excel's Underline / Borders: the button runs the current choice, the arrow opens the list.
+    return (
+      <TipWrap tip={tip}>
+        <div ref={wrap} className={'xl-small-btn xl-split' + (active ? ' active' : '')}>
+          <button className="xl-small-split-main" disabled={disabled} onClick={onClick}>
+            <span className="xl-small-icon" style={{ position: 'relative' }}>{icon}<KeyTipBadge code={keytip} /></span>
+          </button>
+          <button className="xl-small-split-caret" disabled={disabled} onClick={() => { const r = wrap.current!.getBoundingClientRect(); setOpen({ x: r.left, y: r.bottom }) }}>
+            <ChevronDown12Regular />
+          </button>
+        </div>
+        {open && <Menu x={open.x} y={open.y} items={menu} onClose={() => setOpen(null)} />}
+      </TipWrap>
+    )
+  }
   return (
     <TipWrap tip={tip}>
       <button

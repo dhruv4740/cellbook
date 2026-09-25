@@ -79,7 +79,7 @@
 .xl-tip-shortcut { font-weight: 400; color: #666; }
 .xl-tip-desc { color: #444; margin-top: 3px; }
 
-.xl-color-menu { position: fixed; background: #fff; border: 1px solid #b0b0b0; box-shadow: 0 3px 10px rgba(0,0,0,0.25); padding: 6px; z-index: 6000; width: 216px; }
+.xl-color-menu { pointer-events: auto; position: fixed; background: #fff; border: 1px solid #b0b0b0; box-shadow: 0 3px 10px rgba(0,0,0,0.25); padding: 6px; z-index: 6000; width: 216px; }
 .xl-color-section { font-size: 11px; color: #555; padding: 4px 2px 2px; }
 .xl-color-grid { display: grid; grid-template-columns: repeat(10, 1fr); gap: 1px; }
 .xl-color-swatch { width: 18px; height: 18px; border: 1px solid rgba(0,0,0,0.15); cursor: default; }
