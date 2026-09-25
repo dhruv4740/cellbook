@@ -96,6 +96,8 @@ export interface SheetLayout {
   autoFilter?: AutoFilter
   notes: Record<string, NoteData> // key 'r,c'
   comments: Record<string, CommentThread> // key 'r,c'
+  /** Cell hyperlinks, key 'r,c': an external target (URL, file, mailto) or an in-workbook location. */
+  hyperlinks?: Record<string, HyperlinkData>
   /** Floating chart objects on this sheet. Optional so existing layouts still typecheck. */
   charts?: ChartSpec[]
   conditionalFormats?: CfRule[]
@@ -348,3 +350,5 @@ export interface DataValidationRule {
   errorTitle?: string
   errorMessage?: string
 }
+
+export interface HyperlinkData { target?: string; location?: string; tooltip?: string }

@@ -1,4 +1,5 @@
 // Excel functions HyperFormula lacks. Registered once, before any HyperFormula instance is built.
+import { formatValue } from '../format/numfmt'
 import { FunctionPlugin, FunctionArgumentType, HyperFormula, SimpleRangeValue, CellError, ErrorType } from 'hyperformula'
 type InterpreterValue = any
 
@@ -137,11 +138,163 @@ class SubtotalPlugin extends FunctionPlugin {
   }
 }
 
+// ---------- Functions HyperFormula gets wrong or lacks (checked against Excel/LibreOffice) ----------
+const DAY_MS = 86400000
+function serialToYmd(n: number): { y: number; m: number; d: number } {
+  const dt = new Date(Date.UTC(1899, 11, 30) + Math.floor(n) * DAY_MS)
+  return { y: dt.getUTCFullYear(), m: dt.getUTCMonth() + 1, d: dt.getUTCDate() }
+}
+const daysInMonth = (y: number, m: number): number => new Date(Date.UTC(y, m, 0)).getUTCDate()
+function nums(args: unknown[]): number[] {
+  return flatten(args).map(num).filter((x): x is number => x !== null)
+}
+function scalarText(v: unknown): string { return toText(v) }
+
+class ExcelFixPlugin extends FunctionPlugin {
+  static implementedFunctions = {
+    INT: { method: 'int', parameters: [{ argumentType: FunctionArgumentType.NUMBER }] },
+    MOD: { method: 'mod', parameters: [{ argumentType: FunctionArgumentType.NUMBER }, { argumentType: FunctionArgumentType.NUMBER }] },
+    TEXT: { method: 'text', parameters: [{ argumentType: FunctionArgumentType.SCALAR }, { argumentType: FunctionArgumentType.STRING }] },
+    DATEDIF: { method: 'datedif', parameters: [{ argumentType: FunctionArgumentType.NUMBER }, { argumentType: FunctionArgumentType.NUMBER }, { argumentType: FunctionArgumentType.STRING }] },
+    MODE: { method: 'mode', parameters: [{ argumentType: FunctionArgumentType.ANY }], repeatLastArgs: 1 },
+    'MODE.SNGL': { method: 'mode', parameters: [{ argumentType: FunctionArgumentType.ANY }], repeatLastArgs: 1 },
+    RANK: { method: 'rank', parameters: [{ argumentType: FunctionArgumentType.NUMBER }, { argumentType: FunctionArgumentType.RANGE }, { argumentType: FunctionArgumentType.NUMBER, optionalArg: true, defaultValue: 0 }] },
+    'RANK.EQ': { method: 'rank', parameters: [{ argumentType: FunctionArgumentType.NUMBER }, { argumentType: FunctionArgumentType.RANGE }, { argumentType: FunctionArgumentType.NUMBER, optionalArg: true, defaultValue: 0 }] },
+    'RANK.AVG': { method: 'rankavg', parameters: [{ argumentType: FunctionArgumentType.NUMBER }, { argumentType: FunctionArgumentType.RANGE }, { argumentType: FunctionArgumentType.NUMBER, optionalArg: true, defaultValue: 0 }] },
+    LOOKUP: { method: 'lookup', parameters: [{ argumentType: FunctionArgumentType.SCALAR }, { argumentType: FunctionArgumentType.RANGE }, { argumentType: FunctionArgumentType.RANGE, optionalArg: true }] },
+    FIXED: { method: 'fixed', parameters: [{ argumentType: FunctionArgumentType.NUMBER }, { argumentType: FunctionArgumentType.NUMBER, optionalArg: true, defaultValue: 2 }, { argumentType: FunctionArgumentType.BOOLEAN, optionalArg: true, defaultValue: false }] },
+    TEXTBEFORE: { method: 'textbefore', parameters: [{ argumentType: FunctionArgumentType.STRING }, { argumentType: FunctionArgumentType.STRING }, { argumentType: FunctionArgumentType.NUMBER, optionalArg: true, defaultValue: 1 }] },
+    TEXTAFTER: { method: 'textafter', parameters: [{ argumentType: FunctionArgumentType.STRING }, { argumentType: FunctionArgumentType.STRING }, { argumentType: FunctionArgumentType.NUMBER, optionalArg: true, defaultValue: 1 }] }
+  }
+  int(ast: any, state: any): InterpreterValue {
+    return this.runFunction(ast.args, state, this.metadata('INT'), (n: number) => Math.floor(n)) // rounds down: INT(-3.5) = -4
+  }
+  mod(ast: any, state: any): InterpreterValue {
+    return this.runFunction(ast.args, state, this.metadata('MOD'), (n: number, d: number) => {
+      if (d === 0) return new CellError(ErrorType.DIV_BY_ZERO)
+      const r = n - d * Math.floor(n / d) // result takes the divisor's sign: MOD(-7,3) = 2
+      return Math.abs(r) < 1e-12 ? 0 : r
+    })
+  }
+  text(ast: any, state: any): InterpreterValue {
+    return this.runFunction(ast.args, state, this.metadata('TEXT'), (v: unknown, fmt: string) => {
+      if (v instanceof CellError) return v
+      let val: unknown = num(v) ?? v
+      if (typeof val === 'string' && val.trim() !== '' && !isNaN(Number(val))) val = Number(val)
+      if (typeof val === 'boolean') return val ? 'TRUE' : 'FALSE'
+      if (val === null || val === undefined || typeof val === 'symbol') val = 0
+      return formatValue(val as number | string, fmt).text
+    })
+  }
+  datedif(ast: any, state: any): InterpreterValue {
+    return this.runFunction(ast.args, state, this.metadata('DATEDIF'), (s: number, e: number, unit: string) => {
+      s = Math.floor(s); e = Math.floor(e)
+      if (s > e) return new CellError(ErrorType.NUM)
+      const a = serialToYmd(s), b = serialToYmd(e)
+      const months = (b.y - a.y) * 12 + (b.m - a.m) - (b.d < a.d ? 1 : 0)
+      switch (unit.toUpperCase()) {
+        case 'Y': return Math.floor(months / 12)
+        case 'M': return months
+        case 'D': return e - s
+        case 'YM': return months % 12
+        case 'MD': {
+          if (b.d >= a.d) return b.d - a.d
+          const pm = b.m === 1 ? 12 : b.m - 1, py = b.m === 1 ? b.y - 1 : b.y
+          return daysInMonth(py, pm) - a.d + b.d
+        }
+        case 'YD': {
+          let y = b.y
+          const anniv = (yy: number) => Date.UTC(yy, a.m - 1, Math.min(a.d, daysInMonth(yy, a.m))) / DAY_MS
+          const end = Date.UTC(b.y, b.m - 1, b.d) / DAY_MS
+          if (anniv(y) > end) y--
+          return Math.round(end - anniv(y))
+        }
+        default: return new CellError(ErrorType.NUM)
+      }
+    })
+  }
+  mode(ast: any, state: any): InterpreterValue {
+    return this.runFunction(ast.args, state, this.metadata('MODE'), (...args: unknown[]) => {
+      const list = nums(args)
+      const count = new Map<number, number>()
+      let best: number | null = null, bestN = 1
+      for (const x of list) {
+        const n = (count.get(x) ?? 0) + 1
+        count.set(x, n)
+        if (n > bestN) { bestN = n; best = x }
+      }
+      // ties: Excel returns the value whose repeat appears first in the data
+      if (best !== null) for (const x of list) if (count.get(x) === bestN) return x
+      return new CellError(ErrorType.NA)
+    })
+  }
+  private rankOf(n: number, ref: unknown, order: number, avg: boolean): number | CellError {
+    const list = nums([ref])
+    if (!list.includes(n)) return new CellError(ErrorType.NA)
+    const better = list.filter((x) => (order ? x < n : x > n)).length
+    const ties = list.filter((x) => x === n).length
+    return avg ? better + (ties + 1) / 2 : better + 1
+  }
+  rank(ast: any, state: any): InterpreterValue {
+    return this.runFunction(ast.args, state, this.metadata('RANK'), (n: number, ref: unknown, order: number) => this.rankOf(n, ref, order, false))
+  }
+  rankavg(ast: any, state: any): InterpreterValue {
+    return this.runFunction(ast.args, state, this.metadata('RANK.AVG'), (n: number, ref: unknown, order: number) => this.rankOf(n, ref, order, true))
+  }
+  lookup(ast: any, state: any): InterpreterValue {
+    return this.runFunction(ast.args, state, this.metadata('LOOKUP'), (v: unknown, look: SimpleRangeValue, res?: SimpleRangeValue) => {
+      const grid = look.data
+      const h = grid.length, w = grid[0]?.length ?? 0
+      let keys: unknown[], vals: unknown[]
+      if (res) {
+        keys = grid.flat()
+        vals = res.data.flat()
+      } else if (w > h) { keys = grid[0]; vals = grid[h - 1] } else { keys = grid.map((r) => r[0]); vals = grid.map((r) => r[w - 1]) }
+      // Approximate match on sorted data: the last key <= v of the same kind (number vs text).
+      const vn = num(v)
+      let hit = -1
+      keys.forEach((k, i) => {
+        if (vn !== null) { const kn = num(k); if (kn !== null && kn <= vn) hit = i }
+        else if (typeof k === 'string' && typeof v === 'string' && k.localeCompare(v, undefined, { sensitivity: 'base' }) <= 0) hit = i
+      })
+      if (hit < 0 || hit >= vals.length) return new CellError(ErrorType.NA)
+      const out = vals[hit]
+      return out === undefined || typeof out === 'symbol' ? 0 : (out as InterpreterValue)
+    })
+  }
+  fixed(ast: any, state: any): InterpreterValue {
+    return this.runFunction(ast.args, state, this.metadata('FIXED'), (n: number, dec: number, noCommas: boolean) => {
+      const d = Math.trunc(dec)
+      const rounded = d >= 0 ? Number(n.toFixed(Math.min(d, 100))) : Math.round(n / 10 ** -d) * 10 ** -d
+      return rounded.toLocaleString('en-US', { minimumFractionDigits: Math.max(0, d), maximumFractionDigits: Math.max(0, d), useGrouping: !noCommas })
+    })
+  }
+  private around(txt: string, delim: string, inst: number, before: boolean): string | CellError {
+    if (inst === 0 || delim === '') return new CellError(ErrorType.VALUE)
+    let idx = -1
+    if (inst > 0) { let from = 0; for (let k = 0; k < inst; k++) { idx = txt.indexOf(delim, from); if (idx < 0) break; from = idx + delim.length } }
+    else { let from = txt.length; for (let k = 0; k < -inst; k++) { idx = txt.lastIndexOf(delim, from); if (idx < 0) break; from = idx - 1 } }
+    if (idx < 0) return new CellError(ErrorType.NA)
+    return before ? txt.slice(0, idx) : txt.slice(idx + delim.length)
+  }
+  textbefore(ast: any, state: any): InterpreterValue {
+    return this.runFunction(ast.args, state, this.metadata('TEXTBEFORE'), (t: string, d: string, i: number) => this.around(t, d, Math.trunc(i), true))
+  }
+  textafter(ast: any, state: any): InterpreterValue {
+    return this.runFunction(ast.args, state, this.metadata('TEXTAFTER'), (t: string, d: string, i: number) => this.around(t, d, Math.trunc(i), false))
+  }
+}
+void scalarText
+
 let registered = false
 export function registerExtraFunctions(): void {
   if (registered) return
   registered = true
-  try { HyperFormula.unregisterFunction('SUBTOTAL') } catch { /* not registered */ }
+  for (const f of ['SUBTOTAL', 'INT', 'MOD', 'TEXT', 'DATEDIF']) {
+    try { HyperFormula.unregisterFunction(f) } catch { /* not registered */ }
+  }
+  const fixNames = Object.fromEntries(Object.keys(ExcelFixPlugin.implementedFunctions).map((k) => [k, k]))
+  HyperFormula.registerFunctionPlugin(ExcelFixPlugin, { enGB: fixNames, enUS: fixNames } as any)
   HyperFormula.registerFunctionPlugin(SubtotalPlugin, { enGB: { SUBTOTAL: 'SUBTOTAL', AGGREGATE: 'AGGREGATE' }, enUS: { SUBTOTAL: 'SUBTOTAL', AGGREGATE: 'AGGREGATE' } } as any)
   HyperFormula.registerFunctionPlugin(ExtraTextPlugin, { enGB: { CONCAT: 'CONCAT', TEXTJOIN: 'TEXTJOIN' }, enUS: { CONCAT: 'CONCAT', TEXTJOIN: 'TEXTJOIN' } } as any)
 }

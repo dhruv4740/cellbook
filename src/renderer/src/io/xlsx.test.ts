@@ -803,3 +803,28 @@ describe('data validation + chart + note on one sheet', () => {
     expect(l.charts?.length).toBe(1)
   })
 })
+
+describe('defined names', () => {
+  it('evaluate in formulas and survive a save', async () => {
+    const { store } = await import('../model/store')
+    store.load({
+      sheets: [
+        { name: 'Data', cells: { '0,0': { raw: '10' }, '1,0': { raw: '=TaxRate*A1' }, '2,0': { raw: '=SUM(Amounts)' } } },
+        { name: 'Rates', cells: { '0,0': { raw: '1.18' } } }
+      ],
+      names: [
+        { name: 'TaxRate', ref: 'Rates!$A$1' },
+        { name: 'Amounts', ref: 'Data!$A$1:$A$2' },
+        { name: '_xlnm.Print_Area', ref: 'Data!$A$1:$C$10', sheet: 0 }
+      ]
+    }, 'n', null)
+    expect(store.getDisplay(store.sheets[0], 1, 0).text).toBe('11.8')
+    expect(store.getDisplay(store.sheets[0], 2, 0).text).toBe('21.8')
+    const back = await readXlsx(await writeXlsx(store.toData()))
+    expect(back.names).toEqual([
+      { name: 'TaxRate', ref: 'Rates!$A$1' },
+      { name: 'Amounts', ref: 'Data!$A$1:$A$2' },
+      { name: '_xlnm.Print_Area', ref: 'Data!$A$1:$C$10', sheet: 0 }
+    ])
+  })
+})
