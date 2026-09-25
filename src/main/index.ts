@@ -525,9 +525,60 @@ ipcMain.handle('clipboard:write', (_e, data: { text: string; html?: string }) =>
 )
 ipcMain.handle('file:read', async (_e, path: string) => new Uint8Array(await fs.readFile(path)))
 
-ipcMain.handle('file:write', async (_e, path: string, data: Uint8Array) => {
-  await fs.writeFile(path, data)
-  return true
+// AutoRecover: while a workbook has unsaved changes its window writes a backup here every minute;
+// a clean save or close removes it. Backups left behind by a crash are reopened on the next launch.
+const recoverDir = (): string => join(app.getPath('userData'), 'AutoRecover')
+const safeId = (id: string): string => id.replace(/[^A-Za-z0-9_-]/g, '')
+ipcMain.handle('recover:write', async (_e, id: string, name: string, data: Uint8Array) => {
+  try {
+    await fs.mkdir(recoverDir(), { recursive: true })
+    const base = join(recoverDir(), safeId(id))
+    await fs.writeFile(base + '.tmp', data)
+    await fs.rename(base + '.tmp', base + '.xlsx')
+    await fs.writeFile(base + '.json', JSON.stringify({ name, time: Date.now() }))
+  } catch { /* best effort */ }
+})
+ipcMain.handle('recover:clear', async (_e, id: string) => {
+  const base = join(recoverDir(), safeId(id))
+  await Promise.all(['.xlsx', '.json', '.tmp'].map((x) => fs.rm(base + x, { force: true }).catch(() => {})))
+})
+/** Hands one orphaned backup (from a previous run) to the asking window and removes it from disk. */
+const liveRecoverIds = new Set<string>()
+ipcMain.handle('recover:register', (_e, id: string) => { liveRecoverIds.add(safeId(id)) })
+ipcMain.handle('recover:takeOne', async () => {
+  try {
+    const files = (await fs.readdir(recoverDir())).filter((f) => f.endsWith('.xlsx'))
+    for (const f of files) {
+      const id = f.slice(0, -5)
+      if (liveRecoverIds.has(id)) continue
+      const base = join(recoverDir(), id)
+      const data = new Uint8Array(await fs.readFile(base + '.xlsx'))
+      let name = 'Book1'
+      try { name = JSON.parse(await fs.readFile(base + '.json', 'utf8')).name || name } catch { /* no meta */ }
+      await Promise.all(['.xlsx', '.json'].map((x) => fs.rm(base + x, { force: true }).catch(() => {})))
+      return { name, data }
+    }
+  } catch { /* no folder yet */ }
+  return null
+})
+
+// Safe save, like Excel: write a temporary file next to the target, then swap it in, so a failed
+// or interrupted save never leaves a half-written workbook. Returns an error message on failure.
+ipcMain.handle('file:write', async (_e, path: string, data: Uint8Array): Promise<true | string> => {
+  const tmp = path + '.~cbtmp' + process.pid
+  try {
+    await fs.writeFile(tmp, data)
+    await fs.rename(tmp, path)
+    return true
+  } catch (err) {
+    await fs.rm(tmp, { force: true }).catch(() => {})
+    const code = (err as NodeJS.ErrnoException).code
+    if (code === 'EBUSY' || code === 'EPERM' || code === 'EACCES')
+      return 'The file may be open in another program, read-only, or you may not have permission to save in this location.'
+    if (code === 'ENOSPC') return 'There is not enough disk space.'
+    if (code === 'ENOENT') return 'The folder no longer exists or the drive is not available.'
+    return (err as Error).message || String(err)
+  }
 })
 
 // ---------------------------------------------------------------------------

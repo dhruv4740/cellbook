@@ -57,11 +57,16 @@ const api = {
   // ---- files ----
   clipboardReadText: (): Promise<string> => ipcRenderer.invoke('clipboard:readText'),
   clipboardWrite: (data: { text: string; html?: string }): Promise<void> => ipcRenderer.invoke('clipboard:write', data),
+  recoverWrite: (id: string, name: string, data: Uint8Array): Promise<void> => ipcRenderer.invoke('recover:write', id, name, data),
+  recoverClear: (id: string): Promise<void> => ipcRenderer.invoke('recover:clear', id),
+  recoverRegister: (id: string): Promise<void> => ipcRenderer.invoke('recover:register', id),
+  recoverTakeOne: (): Promise<{ name: string; data: Uint8Array } | null> => ipcRenderer.invoke('recover:takeOne'),
   pickAndOpen: (): Promise<boolean> => ipcRenderer.invoke('file:pickAndOpen'),
   openPathRequest: (path: string): Promise<boolean> => ipcRenderer.invoke('file:openPathRequest', path),
   onOpenPath: (cb: (payload: OpenPathPayload) => void) => ipcRenderer.on('file:openPath', (_e, payload) => cb(payload)),
   saveAs: (defaultName: string): Promise<string | null> => ipcRenderer.invoke('file:saveAs', defaultName),
-  writeFile: (path: string, data: Uint8Array): Promise<boolean> => ipcRenderer.invoke('file:write', path, data),
+  /** true, or the reason the save failed. */
+  writeFile: (path: string, data: Uint8Array): Promise<true | string> => ipcRenderer.invoke('file:write', path, data),
   readFile: (path: string): Promise<Uint8Array> => ipcRenderer.invoke('file:read', path),
   /** Resolves a dropped File to an absolute path (Electron's replacement for File.path). */
   getPathForFile: (file: File): string => webUtils.getPathForFile(file),

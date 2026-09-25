@@ -69,7 +69,70 @@ async function confirmDiscard(): Promise<boolean> {
   const choice = await confirmSaveChanges(store.fileName)
   if (choice === 'cancel') return false
   if (choice === 'save') return save()
+  clearRecovery() // "Don't Save": the user chose to drop these changes
   return true
+}
+
+// ---------- AutoRecover & AutoSave ----------
+const recoverId = 'w' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
+let recoverTimer: ReturnType<typeof setInterval> | null = null
+let lastBackupVersion = -1
+
+function clearRecovery(): void {
+  lastBackupVersion = -1
+  void window.api?.recoverClear?.(recoverId)
+}
+
+async function backupNow(): Promise<void> {
+  if (!window.api?.recoverWrite || !store.dirty || store.getVersion() === lastBackupVersion) return
+  lastBackupVersion = store.getVersion()
+  try {
+    const bytes = await writeXlsx(store.toData(), currentVba)
+    await window.api.recoverWrite(recoverId, store.fileName, bytes)
+  } catch { /* best effort */ }
+}
+
+let autoSaveOn = false
+let autoSaveTimer: ReturnType<typeof setTimeout> | null = null
+const autoSaveListeners = new Set<() => void>()
+export function isAutoSaveOn(): boolean { return autoSaveOn }
+export function onAutoSaveChange(fn: () => void): () => void { autoSaveListeners.add(fn); return () => autoSaveListeners.delete(fn) }
+/** AutoSave: saves the open file a few seconds after each change. A workbook that has never been
+ *  saved asks for a location first; CSV files are not auto-saved (a save drops everything but values). */
+export async function setAutoSave(on: boolean): Promise<void> {
+  if (on && (!store.filePath || extOf(store.filePath) === 'csv')) {
+    if (!(await saveAs()) || !store.filePath || extOf(store.filePath) === 'csv') return
+  }
+  autoSaveOn = on
+  autoSaveListeners.forEach((f) => f())
+  if (on && store.dirty) void save()
+}
+
+function installRecovery(): void {
+  void window.api?.recoverRegister?.(recoverId)
+  recoverTimer ??= setInterval(() => void backupNow(), 60_000)
+  store.subscribe(() => {
+    if (!autoSaveOn || !store.dirty || !store.filePath) return
+    if (autoSaveTimer) clearTimeout(autoSaveTimer)
+    autoSaveTimer = setTimeout(() => { autoSaveTimer = null; if (autoSaveOn && store.dirty) void save() }, 3000)
+  })
+  // Reopen a backup left by a crash in the first window the user actually sees.
+  const tryRecover = async (): Promise<void> => {
+    if (document.visibilityState !== 'visible' || store.dirty || store.filePath) return
+    document.removeEventListener('visibilitychange', tryRecover)
+    const rec = await window.api?.recoverTakeOne?.()
+    if (!rec) return
+    try {
+      await loadFromBytes(rec.data, rec.name + ' (Recovered).xlsx', null)
+      store.fileName = rec.name + ' (Recovered)'
+      store.dirty = true
+      store.notify()
+      setTitle()
+      window.alert(`Cellbook closed unexpectedly last time. Your unsaved work in '${rec.name}' was recovered.\n\nSave it now with File > Save As.`)
+    } catch { /* unreadable backup */ }
+  }
+  document.addEventListener('visibilitychange', tryRecover)
+  void tryRecover()
 }
 
 // ---------- browser fallbacks ----------
@@ -148,19 +211,42 @@ function vbaForPath(path: string): VbaProject | undefined {
   return extOf(path) === 'xlsm' ? currentVba : undefined
 }
 
-export async function save(): Promise<boolean> {
-  if (!store.filePath && !window.api) return saveAs()
-  if (!store.filePath) return saveAs()
-  const bytes = extOf(store.filePath) === 'csv'
-    ? new TextEncoder().encode(writeActiveCsv())
-    : await writeXlsx(store.toData(), vbaForPath(store.filePath))
-  const ok = await window.api!.writeFile(store.filePath, bytes)
-  if (ok) {
-    store.dirty = false
-    store.notify()
-    window.api?.reportWorkbookSaved?.({ fileName: store.fileName, filePath: store.filePath })
+/** Writes bytes to disk; on failure tells the user (Excel's wording) and returns false. */
+async function writeOrReport(path: string, bytes: Uint8Array): Promise<boolean> {
+  let res: true | string
+  try {
+    res = await window.api!.writeFile(path, bytes)
+  } catch (e) {
+    res = (e as Error)?.message || 'Unknown error'
   }
-  return ok
+  if (res === true) return true
+  const name = path.split(/[\\/]/).pop()
+  window.alert(`Your changes couldn't be saved to '${name}'.\n\n${res}\n\nYour work is still open. Try Save As to save a copy in another location.`)
+  return false
+}
+
+let saving: Promise<boolean> | null = null
+
+export async function save(): Promise<boolean> {
+  if (!store.filePath) return saveAs()
+  if (saving) return saving // Ctrl+S held down / AutoSave overlapping: one save at a time
+  const path = store.filePath
+  const version = store.getVersion()
+  saving = (async () => {
+    const bytes = extOf(path) === 'csv'
+      ? new TextEncoder().encode(writeActiveCsv())
+      : await writeXlsx(store.toData(), vbaForPath(path))
+    const ok = await writeOrReport(path, bytes)
+    // Only edits captured in this save count as saved; anything typed meanwhile stays unsaved.
+    if (ok && store.getVersion() === version && store.filePath === path) {
+      store.dirty = false
+      store.notify()
+      window.api?.reportWorkbookSaved?.({ fileName: store.fileName, filePath: store.filePath })
+      clearRecovery()
+    }
+    return ok
+  })()
+  try { return await saving } finally { saving = null }
 }
 
 export async function saveAs(): Promise<boolean> {
@@ -170,8 +256,9 @@ export async function saveAs(): Promise<boolean> {
     if (!path) return false
     const isCsv = extOf(path) === 'csv'
     const bytes = isCsv ? new TextEncoder().encode(writeActiveCsv()) : await writeXlsx(store.toData(), vbaForPath(path))
-    const ok = await window.api.writeFile(path, bytes)
+    const ok = await writeOrReport(path, bytes)
     if (ok) {
+      clearRecovery()
       store.fileName = stripExt(path.split(/[\\/]/).pop() || currentName)
       store.filePath = path
       store.dirty = false
@@ -241,6 +328,7 @@ let installed = false
 export function installFileShortcuts(): void {
   if (installed) return
   installed = true
+  installRecovery()
 
   window.addEventListener('keydown', (e) => {
     const ctrl = e.ctrlKey || e.metaKey
