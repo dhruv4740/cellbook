@@ -93,13 +93,17 @@ export function BigButton({ icon, label, tip, onClick, active, disabled, color, 
 }
 
 /** Split button: left = default action (icon+label), right = separate dropdown caret. */
-export function SplitButton({ icon, label, tip, onClick, active, color, menu, keytip }: BtnProps & { menu: MenuItem[] }) {
+export function SplitButton({ icon, label, tip, onClick, active, color, menu, keytip, menuOnly }: BtnProps & { menu: MenuItem[]; menuOnly?: boolean }) {
   const [open, setOpen] = useState<{ x: number; y: number } | null>(null)
   const ref = useRef<HTMLDivElement>(null)
+  const openMenu = (): void => {
+    const r = ref.current!.getBoundingClientRect()
+    setOpen({ x: r.left, y: r.bottom })
+  }
   return (
     <TipWrap tip={tip}>
       <div ref={ref} className={'xl-big-btn xl-split' + (active ? ' active' : '')}>
-        <button className="xl-split-main" onClick={onClick}>
+        <button className="xl-split-main" onClick={menuOnly ? openMenu : onClick}>
           <span className="xl-big-icon" style={{ position: 'relative' }}>
             {icon}
             {color && <span className="xl-color-bar" style={{ background: color }} />}
@@ -109,10 +113,7 @@ export function SplitButton({ icon, label, tip, onClick, active, color, menu, ke
         </button>
         <button
           className="xl-split-caret"
-          onClick={() => {
-            const r = ref.current!.getBoundingClientRect()
-            setOpen({ x: r.left, y: r.bottom })
-          }}
+          onClick={openMenu}
         >
           <ChevronDown12Regular />
         </button>
