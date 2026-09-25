@@ -532,3 +532,274 @@ describe('conditional formatting round trip', () => {
     expect(r10.ranges[1]).toEqual({ r1: 0, c1: 11, r2: 5, c2: 11 })
   })
 })
+
+describe('chart round trip', () => {
+  it('round-trips charts covering bar, column, line, area, pie, doughnut, and scatter types', async () => {
+    const data: WorkbookData = {
+      sheets: [
+        {
+          name: 'ChartsSheet',
+          cells: {
+            '0,0': { raw: 'Product' },
+            '0,1': { raw: 'Sales' },
+            '0,2': { raw: 'Profit' },
+            '1,0': { raw: 'Alpha' },
+            '1,1': { raw: '200' },
+            '1,2': { raw: '50' },
+            '2,0': { raw: 'Beta' },
+            '2,1': { raw: '300' },
+            '2,2': { raw: '80' },
+            '3,0': { raw: 'Gamma' },
+            '3,1': { raw: '150' },
+            '3,2': { raw: '30' }
+          },
+          layout: {
+            charts: [
+              // 1. Clustered Column
+              {
+                id: 'chart1',
+                type: 'bar',
+                subtype: 'clusteredColumn',
+                dataRange: { r1: 0, c1: 0, r2: 3, c2: 2 },
+                seriesInColumns: true,
+                title: 'Revenue by Product',
+                anchor: { r: 5, c: 0, dx: 10, dy: 5 },
+                width: 480,
+                height: 288,
+                legendPosition: 'bottom',
+                elements: {
+                  title: true,
+                  legend: true,
+                  gridlines: true,
+                  dataLabels: false,
+                  axes: true,
+                  axisTitles: false
+                }
+              },
+              // 2. Line with markers
+              {
+                id: 'chart2',
+                type: 'line',
+                subtype: 'lineMarkers',
+                dataRange: { r1: 0, c1: 0, r2: 3, c2: 2 },
+                seriesInColumns: true,
+                title: 'Growth Trend',
+                anchor: { r: 5, c: 8, dx: 0, dy: 0 },
+                width: 480,
+                height: 288,
+                legendPosition: 'right',
+                elements: {
+                  title: true,
+                  legend: true,
+                  gridlines: true,
+                  dataLabels: false,
+                  axes: true,
+                  axisTitles: false
+                }
+              },
+              // 3. Pie chart
+              {
+                id: 'chart3',
+                type: 'pie',
+                subtype: 'pie',
+                dataRange: { r1: 0, c1: 0, r2: 3, c2: 1 },
+                seriesInColumns: true,
+                title: 'Market Share',
+                anchor: { r: 20, c: 0, dx: 0, dy: 0 },
+                width: 400,
+                height: 250,
+                legendPosition: 'right',
+                elements: {
+                  title: true,
+                  legend: true,
+                  gridlines: false,
+                  dataLabels: false,
+                  axes: false,
+                  axisTitles: false
+                }
+              },
+              // 4. Doughnut chart
+              {
+                id: 'chart4',
+                type: 'pie',
+                subtype: 'doughnut',
+                dataRange: { r1: 0, c1: 0, r2: 3, c2: 1 },
+                seriesInColumns: true,
+                title: 'Doughnut Split',
+                anchor: { r: 20, c: 8, dx: 0, dy: 0 },
+                width: 400,
+                height: 250,
+                legendPosition: 'top',
+                elements: {
+                  title: true,
+                  legend: true,
+                  gridlines: false,
+                  dataLabels: false,
+                  axes: false,
+                  axisTitles: false
+                }
+              },
+              // 5. Area chart
+              {
+                id: 'chart5',
+                type: 'line',
+                subtype: 'area',
+                dataRange: { r1: 0, c1: 0, r2: 3, c2: 2 },
+                seriesInColumns: true,
+                title: 'Volume Area',
+                anchor: { r: 35, c: 0, dx: 0, dy: 0 },
+                width: 480,
+                height: 288,
+                legendPosition: 'bottom',
+                elements: {
+                  title: true,
+                  legend: true,
+                  gridlines: true,
+                  dataLabels: false,
+                  axes: true,
+                  axisTitles: false
+                }
+              },
+              // 6. Scatter smooth
+              {
+                id: 'chart6',
+                type: 'scatter',
+                subtype: 'scatterSmooth',
+                dataRange: { r1: 0, c1: 0, r2: 3, c2: 2 },
+                seriesInColumns: true,
+                title: 'Correlation',
+                anchor: { r: 35, c: 8, dx: 0, dy: 0 },
+                width: 480,
+                height: 288,
+                legendPosition: 'left',
+                elements: {
+                  title: true,
+                  legend: true,
+                  gridlines: true,
+                  dataLabels: false,
+                  axes: true,
+                  axisTitles: false
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+
+    const bytes = await writeXlsx(data)
+
+    // Check DrawingML packaging
+    const files = unzipSync(bytes)
+    expect(files['xl/drawings/drawing1.xml']).toBeDefined()
+    expect(files['xl/drawings/_rels/drawing1.xml.rels']).toBeDefined()
+    expect(files['xl/charts/chart1.xml']).toBeDefined()
+    expect(files['xl/charts/chart6.xml']).toBeDefined()
+
+    const ct = new TextDecoder('utf-8').decode(files['[Content_Types].xml'])
+    expect(ct).toContain('ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"')
+    expect(ct).toContain('ContentType="application/vnd.openxmlformats-officedocument.drawingml.chart+xml"')
+
+    const sheetXml = new TextDecoder('utf-8').decode(files['xl/worksheets/sheet1.xml'])
+    expect(sheetXml).toContain('<drawing r:id="')
+
+    // Read back via fast reader
+    const back = await readXlsx(bytes)
+    const charts = back.sheets[0].layout?.charts
+    expect(charts).toBeDefined()
+    expect(charts?.length).toBe(6)
+
+    // Verify 1: Column
+    const c1 = charts![0]
+    expect(c1.type).toBe('bar')
+    expect(c1.subtype).toBe('clusteredColumn')
+    expect(c1.title).toBe('Revenue by Product')
+    expect(c1.legendPosition).toBe('bottom')
+    expect(c1.anchor.r).toBe(5)
+    expect(c1.anchor.c).toBe(0)
+    expect(c1.dataRange).toEqual({ r1: 0, c1: 0, r2: 3, c2: 2 })
+
+    // Verify 2: Line with markers
+    const c2 = charts![1]
+    expect(c2.type).toBe('line')
+    expect(c2.subtype).toBe('lineMarkers')
+    expect(c2.title).toBe('Growth Trend')
+    expect(c2.legendPosition).toBe('right')
+
+    // Verify 3: Pie
+    const c3 = charts![2]
+    expect(c3.type).toBe('pie')
+    expect(c3.subtype).toBe('pie')
+    expect(c3.title).toBe('Market Share')
+
+    // Verify 4: Doughnut
+    const c4 = charts![3]
+    expect(c4.type).toBe('pie')
+    expect(c4.subtype).toBe('doughnut')
+    expect(c4.title).toBe('Doughnut Split')
+    expect(c4.legendPosition).toBe('top')
+
+    // Verify 5: Area
+    const c5 = charts![4]
+    expect(c5.subtype).toBe('area')
+    expect(c5.title).toBe('Volume Area')
+
+    // Verify 6: Scatter
+    const c6 = charts![5]
+    expect(c6.type).toBe('scatter')
+    expect(c6.subtype).toBe('scatterSmooth')
+    expect(c6.title).toBe('Correlation')
+    expect(c6.legendPosition).toBe('left')
+  })
+
+  it('loads charts from samples/chart-sample.xlsx fixture', async () => {
+    const { readFile } = await import('fs/promises')
+    const { join } = await import('path')
+    const bytes = new Uint8Array(await readFile(join(process.cwd(), 'samples', 'chart-sample.xlsx')))
+    const wb = await readXlsx(bytes)
+    expect(wb.sheets.length).toBe(1)
+    const charts = wb.sheets[0].layout?.charts
+    expect(charts).toBeDefined()
+    expect(charts?.length).toBe(1)
+    expect(charts![0].type).toBe('bar')
+    expect(charts![0].subtype).toBe('clusteredColumn')
+    expect(charts![0].title).toBe('Regional Quarterly Sales')
+    expect(charts![0].dataRange).toEqual({ r1: 0, c1: 0, r2: 4, c2: 2 })
+    expect(charts![0].seriesInColumns).toBe(true)
+  })
+})
+
+describe('data validation + chart + note on one sheet', () => {
+  it('writes worksheet children in OOXML order and reads everything back', async () => {
+    const data: WorkbookData = {
+      sheets: [
+        {
+          name: 'Mix',
+          cells: { '0,0': { raw: 'A' }, '0,1': { raw: 'B' }, '1,0': { raw: 'x' }, '1,1': { raw: '3' } },
+          layout: {
+            notes: { '0,0': { text: 'hi', author: 'me' } } as any,
+            dataValidations: [{ id: 'd', ranges: [{ r1: 2, c1: 0, r2: 5, c2: 0 }], allow: 'list', formula1: '"a,b"' }],
+            charts: [
+              {
+                id: 'c', type: 'bar', subtype: 'clusteredColumn', dataRange: { r1: 0, c1: 0, r2: 1, c2: 1 },
+                seriesInColumns: true, title: 'T', anchor: { r: 3, c: 3, dx: 0, dy: 0 }, width: 300, height: 200,
+                legendPosition: 'bottom',
+                elements: { title: true, legend: true, gridlines: true, dataLabels: false, axes: true, axisTitles: false }
+              }
+            ] as any
+          }
+        }
+      ]
+    }
+    const bytes = await writeXlsx(data)
+    const xml = new TextDecoder().decode(unzipSync(bytes)['xl/worksheets/sheet1.xml'])
+    const order = ['<dataValidations', '<pageMargins', '<drawing ', '<legacyDrawing ']
+      .map((t) => xml.indexOf(t))
+      .filter((i) => i !== -1)
+    expect(order).toEqual([...order].sort((a, b) => a - b))
+    const back = await readXlsx(bytes)
+    const l = back.sheets[0].layout!
+    expect(l.dataValidations?.length).toBe(1)
+    expect(l.charts?.length).toBe(1)
+  })
+})
