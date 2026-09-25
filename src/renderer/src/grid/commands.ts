@@ -1,3 +1,4 @@
+import { moveRefs } from '../engine/moveRefs'
 // Commands that act on the active sheet's current selection. Called from the grid (keyboard,
 // right-click menus) and from the ribbon, so both stay consistent.
 import { store, SheetState } from '../model/store'
@@ -136,6 +137,36 @@ function pasteCellsAt(dest: Range, src: ClipCell[], srcRange: Range, kind: Paste
   store.setCells(sheet, cells, 'Paste')
 }
 
+/** Cut + Paste: moves the cells unchanged and re-points every formula that referenced them. */
+function cutMove(srcSheet: SheetState, range: Range, dest: Range): void {
+  const destSheet = store.active
+  const n = normRange(range)
+  const dr = dest.r1 - n.r1, dc = dest.c1 - n.c1
+  const src = readRange(n, srcSheet)
+  store.transact('Paste', () => {
+    const clears: { r: number; c: number; raw: string; style?: CellStyle }[] = []
+    const u = clampUsed(srcSheet, n)
+    if (u) for (let r = u.r1; r <= u.r2; r++) for (let c = u.c1; c <= u.c2; c++) clears.push({ r, c, raw: '', style: undefined })
+    store.setCells(srcSheet, clears, 'Paste')
+    const moved = src
+      .map((cell) => ({ r: cell.r + dr, c: cell.c + dc, raw: cell.raw, style: cell.style }))
+      .filter((c) => c.r < MAX_ROWS && c.c < MAX_COLS)
+    store.setCells(destSheet, moved, 'Paste')
+    // Re-point formulas (including the moved ones) at the cells' new home.
+    for (const sh of store.sheets) {
+      const formulas = store.hf.getSheetFormulas(store.hfId(sh))
+      const edits: { r: number; c: number; raw: string; style?: CellStyle }[] = []
+      formulas.forEach((row, r) => row?.forEach((f, c) => {
+        if (!f) return
+        const next = moveRefs(f, sh.name, srcSheet.name, n, dr, dc, destSheet.name)
+        if (next !== f) edits.push({ r, c, raw: next, style: store.getStyle(sh, r, c) })
+      }))
+      if (edits.length) store.setCells(sh, edits, 'Paste')
+    }
+  })
+  store.setSelection({ ranges: [{ r1: dest.r1, c1: dest.c1, r2: dest.r1 + n.r2 - n.r1, c2: dest.c1 + n.c2 - n.c1 }], active: { r: dest.r1, c: dest.c1 } })
+}
+
 async function readSystemClipboardText(): Promise<string | null> {
   try {
     if (window.api?.clipboardReadText) return await window.api.clipboardReadText()
@@ -159,6 +190,14 @@ export async function paste(kind: PasteKind = 'all'): Promise<void> {
     const srcSheet = store.sheetByUid(clip.sheetUid)
     if (srcSheet) {
       const src = readRange(clip.range, srcSheet)
+      if (clip.cut) {
+        cutMove(srcSheet, clip.range, dest)
+        store.clipboard = null
+        store.notify()
+        return
+      }
+      const sn = normRange(clip.range)
+      const targets = tileTargets(dest, sn.r2 - sn.r1 + 1, sn.c2 - sn.c1 + 1, kind === 'transpose')
       store.transact('Paste', () => {
         if (clip.cut) {
           // Clear the source first so an overlapping destination keeps the pasted cells.
@@ -168,11 +207,9 @@ export async function paste(kind: PasteKind = 'all'): Promise<void> {
           store.setCells(srcSheet, clears, 'Paste')
           store.clipboard = null
         }
-        const sn = normRange(clip.range)
-        for (const d of tileTargets(dest, sn.r2 - sn.r1 + 1, sn.c2 - sn.c1 + 1, kind === 'transpose')) {
-          pasteCellsAt(d, src, clip.range, clip.cut ? 'all' : kind, srcSheet)
-        }
+        for (const d of targets) pasteCellsAt(d, src, clip.range, clip.cut ? 'all' : kind, srcSheet)
       })
+      selectPasted(dest, targets)
       store.notify()
       return
     }
@@ -182,9 +219,19 @@ export async function paste(kind: PasteKind = 'all'): Promise<void> {
   const raws = parseTsv(sysText)
   if (!raws.length) return
   const width = Math.max(...raws.map((r) => r.length))
+  const targets = tileTargets(dest, raws.length, width, false)
   store.transact('Paste', () => {
-    for (const d of tileTargets(dest, raws.length, width, false)) store.setRangeRaw(sheet, d.r1, d.c1, raws, 'Paste')
+    for (const d of targets) store.setRangeRaw(sheet, d.r1, d.c1, raws, 'Paste')
   })
+  selectPasted(dest, targets)
+}
+
+/** Excel leaves the pasted block selected. */
+function selectPasted(dest: Range, targets: Range[]): void {
+  const d = normRange(dest)
+  const last = targets[targets.length - 1]
+  const r2 = Math.max(d.r2, last.r2), c2 = Math.max(d.c2, last.c2)
+  store.setSelection({ ranges: [{ r1: d.r1, c1: d.c1, r2: Math.min(r2, MAX_ROWS - 1), c2: Math.min(c2, MAX_COLS - 1) }], active: { r: d.r1, c: d.c1 } })
 }
 
 function norm(t: string): string {
@@ -242,10 +289,23 @@ export function tileTargets(dest: Range, h: number, w: number, transpose: boolea
 }
 
 // ---------- insert / delete ----------
+// Whole rows/columns selected: Excel inserts/deletes straight away, no dialog.
+function wholeLines(): 'rows' | 'cols' | null {
+  const rs = sel().map(normRange)
+  if (rs.every((r) => r.c1 === 0 && r.c2 >= MAX_COLS - 1)) return 'rows'
+  if (rs.every((r) => r.r1 === 0 && r.r2 >= MAX_ROWS - 1)) return 'cols'
+  return null
+}
 export function insertCellsDialog(): void {
+  const w = wholeLines()
+  if (w === 'rows') return insertSheetRows()
+  if (w === 'cols') return insertSheetColumns()
   setUi({ dialog: { kind: 'insertCells' } })
 }
 export function deleteCellsDialog(): void {
+  const w = wholeLines()
+  if (w === 'rows') return deleteSheetRows()
+  if (w === 'cols') return deleteSheetColumns()
   setUi({ dialog: { kind: 'deleteCells' } })
 }
 

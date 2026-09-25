@@ -50,6 +50,9 @@ function defaultSelection(): Selection {
 let nextUid = 1
 
 // US-locale input parsing, matching Excel en-US.
+import { registerExtraFunctions, BOOLEAN_NAMES } from '../engine/extraFunctions'
+registerExtraFunctions()
+
 const HF_CONFIG = {
   maxRows: 1048576,
   maxColumns: 16384,
@@ -115,7 +118,7 @@ export class WorkbookStore {
   }
 
   constructor() {
-    this.hf = HyperFormula.buildEmpty(HF_CONFIG)
+    this.hf = HyperFormula.buildEmpty(HF_CONFIG, BOOLEAN_NAMES)
     this.addSheetRaw('Sheet1', 0)
   }
 
@@ -439,6 +442,33 @@ export class WorkbookStore {
   private writeRaw(sheet: SheetState, r: number, c: number, raw: string): void {
     this.hf.setCellContents({ sheet: this.hfId(sheet), row: r, col: c }, raw === '' ? null : raw)
   }
+  /** Writes many cells. HyperFormula's per-call bookkeeping inside a batch grows with the batch, so
+   *  thousands of single-cell calls go quadratic; a dense block is written as one 2-D call instead. */
+  private writeRaws(sheet: SheetState, list: { r: number; c: number; raw: string }[]): void {
+    if (list.length < 64) { list.forEach((x) => this.writeRaw(sheet, x.r, x.c, x.raw)); return }
+    let r1 = Infinity, c1 = Infinity, r2 = -1, c2 = -1
+    for (const x of list) { if (x.r < r1) r1 = x.r; if (x.r > r2) r2 = x.r; if (x.c < c1) c1 = x.c; if (x.c > c2) c2 = x.c }
+    const h = r2 - r1 + 1, w = c2 - c1 + 1
+    if (h * w > list.length * 2) {
+      // Sparse: fall back to one call per row run.
+      const byRow = new Map<number, { c: number; raw: string }[]>()
+      for (const x of list) { let a = byRow.get(x.r); if (!a) byRow.set(x.r, (a = [])); a.push(x) }
+      for (const [r, arr] of byRow) arr.forEach((x) => this.writeRaw(sheet, r, x.c, x.raw))
+      return
+    }
+    // Dense: cells not in the list keep their current content.
+    const id = this.hfId(sheet)
+    const grid: (string | null)[][] = []
+    const set = new Array<boolean>(h * w).fill(false)
+    for (const x of list) set[(x.r - r1) * w + (x.c - c1)] = true
+    for (let i = 0; i < h; i++) {
+      const row: (string | null)[] = new Array(w)
+      for (let j = 0; j < w; j++) row[j] = set[i * w + j] ? null : this.getRaw(sheet, r1 + i, c1 + j) || null
+      grid.push(row)
+    }
+    for (const x of list) grid[x.r - r1][x.c - c1] = x.raw === '' ? null : x.raw
+    this.hf.setCellContents({ sheet: id, row: r1, col: c1 }, grid)
+  }
   private writeStyle(sheet: SheetState, r: number, c: number, style: CellStyle | undefined): void {
     const k = cellKey(r, c)
     if (style && Object.keys(style).length) sheet.styles.set(k, style)
@@ -461,10 +491,10 @@ export class WorkbookStore {
       })
     )
     const put = (list: typeof before) =>
-      this.batch(() => list.forEach((x) => {
-        this.writeRaw(sheet, x.r, x.c, x.raw)
-        this.writeStyle(sheet, x.r, x.c, x.style)
-      }))
+      this.batch(() => {
+        this.writeRaws(sheet, list)
+        list.forEach((x) => this.writeStyle(sheet, x.r, x.c, x.style))
+      })
     this.commit(label, () => put(after), () => put(before))
     this.broadcastOp({ type: 'setRangeRaw', sheetName: sheet.name, r, c, raws, label })
   }
@@ -477,10 +507,10 @@ export class WorkbookStore {
   setCells(sheet: SheetState, cells: { r: number; c: number; raw: string; style?: CellStyle }[], label: string): void {
     const before = cells.map((x) => ({ r: x.r, c: x.c, raw: this.getRaw(sheet, x.r, x.c), style: this.getStyle(sheet, x.r, x.c) }))
     const put = (list: typeof cells) =>
-      this.batch(() => list.forEach((x) => {
-        this.writeRaw(sheet, x.r, x.c, x.raw)
-        this.writeStyle(sheet, x.r, x.c, x.style)
-      }))
+      this.batch(() => {
+        this.writeRaws(sheet, list)
+        list.forEach((x) => this.writeStyle(sheet, x.r, x.c, x.style))
+      })
     this.commit(label, () => put(cells), () => put(before))
     this.broadcastOp({ type: 'setCells', sheetName: sheet.name, cells, label })
   }
@@ -787,7 +817,7 @@ export class WorkbookStore {
       this.sheets.push(s)
     })
     this.hf.destroy()
-    this.hf = data.sheets.length ? HyperFormula.buildFromSheets(contents, HF_CONFIG) : HyperFormula.buildEmpty(HF_CONFIG)
+    this.hf = data.sheets.length ? HyperFormula.buildFromSheets(contents, HF_CONFIG, BOOLEAN_NAMES) : HyperFormula.buildEmpty(HF_CONFIG, BOOLEAN_NAMES)
     if (!this.sheets.length) this.addSheetRaw('Sheet1', 0)
     this.activeIndex = Math.min(data.activeSheet ?? 0, this.sheets.length - 1)
     this.fileName = fileName
