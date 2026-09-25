@@ -1,8 +1,12 @@
 // Date entry follows the PC's regional order, like Excel: on a day-first locale (India, UK, ...)
 // "3/9/2026" is 3 September, on a US locale it is March 9.
+// In the desktop app the page's own locale is the Windows display language, so use the region the
+// main process passes in; in tests/the web build fall back to the environment's default.
+const REGION: string | undefined = (globalThis as { api?: { regionLocale?: string } }).api?.regionLocale || undefined
+
 function detectDayFirst(): boolean {
   try {
-    const parts = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'numeric', year: 'numeric' }).formatToParts(new Date(2020, 11, 31))
+    const parts = new Intl.DateTimeFormat(REGION, { day: 'numeric', month: 'numeric', year: 'numeric' }).formatToParts(new Date(2020, 11, 31))
     const order = parts.filter((p) => p.type === 'day' || p.type === 'month').map((p) => p.type)
     return order[0] === 'day'
   } catch {
@@ -15,7 +19,7 @@ export const DAY_FIRST = detectDayFirst()
 // Excel groups "#,##0" with the PC's digit grouping: on English (India) 1234567 shows as 12,34,567.
 function detectLakhGrouping(): boolean {
   try {
-    return new Intl.NumberFormat(undefined, { useGrouping: true }).format(1234567).replace(/\D/g, ',') === '12,34,567'
+    return new Intl.NumberFormat(REGION, { useGrouping: true }).format(1234567).replace(/\D/g, ',') === '12,34,567'
   } catch {
     return false
   }

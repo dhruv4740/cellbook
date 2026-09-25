@@ -5,6 +5,8 @@ export interface WinState { fileName: string; filePath: string | null; dirty: bo
 export interface OpenPathPayload { path: string; data: Uint8Array }
 
 const api = {
+  /** Windows region (e.g. en-IN), which Excel uses for dates and digit grouping. */
+  regionLocale: process.argv.find((a) => a.startsWith('--cellbook-region='))?.slice('--cellbook-region='.length),
   windowControl: (action: 'minimize' | 'maximize' | 'close') => ipcRenderer.invoke('window:control', action),
   setTitle: (title: string) => ipcRenderer.invoke('window:setTitle', title),
   onMaximized: (cb: (max: boolean) => void) => ipcRenderer.on('window:maximized', (_e, v) => cb(v)),

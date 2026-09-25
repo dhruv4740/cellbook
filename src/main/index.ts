@@ -2,6 +2,11 @@ import { app, BrowserWindow, clipboard, ClipboardItem, dialog, ipcMain, screen }
 import { join, basename } from 'path'
 import { promises as fs, existsSync } from 'fs'
 
+// Chromium gives pages the Windows display language (often en-US), but Excel reads dates and
+// digit grouping from the Windows region (e.g. English (India): 3/9/2026 = 3 Sept, 12,34,567).
+// Node's default locale is that region; the preload hands it to the renderer (engine/locale.ts).
+const regionArg = `--cellbook-region=${Intl.DateTimeFormat().resolvedOptions().locale}`
+
 // ---------------------------------------------------------------------------
 // One workbook per window, like Excel: each BrowserWindow hosts exactly one
 // workbook (or a secondary view of a workbook via View > New Window).
@@ -46,7 +51,7 @@ function preloadSpareWindow(): void {
     minHeight: 500,
     frame: false,
     backgroundColor: '#ffffff',
-    webPreferences: { preload: join(__dirname, '../preload/index.js'), sandbox: false }
+    webPreferences: { preload: join(__dirname, '../preload/index.js'), sandbox: false, additionalArguments: [regionArg] }
   })
   win.webContents.once('did-finish-load', () => loadedSpares.add(win))
   if (process.env.ELECTRON_RENDERER_URL) win.loadURL(process.env.ELECTRON_RENDERER_URL)
@@ -146,7 +151,7 @@ function createWindow(opts: { book?: string; filePath?: string; workbookId?: str
       frame: false, // Excel draws its own title bar
       backgroundColor: '#ffffff',
       title: `${bookName} - Excel`,
-      webPreferences: { preload: join(__dirname, '../preload/index.js'), sandbox: false }
+      webPreferences: { preload: join(__dirname, '../preload/index.js'), sandbox: false, additionalArguments: [regionArg] }
     })
     const query: Record<string, string> = opts.filePath ? {} : { book: bookName }
     if (process.env.ELECTRON_RENDERER_URL) {
@@ -321,7 +326,7 @@ ipcMain.handle('window:newView', (e, snapshot: { data: unknown; fileName: string
     frame: false,
     backgroundColor: '#ffffff',
     title: `${bookName} - Excel`,
-    webPreferences: { preload: join(__dirname, '../preload/index.js'), sandbox: false }
+    webPreferences: { preload: join(__dirname, '../preload/index.js'), sandbox: false, additionalArguments: [regionArg] }
   })
 
   const entry: WinEntry = {
