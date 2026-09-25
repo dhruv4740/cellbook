@@ -885,3 +885,28 @@ describe('cached formula results', () => {
     expect(xml).not.toContain('#ERROR!')
   })
 })
+
+describe('spilling formulas', () => {
+  it('are saved as Excel dynamic arrays (cm="1", ref, metadata part), not as fixed values', async () => {
+    const { WorkbookStore } = await import('../model/store')
+    const s = new WorkbookStore()
+    s.setRaw(s.active, 0, 0, "'00012")
+    s.setRaw(s.active, 1, 0, "'00056")
+    s.setRaw(s.active, 2, 0, 'x')
+    s.setRaw(s.active, 0, 2, '=FILTER(A1:A3,A1:A3<>"x")')
+    const files = unzipSync(await writeXlsx(s.toData()))
+    const xml = new TextDecoder().decode(files['xl/worksheets/sheet1.xml'])
+    expect(xml).toMatch(/<c r="C1"[^>]*cm="1"[^>]*><f t="array" ref="C1:C2">_xlfn\._xlws\.FILTER/)
+    expect(xml).not.toContain('r="C2"')
+    expect(files['xl/metadata.xml']).toBeDefined()
+    expect(new TextDecoder().decode(files['[Content_Types].xml'])).toContain('/xl/metadata.xml')
+  })
+})
+
+describe('threaded comments written by real Excel', () => {
+  it('keeps the text when the fallback note uses Windows line endings', async () => {
+    const { legacyNoteToThread } = await import('./xlsxShared')
+    const text = '[Threaded comment]\r\n\r\nYour version of Excel allows you to read this threaded comment; however, any edits to it will get removed if the file is opened in a newer version of Excel. Learn more: https://go.microsoft.com/fwlink/?linkid=870924\r\n\r\nComment:\r\n    Threaded comment'
+    expect(legacyNoteToThread({ author: 'tc={6FCF}', text })?.text).toBe('Threaded comment')
+  })
+})

@@ -125,8 +125,9 @@ export function threadToLegacyNote(thread: CommentThread): NoteData {
 export function legacyNoteToThread(note: NoteData): CommentThread | null {
   if (!note.text.startsWith(THREAD_PREFIX)) return null
   const marker = 'Comment:\n    '
-  const idx = note.text.indexOf(marker)
-  const rest = idx === -1 ? '' : note.text.slice(idx + marker.length)
+  const text = note.text.replace(/\r\n/g, '\n') // real Excel writes this fallback with \r\n
+  const idx = text.indexOf(marker)
+  const rest = idx === -1 ? '' : text.slice(idx + marker.length)
   const parts = rest.split(REPLY_MARKER)
   const replies: CommentReply[] = parts.slice(1).map((text, i) => ({ id: 'r' + i, author: note.author, text, time: '' }))
   return { author: note.author, text: parts[0] ?? '', time: '', replies }
