@@ -828,3 +828,27 @@ describe('defined names', () => {
     ])
   })
 })
+
+describe('data bars, color scales and icon sets', () => {
+  it('saves them (used to throw inside ExcelJS) and reads them back with their colors', async () => {
+    const data = {
+      sheets: [{
+        name: 'Sheet1',
+        cells: { '0,0': { raw: '1' }, '1,0': { raw: '5' } },
+        layout: {
+          conditionalFormats: [
+            { id: 'a', priority: 1, ranges: [{ r1: 0, c1: 0, r2: 1, c2: 0 }], type: 'dataBar', dataBar: { color: '#638EC6' } },
+            { id: 'b', priority: 2, ranges: [{ r1: 0, c1: 0, r2: 1, c2: 0 }], type: 'colorScale', colorScale: { minColor: '#F8696B', midColor: '#FFEB84', maxColor: '#63BE7B' } },
+            { id: 'c', priority: 3, ranges: [{ r1: 0, c1: 0, r2: 1, c2: 0 }], type: 'iconSet', iconSet: { name: '3Arrows' } }
+          ]
+        }
+      }]
+    } as unknown as WorkbookData
+    const back = await readXlsx(await writeXlsx(data))
+    const cfs = back.sheets[0].layout!.conditionalFormats!
+    expect(cfs.map((c) => c.type)).toEqual(['dataBar', 'colorScale', 'iconSet'])
+    expect(cfs[0].dataBar?.color).toBe('#638EC6')
+    expect(cfs[1].colorScale).toEqual({ minColor: '#F8696B', midColor: '#FFEB84', maxColor: '#63BE7B' })
+    expect(cfs[2].iconSet?.name).toBe('3Arrows')
+  })
+})
