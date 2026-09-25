@@ -11,8 +11,7 @@ for (const src of process.argv.slice(2)) {
   fs.copyFileSync(src, dst)
   const before = fs.statSync(dst).mtimeMs
   // Fresh profile each run: a leftover AutoRecover backup would otherwise prompt on launch.
-  const profile = path.join(outDir, 'profile')
-  fs.rmSync(profile, { recursive: true, force: true })
+  const profile = path.join(outDir, 'profile-' + Date.now())
   const app = await electron.launch({ executablePath: 'node_modules/electron/dist/electron.exe', args: ['.', '--user-data-dir=' + profile] })
   // The app pre-loads a hidden spare window for Ctrl+N; use the visible one.
   await app.firstWindow()
