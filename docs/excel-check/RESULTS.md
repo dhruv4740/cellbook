@@ -95,3 +95,17 @@ Also: `main` has no `readHTML` in Electron 44; added `clipboard:readHTML` throug
 3. Copy a cell in Cellbook, then copy a different cell in Excel, then Ctrl+V in Cellbook: it must paste the Excel cell. (Code reads the system text and drops Cellbook's own copy when it differs.)
 
 Risk I could not rule out: if Cellbook's write to the Windows clipboard fails (clipboard locked by another app), its own Ctrl+C → Ctrl+V pastes nothing, because the system text then differs from the copy. Excel still pastes in that case.
+
+## 5. Windows desktop behaviour
+
+| Check | Result |
+|---|---|
+| `npm run dist` | Builds `release\Cellbook Setup 0.1.0.exe` (149 MB). Warning only: `author` missing in package.json. |
+| Install the setup | **Not done.** Your installed Cellbook (`%LOCALAPPDATA%\Programs\Cellbook`, started 16:59) was running the whole time, and installing would have closed it. Run the setup yourself when it's closed. |
+| Open by double-click | `.xlsx` is associated with Excel on this PC (`UserChoice` = `Excel.Sheet.12`), so a double-click opens Excel. Tested the packaged `release\win-unpacked\Cellbook.exe` started with a file path (what Explorer passes for "Open with Cellbook") in an isolated profile: the file opens in its own window. Launching it again with a second file hands that file to the running instance, and a window titled with the new file appears. The second part is inferred from window titles only. |
+| Date entry follows the region | **Was broken, fixed.** Electron gives the page the Windows *display language* (en-US here), not the *region* (en-IN), so `3/9/2026` typed in the app was 9 March and digit grouping was western. Main now passes the region (`--cellbook-region=en-IN`, read by `engine/locale.ts` through the preload). Verified in the built app: `3/9/2026` → 46268 = 3 Sept 2026, shown `03-09-2026`. (Using Chromium's `--lang=en-IN` doesn't work: Chromium maps it to en-GB, which gets dates right but not lakh grouping.) |
+| Ctrl+S while Excel has the file open | Correct: Cellbook shows "Your changes couldn't be saved to 'desktop-check.xlsx'. The file may be open in another program…", the file on disk is byte-identical, the edit is still in the app, and the workbook stays marked unsaved. No temp file left behind (only Excel's own `~$` lock file). |
+| AutoSave | On: the file is saved within 6 s of an edit and the workbook is clean. Off: the file isn't touched for 6 s after an edit. The label shows On/Off. |
+| Crash recovery | Correct: typed into a new Book1, waited for the 1-minute AutoRecover backup, killed the process tree (`taskkill /T /F`, like Task Manager's End task), relaunched. It shows "Cellbook closed unexpectedly last time. Your unsaved work in 'Book1' was recovered." and opens `Book1 (Recovered)` holding the edit. Edits made less than a minute before a crash are not in the backup (Excel's default interval is 10 minutes). |
+
+Scripts: `desktop_check.py` / `desktop_check.mjs`.
