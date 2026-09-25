@@ -1,7 +1,32 @@
 # Cellbook vs real Excel — results
 
 Machine: Windows 11, Microsoft Excel (desktop), region English (India) (`en-IN`, digit grouping 3;2, day-first dates).
-Branch: `claude/optimistic-einstein-x3mu90`.
+Branch: `claude/optimistic-einstein-x3mu90`. 274 unit tests pass; `npm run typecheck` is clean.
+
+## Summary
+
+**Matches Excel:** 153 of 155 everyday formulas. Cellbook-saved files open in Excel with no repair prompt, and Excel's results equal Cellbook's cached values (including the 155-formula sheet after a Cellbook save). Names, notes, links, validation, CF, merges, freeze panes and hidden rows/cols survive both directions. A locked file (open in Excel) gives an error on Ctrl+S without losing data. AutoSave on/off and crash recovery work.
+
+**Fixed (each with a unit test):**
+- Workbooks made in Excel, then saved by Cellbook, could not be opened by Excel at all, or Ctrl+S silently failed. 6 separate causes: data bars, validations inside CF rules, notes drawing order, LET `_xlpm.`, table references, `#ERROR!` cache (§3).
+- Typing or pasting `1,234.50`, `12,34,567.89` or `₹5,000` stored **text** that SUM ignored (§4).
+- Typing `00012` into a Text-formatted column stored 12 (§4, found during the final review; the grid was checked with real keys).
+- In the desktop app, `3/9/2026` was 9 March and numbers used western grouping on an English (India) PC (§5).
+- FILTER/UNIQUE: `#SPILL!` on files from Excel; spill results were saved as frozen values and lost their leading zeros (§3).
+- Tables: `SUM(Orders[Qty])` → `#ERROR!`; table filters, `frozenSplit` panes and threaded-comment text were lost on load (§3).
+- Copy/paste with Excel lost leading zeros and in-cell line breaks (§4).
+- `TEXT(x,"#,##0.00")` grouping on an Indian PC (§1). Nested new functions lost `_xlfn.` on save (§3).
+
+**Left open / not done:**
+- Live clipboard not tested: this session can't open the Windows clipboard. Manual steps are in §4. The fixes don't depend on it.
+- Installer built but not installed: your running Cellbook would have been closed (§5).
+- LET isn't implemented in Cellbook (`#NAME?`); Excel recalculates it correctly from Cellbook's file (§3).
+- INDIRECT, a literal `1E+15`: known unsupported. COUNTA over its own column: not exercised by the formula sheet, not tested.
+- Excel tables are flattened to ranges; formulas keep working, the table object isn't saved back (§3).
+- Threaded-comment authors show as `tc={GUID}` (§3).
+- `FIXED()`/`DOLLAR()` use western grouping (not in the formula sheet, not compared).
+- No real dispatch files were provided to round-trip.
+- Repair detection used the `%TEMP%` repair log and window caption; I didn't open files visibly with DisplayAlerts on.
 
 ## 1. Formula correctness vs Excel
 
