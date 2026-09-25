@@ -161,6 +161,7 @@ export function SmallButton({ icon, label, tip, onClick, onDoubleClick, active, 
         <div ref={wrap} className={'xl-small-btn xl-split' + (active ? ' active' : '')}>
           <button className="xl-small-split-main" disabled={disabled} onClick={onClick}>
             <span className="xl-small-icon" style={{ position: 'relative' }}>{icon}<KeyTipBadge code={keytip} /></span>
+            {label && <span className="xl-small-label">{label}</span>}
           </button>
           <button className="xl-small-split-caret" disabled={disabled} onClick={() => { const r = wrap.current!.getBoundingClientRect(); setOpen({ x: r.left, y: r.bottom }) }}>
             <ChevronDown12Regular />

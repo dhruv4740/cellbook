@@ -48,6 +48,13 @@ function shiftRanges(ranges: Range[], axis: Axis, at: number, delta: number): Ra
 export function shiftLayoutRefs(l: SheetLayout, axis: Axis, at: number, delta: number): void {
   l.notes = shiftKeyed(l.notes, axis, at, delta)
   l.comments = shiftKeyed(l.comments, axis, at, delta)
+  if (l.pivots) {
+    // A PivotTable moves with its top-left cell; deleting that cell deletes the PivotTable definition.
+    l.pivots = l.pivots.flatMap((p) => {
+      const v = shiftIndex(axis === 'r' ? p.anchor.r : p.anchor.c, at, delta)
+      return v === null ? [] : [{ ...p, anchor: axis === 'r' ? { ...p.anchor, r: v } : { ...p.anchor, c: v } }]
+    })
+  }
   const ext = l as SheetLayout & { hyperlinks?: Record<string, unknown> }
   if (ext.hyperlinks) ext.hyperlinks = shiftKeyed(ext.hyperlinks, axis, at, delta)
   if (l.conditionalFormats) {

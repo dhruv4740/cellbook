@@ -2,7 +2,7 @@
 // but with no store wiring beyond an optional onClick. Used for tabs whose commands
 // the current store doesn't support (Insert, Page Layout galleries, Review, Automate, Help, ...).
 import { ReactNode } from 'react'
-import { Group, GroupSep, BigButton, SmallButton, DialogLauncher } from './controls'
+import { Group, GroupSep, BigButton, SmallButton, SplitButton, DialogLauncher } from './controls'
 import { MenuItem } from '../../components/Menu'
 import { notAvailable } from '../ui'
 
@@ -16,6 +16,8 @@ export interface GBtn {
   onClick?: () => void
   active?: boolean
   wide?: boolean
+  /** With both menu and onClick, the button is a split button unless this is set (menu only). */
+  menuOnly?: boolean
   /** Excel KeyTip access-key sequence for this command, e.g. 'FN', shown when KeyTips are active. */
   keytip?: string
 }
@@ -33,7 +35,9 @@ export function GenericTab({ groups }: { groups: GGroup[] }) {
       {groups.map((g, gi) => (
         <div key={gi} style={{ display: 'contents' }}>
           <Group label={g.label} icon={g.big?.[0]?.icon ?? g.rows?.[0]?.[0]?.icon}>
-            {g.big?.map((b, i) => (
+            {g.big?.map((b, i) => b.menu && b.onClick && !b.menuOnly ? (
+              <SplitButton key={i} icon={b.icon} label={b.label} menu={b.menu} onClick={b.onClick} active={b.active} tip={{ title: b.label, desc: b.desc, shortcut: b.shortcut }} keytip={b.keytip} />
+            ) : (
               <BigButton key={i} icon={b.icon} label={b.label} menu={b.menu} onClick={b.onClick ?? (() => notAvailable(b.label))} active={b.active} wide={b.wide ?? b.label.length > 7} tip={{ title: b.label, desc: b.desc, shortcut: b.shortcut }} keytip={b.keytip} />
             ))}
             {g.rows && (
@@ -41,7 +45,7 @@ export function GenericTab({ groups }: { groups: GGroup[] }) {
                 {g.rows.map((row, ri) => (
                   <div className="xl-row" key={ri}>
                     {row.map((b, bi) => (
-                      <SmallButton key={bi} icon={b.icon} label={b.label} menu={b.menu} onClick={b.onClick ?? (() => notAvailable(b.label))} active={b.active} tip={{ title: b.label, desc: b.desc, shortcut: b.shortcut }} keytip={b.keytip} />
+                      <SmallButton key={bi} icon={b.icon} label={b.label} menu={b.menu} split={!!(b.menu && b.onClick && !b.menuOnly)} onClick={b.onClick ?? (() => notAvailable(b.label))} active={b.active} tip={{ title: b.label, desc: b.desc, shortcut: b.shortcut }} keytip={b.keytip} />
                     ))}
                   </div>
                 ))}

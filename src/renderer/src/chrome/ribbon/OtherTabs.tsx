@@ -27,6 +27,7 @@ import * as cmds from '../../grid/commands'
 import { COLUMN_BAR_GALLERY, LINE_AREA_GALLERY, PIE_DOUGHNUT_GALLERY, SCATTER_BUBBLE_GALLERY, GalleryEntry } from '../../charts/gallery'
 import { insertChartFromSelection } from '../../charts/insertChart'
 import { openFile } from '../../io/fileOps'
+import { refreshAllPivots } from '../../data/pivot'
 
 function chartGalleryMenu(entries: GalleryEntry[]): MenuItem[] {
   return entries.map((e) => ({ label: e.label, icon: <ChartMultiple20Regular />, onClick: () => insertChartFromSelection(store, e) }))
@@ -35,7 +36,7 @@ function chartGalleryMenu(entries: GalleryEntry[]): MenuItem[] {
 export function InsertTab() {
   const groups: GGroup[] = [
     { label: 'Tables', big: [
-      { label: 'PivotTable', icon: <TableSettings20Regular fontSize={28} />, keytip: 'V' },
+      { label: 'PivotTable', icon: <TableSettings20Regular fontSize={28} />, keytip: 'V', onClick: () => setUi({ dialog: { kind: 'pivot' } }) },
       { label: 'Table', icon: <Table20Regular fontSize={28} />, shortcut: 'Ctrl+T', keytip: 'T', onClick: () => cmds.formatAsTable(0) }
     ] },
     { label: 'Illustrations', big: [
@@ -217,7 +218,7 @@ export function DataTab() {
       { label: 'Existing Connections', icon: <DataArea20Regular fontSize={28} /> }
     ] },
     { label: 'Queries & Connections', big: [
-      { label: 'Refresh All', icon: <ArrowRepeatAll20Regular fontSize={28} />, onClick: () => store.recalculate() },
+      { label: 'Refresh All', icon: <ArrowRepeatAll20Regular fontSize={28} />, onClick: () => { store.recalculate(); const e = refreshAllPivots(store); if (e.length) setUi({ dialog: { kind: 'message', props: { text: e.join('\n') } } }) } },
       { label: 'Queries & Connections', icon: <DataArea20Regular fontSize={28} /> }
     ] },
     { label: 'Data Types', big: [{ label: 'Stocks', icon: <DataHistogram20Regular fontSize={28} /> }, { label: 'Geography', icon: <DataArea20Regular fontSize={28} /> }] },
@@ -284,7 +285,7 @@ export function ReviewTab() {
       { label: 'Next', icon: <CommentMultiple20Regular fontSize={28} />, onClick: () => cmds.nextComment() },
       { label: 'Show Comments', icon: <CommentMultiple20Regular fontSize={28} />, onClick: () => setUi({ commentPanel: { r: active.r, c: active.c } }) }
     ] },
-    { label: 'Notes', big: [{ label: 'Notes', icon: <Note20Regular fontSize={28} />, menu: notesMenu, onClick: () => setUi({ noteEditor: { r: active.r, c: active.c } }) }] },
+    { label: 'Notes', big: [{ label: 'Notes', icon: <Note20Regular fontSize={28} />, menu: notesMenu }] },
     { label: 'Protect', big: [
       { label: 'Protect Sheet', icon: <LockClosed20Regular fontSize={28} /> },
       { label: 'Protect Workbook', icon: <LockClosed20Regular fontSize={28} /> },
@@ -379,7 +380,7 @@ export function ViewTab() {
           { label: 'Freeze Top Row', onClick: () => cmds.freezePanes('topRow') },
           { label: 'Freeze First Column', onClick: () => cmds.freezePanes('firstColumn') },
           { label: 'Unfreeze Panes', onClick: () => cmds.freezePanes('unfreeze') }
-        ], onClick: () => cmds.freezePanes('panes') }
+        ] }
       ],
       [{ label: 'Split', icon: <SplitHorizontal20Regular /> }, { label: 'Hide', icon: <ArrowRepeatAllOff20Regular /> }, { label: 'Unhide', icon: <ArrowRepeatAll20Regular /> }],
       [
