@@ -569,6 +569,24 @@ export async function writeXlsx(data: WorkbookData, vba?: VbaProject): Promise<U
           ruleObj.aboveAverage = cfRule.above ?? true
           ruleObj.equalAverage = cfRule.equalOrAbove
           ruleObj.style = style
+        } else if (cfRule.type === 'dataBar') {
+          // ExcelJS needs the min/max thresholds; without them it throws while saving.
+          ruleObj.type = 'dataBar'
+          ruleObj.cfvo = [{ type: 'min' }, { type: 'max' }]
+          ruleObj.color = { argb: hexToArgb(cfRule.dataBar?.color ?? '#638EC6') }
+        } else if (cfRule.type === 'colorScale') {
+          const cs = cfRule.colorScale ?? { minColor: '#F8696B', maxColor: '#63BE7B' }
+          ruleObj.type = 'colorScale'
+          ruleObj.cfvo = cs.midColor ? [{ type: 'min' }, { type: 'percentile', value: 50 }, { type: 'max' }] : [{ type: 'min' }, { type: 'max' }]
+          ruleObj.color = (cs.midColor ? [cs.minColor, cs.midColor, cs.maxColor] : [cs.minColor, cs.maxColor]).map((c) => ({ argb: hexToArgb(c) }))
+        } else if (cfRule.type === 'iconSet') {
+          const name = cfRule.iconSet?.name ?? '3TrafficLights1'
+          const n = parseInt(name, 10) || 3
+          ruleObj.type = 'iconSet'
+          ruleObj.iconSet = name
+          ruleObj.reverse = cfRule.iconSet?.reverse
+          ruleObj.showValue = cfRule.iconSet?.showValue
+          ruleObj.cfvo = Array.from({ length: n }, (_, i) => ({ type: 'percent', value: Math.round((i * 100) / n) }))
         } else {
           ruleObj.type = cfRule.type
           ruleObj.style = style

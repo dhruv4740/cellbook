@@ -526,6 +526,18 @@ function parseConditionalFormats(xml: string, dxfs: (Partial<CellStyle> | undefi
       } else if (rule.type === 'aboveAverage') {
         rule.above = a.aboveAverage !== '0'
         if (a.equalAverage === '1') rule.equalOrAbove = true
+      } else if (rule.type === 'dataBar' || rule.type === 'colorScale' || rule.type === 'iconSet') {
+        const colors = [...(r[2] ?? '').matchAll(/<color\b[^>]*\brgb="([0-9A-Fa-f]{6,8})"/g)].map((m) => '#' + m[1].slice(-6).toUpperCase())
+        if (rule.type === 'dataBar') rule.dataBar = { color: colors[0] ?? '#638EC6' }
+        else if (rule.type === 'colorScale') {
+          rule.colorScale = colors.length >= 3
+            ? { minColor: colors[0], midColor: colors[1], maxColor: colors[2] }
+            : { minColor: colors[0] ?? '#F8696B', maxColor: colors[1] ?? '#63BE7B' }
+        } else {
+          const set = /<iconSet\b([^>]*)>/.exec(r[2] ?? '')
+          const sa = set ? parseAttrs(set[1], 0, set[1].length) : {}
+          rule.iconSet = { name: sa.iconSet ?? '3TrafficLights1', reverse: sa.reverse === '1', showValue: sa.showValue !== '0' }
+        }
       }
       out.push(rule)
     }
