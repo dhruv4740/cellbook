@@ -957,8 +957,30 @@ export function detectInputFormat(raw: string): string | undefined {
   // Thousands: 1,234 / 1,234.5
   m = /^-?\d{1,3}(,\d{3})+(\.\d+)?$/.exec(s)
   if (m) return m[2] ? '#,##0.00' : '#,##0'
+  // Lakh grouping on an English (India) PC: 12,34,567.89
+  m = LAKH_GROUPING ? /^-?\d{1,2}(,\d{2})*,\d{3}(\.\d+)?$/.exec(s) : null
+  if (m) return m[2] ? '#,##0.00' : '#,##0'
+  // Rupees: ₹5,000 / ₹ 12,34,567.50
+  m = /^-?₹\s*-?\d[\d,]*(\.\d+)?$/.exec(s)
+  if (m && groupedNumber(s.replace(/[₹\s-]/g, ''))) return m[1] ? '₹ #,##0.00;[Red]₹ -#,##0.00' : '₹ #,##0;[Red]₹ -#,##0'
 
   return undefined
+}
+
+function groupedNumber(s: string): boolean {
+  return /^\d+(\.\d+)?$/.test(s) || /^\d{1,3}(,\d{3})+(\.\d+)?$/.test(s) || (LAKH_GROUPING && /^\d{1,2}(,\d{2})*,\d{3}(\.\d+)?$/.test(s))
+}
+
+/** Excel stores "1,234.50", "12,34,567" (India) or "₹5,000" as the number, not as text. Returns the
+ *  plain number to store for such input, or undefined when the input isn't a grouped/currency number. */
+export function numericInput(raw: string): string | undefined {
+  const s = raw.trim()
+  const neg = /^-/.test(s) || /^₹\s*-/.test(s)
+  const body = s.replace(/^-/, '').replace(/^₹\s*-?/, '')
+  if (body === s.replace(/^-/, '') && !body.includes(',')) return undefined // plain numbers need no help
+  if (!groupedNumber(body)) return undefined
+  const n = body.replace(/,/g, '')
+  return neg ? '-' + n : n
 }
 
 // ---------------------------------------------------------------------------------------------
