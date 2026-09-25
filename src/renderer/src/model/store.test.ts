@@ -1,5 +1,8 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { WorkbookStore } from './store'
+import { setDayFirst } from '../engine/locale'
+
+beforeEach(() => setDayFirst(false))
 
 describe('store', () => {
   it('evaluates formulas and undoes', () => {
@@ -32,6 +35,14 @@ describe('input parsing', () => {
     const s = new WorkbookStore()
     s.setRaw(s.active, 0, 0, '1/31/2025')
     expect(s.getValue(s.active, 0, 0)).toBe(45688)
+  })
+  it('parses day-first dates on an English (India) PC, like Excel', () => {
+    setDayFirst(true)
+    const s = new WorkbookStore()
+    s.setRaw(s.active, 0, 0, '3/9/2026')
+    expect(s.getValue(s.active, 0, 0)).toBe(46268)
+    s.setRaw(s.active, 0, 1, '1/31/2025')
+    expect(s.getValue(s.active, 0, 1)).toBe('1/31/2025')
   })
 })
 

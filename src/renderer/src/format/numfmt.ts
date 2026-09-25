@@ -1,4 +1,4 @@
-import { SHORT_DATE_FORMAT } from '../engine/locale'
+import { SHORT_DATE_FORMAT, LAKH_GROUPING } from '../engine/locale'
 // Excel number-format engine (en-US). Dependency-free implementation of the Format-Cells
 // number-format grammar: sections, conditions, colors, digit placeholders, percent, scientific,
 // fractions, dates/times and text placeholders. Parsed format codes are cached.
@@ -647,7 +647,9 @@ function renderIntWithGrouping(pattern: string[], intDigitsStr: string, thousand
   const lead = core.slice(0, i)
   const digits = core.slice(i)
   if (!digits) return core
-  const grouped = digits.replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+  const grouped = LAKH_GROUPING && digits.length > 3
+    ? digits.slice(0, -3).replace(/\B(?=(\d{2})+(?!\d))/g, ',') + ',' + digits.slice(-3)
+    : digits.replace(/\B(?=(\d{3})+(?!\d))/g, ',')
   return lead + grouped
 }
 

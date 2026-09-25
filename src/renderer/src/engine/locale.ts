@@ -12,9 +12,32 @@ function detectDayFirst(): boolean {
 
 export const DAY_FIRST = detectDayFirst()
 
-export const DATE_FORMATS = DAY_FIRST
+// Excel groups "#,##0" with the PC's digit grouping: on English (India) 1234567 shows as 12,34,567.
+function detectLakhGrouping(): boolean {
+  try {
+    return new Intl.NumberFormat(undefined, { useGrouping: true }).format(1234567).replace(/\D/g, ',') === '12,34,567'
+  } catch {
+    return false
+  }
+}
+
+export let LAKH_GROUPING = detectLakhGrouping()
+
+export function setLakhGrouping(on: boolean): void {
+  LAKH_GROUPING = on
+}
+
+const dateFormatsFor = (dayFirst: boolean): string[] => dayFirst
   ? ['DD/MM/YYYY', 'DD/MM/YY', 'YYYY-MM-DD', 'YYYY/MM/DD']
   : ['MM/DD/YYYY', 'MM/DD/YY', 'YYYY-MM-DD', 'YYYY/MM/DD']
 
+export const DATE_FORMATS = dateFormatsFor(DAY_FIRST)
+
 /** Number format given to a date typed as d/m/y (or m/d/y), matching Excel's regional short date. */
-export const SHORT_DATE_FORMAT = DAY_FIRST ? 'dd-mm-yyyy' : 'm/d/yyyy'
+export let SHORT_DATE_FORMAT = DAY_FIRST ? 'dd-mm-yyyy' : 'm/d/yyyy'
+
+/** For tests: pretend the PC uses a US (false) or day-first (true) date order. Affects stores created afterwards. */
+export function setDayFirst(dayFirst: boolean): void {
+  DATE_FORMATS.splice(0, DATE_FORMATS.length, ...dateFormatsFor(dayFirst))
+  SHORT_DATE_FORMAT = dayFirst ? 'dd-mm-yyyy' : 'm/d/yyyy'
+}
