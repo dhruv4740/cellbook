@@ -72,10 +72,13 @@ function toHTML(rg: Range): string {
 }
 
 async function writeSystemClipboard(rg: Range): Promise<void> {
+  const tsv = toTSV(rg)
+  if (store.clipboard) store.clipboard.text = tsv
   try {
-    const tsv = toTSV(rg)
     const html = toHTML(rg)
-    if (navigator.clipboard && 'write' in navigator.clipboard && typeof ClipboardItem !== 'undefined') {
+    if (window.api?.clipboardWrite) {
+      await window.api.clipboardWrite({ text: tsv, html })
+    } else if (navigator.clipboard && 'write' in navigator.clipboard && typeof ClipboardItem !== 'undefined') {
       await navigator.clipboard.write([
         new ClipboardItem({
           'text/plain': new Blob([tsv], { type: 'text/plain' }),
@@ -135,6 +138,7 @@ function pasteCellsAt(dest: Range, src: ClipCell[], srcRange: Range, kind: Paste
 
 async function readSystemClipboardText(): Promise<string | null> {
   try {
+    if (window.api?.clipboardReadText) return await window.api.clipboardReadText()
     return (await navigator.clipboard?.readText?.()) ?? null
   } catch {
     return null
@@ -144,7 +148,13 @@ async function readSystemClipboardText(): Promise<string | null> {
 export async function paste(kind: PasteKind = 'all'): Promise<void> {
   const sheet = store.active
   const dest = activeRange()
-  const clip = store.clipboard
+  let clip = store.clipboard
+  const sysText = await readSystemClipboardText()
+  // Something new was copied in another app since our Copy: Excel drops its own clipboard then too.
+  if (clip && sysText !== null && clip.text !== undefined && norm(sysText) !== norm(clip.text)) {
+    store.clipboard = clip = null
+    store.notify()
+  }
   if (clip && clip.sheetUid !== undefined) {
     const srcSheet = store.sheetByUid(clip.sheetUid)
     if (srcSheet) {
@@ -158,18 +168,77 @@ export async function paste(kind: PasteKind = 'all'): Promise<void> {
           store.setCells(srcSheet, clears, 'Paste')
           store.clipboard = null
         }
-        pasteCellsAt(dest, src, clip.range, clip.cut ? 'all' : kind, srcSheet)
+        const sn = normRange(clip.range)
+        for (const d of tileTargets(dest, sn.r2 - sn.r1 + 1, sn.c2 - sn.c1 + 1, kind === 'transpose')) {
+          pasteCellsAt(d, src, clip.range, clip.cut ? 'all' : kind, srcSheet)
+        }
       })
+      store.notify()
       return
     }
   }
   // Fall back to the system clipboard (TSV) for cross-app paste.
-  const text = await readSystemClipboardText()
-  if (!text) return
-  const rows = text.replace(/\r/g, '').split('\n')
-  while (rows.length && rows[rows.length - 1] === '') rows.pop()
-  const raws = rows.map((row) => row.split('\t'))
-  store.setRangeRaw(sheet, dest.r1, dest.c1, raws, 'Paste')
+  if (!sysText) return
+  const raws = parseTsv(sysText)
+  if (!raws.length) return
+  const width = Math.max(...raws.map((r) => r.length))
+  store.transact('Paste', () => {
+    for (const d of tileTargets(dest, raws.length, width, false)) store.setRangeRaw(sheet, d.r1, d.c1, raws, 'Paste')
+  })
+}
+
+function norm(t: string): string {
+  return t.replace(/\r/g, '').replace(/\n+$/, '')
+}
+
+/** Excel's clipboard text: tab/newline separated, fields holding tabs/newlines/quotes wrapped in "..." with "" escapes. */
+export function parseTsv(text: string): string[][] {
+  const rows: string[][] = []
+  let row: string[] = []
+  let field = ''
+  let i = 0
+  const t = text.replace(/\r\n?/g, '\n')
+  while (i < t.length) {
+    const ch = t[i]
+    if (field === '' && ch === '"') {
+      const end = findQuoteEnd(t, i + 1)
+      if (end !== -1 && (end + 1 === t.length || t[end + 1] === '\t' || t[end + 1] === '\n')) {
+        field = t.slice(i + 1, end).replace(/""/g, '"')
+        i = end + 1
+        continue
+      }
+    }
+    if (ch === '\t') { row.push(field); field = '' }
+    else if (ch === '\n') { row.push(field); rows.push(row); row = []; field = '' }
+    else field += ch
+    i++
+  }
+  if (field !== '' || row.length) { row.push(field); rows.push(row) }
+  return rows
+}
+function findQuoteEnd(t: string, from: number): number {
+  for (let i = from; i < t.length; i++) {
+    if (t[i] === '"') {
+      if (t[i + 1] === '"') { i++; continue }
+      return i
+    }
+  }
+  return -1
+}
+
+/** Excel repeats the copied block across the selection when the selection is an exact multiple of it. */
+export function tileTargets(dest: Range, h: number, w: number, transpose: boolean): Range[] {
+  const d = normRange(dest)
+  const bh = transpose ? w : h
+  const bw = transpose ? h : w
+  const dh = d.r2 - d.r1 + 1
+  const dw = d.c2 - d.c1 + 1
+  if (dh % bh !== 0 || dw % bw !== 0 || (dh === bh && dw === bw) || dh * dw > 1_000_000) {
+    return [{ r1: d.r1, c1: d.c1, r2: d.r1 + bh - 1, c2: d.c1 + bw - 1 }]
+  }
+  const out: Range[] = []
+  for (let r = d.r1; r <= d.r2; r += bh) for (let c = d.c1; c <= d.c2; c += bw) out.push({ r1: r, c1: c, r2: r + bh - 1, c2: c + bw - 1 })
+  return out
 }
 
 // ---------- insert / delete ----------

@@ -128,3 +128,17 @@ describe('commands', () => {
     expect(values).toEqual(['Apple', 'Banana', 'Cherry'])
   })
 })
+
+describe('clipboard helpers', () => {
+  it('parses Excel clipboard text with quoted fields', async () => {
+    const { parseTsv } = await import('./commands')
+    expect(parseTsv('a\tb\r\n"x\ny"\t"say ""hi"""\r\n')).toEqual([['a', 'b'], ['x\ny', 'say "hi"']])
+    expect(parseTsv('=A1+B1\n')).toEqual([['=A1+B1']])
+  })
+  it('tiles a block across a selection that is an exact multiple of it', async () => {
+    const { tileTargets } = await import('./commands')
+    expect(tileTargets({ r1: 0, c1: 0, r2: 3, c2: 0 }, 1, 1, false).length).toBe(4)
+    expect(tileTargets({ r1: 0, c1: 0, r2: 3, c2: 1 }, 2, 1, false).length).toBe(4)
+    expect(tileTargets({ r1: 0, c1: 0, r2: 2, c2: 0 }, 2, 1, false)).toEqual([{ r1: 0, c1: 0, r2: 1, c2: 0 }])
+  })
+})

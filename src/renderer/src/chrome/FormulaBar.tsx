@@ -50,8 +50,8 @@ export default function FormulaBar() {
           onChange={(e) => setNameBox(e.target.value)}
           onBlur={() => setNameEditing(false)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') { cmds.goTo(nameBox); setNameEditing(false); (e.target as HTMLInputElement).blur() }
-            if (e.key === 'Escape') { setNameEditing(false); (e.target as HTMLInputElement).blur() }
+            if (e.key === 'Enter') { cmds.goTo(nameBox); setNameEditing(false); (document.querySelector('.grid-host') as HTMLElement | null)?.focus() }
+            if (e.key === 'Escape') { setNameEditing(false); (document.querySelector('.grid-host') as HTMLElement | null)?.focus() }
           }}
         />
         <button className="xl-namebox-caret"><ChevronDown12Regular /></button>

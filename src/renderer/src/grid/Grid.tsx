@@ -693,12 +693,18 @@ export default function Grid() {
 
   function moveActive(dr: number, dc: number, extend: boolean, opts?: { jump?: boolean }): void {
     const cur = sheet.selection
-    let { r, c } = cur.active
+    // Shift+Arrow moves the far corner of the selection (Excel), keeping the active cell as anchor.
+    const last = cur.ranges[cur.ranges.length - 1]
+    const from: CellRef = extend && last
+      ? { r: last.r1 === cur.active.r ? last.r2 : last.r1, c: last.c1 === cur.active.c ? last.c2 : last.c1 }
+      : cur.active
+    let r: number, c: number
     if (opts?.jump) {
-      r = jumpTo(r, c, dr, dc).r
-      c = jumpTo(r0(cur.active), c0(cur.active), dr, dc).c
-      const j = jumpTo(cur.active.r, cur.active.c, dr, dc)
+      const j = jumpTo(from.r, from.c, dr, dc)
       r = j.r; c = j.c
+    } else if (extend) {
+      r = from.r + dr
+      c = from.c + dc
     } else {
       const m = mergedRangeOf(cur.active.r, cur.active.c)
       r = dr < 0 ? m.r1 + dr : dr > 0 ? m.r2 + dr : cur.active.r
@@ -708,8 +714,7 @@ export default function Grid() {
     c = Math.max(0, Math.min(MAX_COLS - 1, c))
     if (extend) {
       const ranges = [...cur.ranges]
-      const last = ranges.length - 1
-      ranges[last] = { r1: cur.active.r, c1: cur.active.c, r2: r, c2: c }
+      ranges[ranges.length - 1] = { r1: cur.active.r, c1: cur.active.c, r2: r, c2: c }
       setSel(ranges, cur.active)
     } else {
       selectSingle(r, c)
