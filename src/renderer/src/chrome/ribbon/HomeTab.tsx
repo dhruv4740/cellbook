@@ -518,8 +518,8 @@ export default function HomeTab() {
           <StackSplit icon={<TableInsertRow20Regular />} label="Fill" tip={{ title: 'Fill' }} menu={fillDirMenu} onClick={() => cmds.fill('down')} keytip="FI" />
           <StackSplit icon={<Delete20Regular />} label="Clear" tip={{ title: 'Clear' }} menu={clearMenu} onClick={() => cmds.clearSelection('contents')} keytip="E" />
         </div>
-        <SplitButton icon={<ArrowSort20Regular />} label="Sort & Filter" tip={{ title: 'Sort & Filter' }} menu={sortMenu} onClick={() => cmds.sortSelection('asc')} keytip="S" />
-        <SplitButton icon={<Search20Regular />} label="Find & Select" tip={{ title: 'Find & Select' }} menu={findMenu} onClick={() => setUi({ dialog: { kind: 'find' } })} keytip="FD" />
+        <SplitButton icon={<ArrowSort20Regular />} label="Sort & Filter" tip={{ title: 'Sort & Filter' }} menu={sortMenu} menuOnly keytip="S" />
+        <SplitButton icon={<Search20Regular />} label="Find & Select" tip={{ title: 'Find & Select' }} menu={findMenu} menuOnly keytip="FD" />
       </Group>
       <GroupSep />
 
