@@ -5,7 +5,7 @@
 // against readXlsxExceljs).
 import { unzipSync } from 'fflate'
 import { shiftFormula } from '../engine/shiftFormula'
-import type { BorderSide, CellStyle, CommentThread, FilterCriteria, NoteData, Range, SheetLayout } from '../model/types'
+import type { BorderSide, CellStyle, CfRule, CommentThread, FilterCriteria, NoteData, Range, SheetLayout } from '../model/types'
 import type { WorkbookData } from '../model/store'
 import { DEFAULT_AUTHOR, defaultLayout } from '../model/defaults'
 import {
@@ -99,6 +99,7 @@ export function parseXlsx(bytes: Uint8Array): WorkbookData & { vbaProject?: VbaP
   // palette), matching how colorToHex/THEME_COLORS in xlsx.ts treats a theme index + tint.
   const themeColors = parseThemeColors(get('xl/theme/theme1.xml'))
   const xfStyles = parseStyles(get('xl/styles.xml'), themeColors)
+  const dxfStyles = parseDxfs(get('xl/styles.xml'), themeColors)
 
   const sheets: WorkbookData['sheets'] = []
   for (const def of sheetDefs) {
@@ -161,6 +162,9 @@ export function parseXlsx(bytes: Uint8Array): WorkbookData & { vbaProject?: VbaP
         }
       }
     }
+
+    const cfs = parseConditionalFormats(xml, dxfStyles)
+    if (cfs.length) layout.conditionalFormats = cfs
 
     sheets.push({ name: def.name, cells: parsed.cells, layout })
   }
@@ -420,6 +424,80 @@ function parseBorders(section: string, themeColors: string[]): (CellStyle | unde
     if (bottom) borders.bottom = bottom
     if (left) borders.left = left
     out.push(Object.keys(borders).length ? { borders } : undefined)
+  }
+  return out
+}
+
+// Differential formats (<dxfs>) referenced by conditional-formatting rules via dxfId.
+function parseDxfs(xml: string | undefined, themeColors: string[]): (Partial<CellStyle> | undefined)[] {
+  const section = xml ? extractSection(xml, 'dxfs') : undefined
+  if (!section) return []
+  const out: (Partial<CellStyle> | undefined)[] = []
+  const re = /<dxf>([\s\S]*?)<\/dxf>|<dxf\/>/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(section))) {
+    const inner = m[1] ?? ''
+    const s: Partial<CellStyle> = {}
+    const font = /<font>[\s\S]*?<\/font>/.exec(inner)
+    if (font) {
+      const f = parseFonts(font[0], themeColors)[0]
+      if (f?.color) s.color = f.color
+      if (f?.bold) s.bold = true
+      if (f?.italic) s.italic = true
+    }
+    const fill = /<fill>([\s\S]*?)<\/fill>/.exec(inner)
+    if (fill) {
+      const c = /<bgColor\b([^>]*?)\/?>/.exec(fill[1]) ?? /<fgColor\b([^>]*?)\/?>/.exec(fill[1])
+      const hex = c ? resolveColor(parseAttrs(c[1], 0, c[1].length), themeColors) : undefined
+      if (hex) s.fill = hex
+    }
+    out.push(Object.keys(s).length ? s : undefined)
+  }
+  return out
+}
+
+function parseConditionalFormats(xml: string, dxfs: (Partial<CellStyle> | undefined)[]): CfRule[] {
+  if (xml.indexOf('<conditionalFormatting') === -1) return []
+  const out: CfRule[] = []
+  const blockRe = /<conditionalFormatting\b([^>]*)>([\s\S]*?)<\/conditionalFormatting>/g
+  let b: RegExpExecArray | null
+  let pCounter = 1
+  while ((b = blockRe.exec(xml))) {
+    const ba = parseAttrs(b[1], 0, b[1].length)
+    const ranges = (ba.sqref ?? '').split(/\s+/).map(parseSingleOrRange).filter((r): r is Range => r !== null)
+    if (!ranges.length) continue
+    const ruleRe = /<cfRule\b([^>]*?)(?:\/>|>([\s\S]*?)<\/cfRule>)/g
+    let r: RegExpExecArray | null
+    while ((r = ruleRe.exec(b[2]))) {
+      const a = parseAttrs(r[1], 0, r[1].length)
+      const formulae: string[] = []
+      const fRe = /<formula>([\s\S]*?)<\/formula>/g
+      let f: RegExpExecArray | null
+      while ((f = fRe.exec(r[2] ?? ''))) formulae.push(decodeXmlEntities(f[1]))
+      const rule: CfRule = {
+        id: 'cf_' + Math.random().toString(36).slice(2, 9),
+        priority: a.priority ? parseInt(a.priority, 10) : pCounter++,
+        ranges,
+        stopIfTrue: a.stopIfTrue === '1' || a.stopIfTrue === 'true',
+        type: (a.type as CfRule['type']) || 'cellIs',
+        format: a.dxfId !== undefined ? dxfs[parseInt(a.dxfId, 10)] : undefined
+      }
+      if (rule.type === 'cellIs') {
+        rule.operator = a.operator as CfRule['operator']
+        if (formulae[0] !== undefined) rule.value = formulae[0]
+        if (formulae[1] !== undefined) rule.value2 = formulae[1]
+      } else if (rule.type === 'expression') {
+        rule.formula = formulae[0]
+      } else if (rule.type === 'top10') {
+        if (a.rank) rule.rank = parseInt(a.rank, 10)
+        rule.percent = a.percent === '1'
+        rule.bottom = a.bottom === '1'
+      } else if (rule.type === 'aboveAverage') {
+        rule.above = a.aboveAverage !== '0'
+        if (a.equalAverage === '1') rule.equalOrAbove = true
+      }
+      out.push(rule)
+    }
   }
   return out
 }
