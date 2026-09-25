@@ -3,6 +3,7 @@ import { ReactNode, useRef, useState } from 'react'
 import { useStore } from '../../model/store'
 import { useUi, setUi, getUi, notAvailable } from '../ui'
 import { hideSheet } from '../sheetCommands'
+import { CURRENCY_FORMAT, ACCOUNTING_FORMAT, SHORT_DATE_FORMAT, LONG_DATE_FORMAT, CURRENCY_SYMBOL } from '../../engine/locale'
 import { CellStyle, normRange } from '../../model/types'
 import { MenuItem } from '../../components/Menu'
 import { Group, GroupSep, BigButton, SplitButton, StackSplit, SmallButton, DialogLauncher, Combo, KeyTipBadge } from './controls'
@@ -37,10 +38,10 @@ const SIZES = ['8', '9', '10', '11', '12', '14', '16', '18', '20', '24', '28', '
 const NUMFMT: [string, string][] = [
   ['General', 'General'],
   ['Number', '0.00'],
-  ['Currency', '$#,##0.00'],
-  ['Accounting', '_($* #,##0.00_);_($* (#,##0.00);_($* "-"??_);_(@_)'],
-  ['Short Date', 'm/d/yyyy'],
-  ['Long Date', 'dddd, mmmm d, yyyy'],
+  ['Currency', CURRENCY_FORMAT],
+  ['Accounting', ACCOUNTING_FORMAT],
+  ['Short Date', SHORT_DATE_FORMAT],
+  ['Long Date', LONG_DATE_FORMAT],
   ['Time', 'h:mm:ss AM/PM'],
   ['Percentage', '0.00%'],
   ['Fraction', '# ?/?'],
@@ -76,7 +77,7 @@ const CELL_STYLES: [string, Partial<CellStyle>][] = [
   ['60% - Accent2', { fill: '#F0935E', color: '#FFFFFF' }],
   ['Accent2', { fill: '#ED7D31', color: '#FFFFFF' }],
   ['Comma', { numFmt: '#,##0.00' }],
-  ['Currency', { numFmt: '$#,##0.00' }],
+  ['Currency', { numFmt: CURRENCY_FORMAT }],
   ['Percent', { numFmt: '0%' }]
 ]
 
@@ -452,7 +453,14 @@ export default function HomeTab() {
         <div className="xl-col">
           <Combo value={curFmtName} options={NUMFMT.map(([n]) => n)} width={122} editable={false} tip={{ title: 'Number Format' }} onPick={(name) => { const f = NUMFMT.find(([n]) => n === name); if (f) setStyle({ numFmt: f[1] }, 'Number Format') }} keytip="N" />
           <div className="xl-row">
-            <SmallButton icon={<Glyph text="$" />} tip={{ title: 'Accounting Number Format' }} menu={[{ label: 'Accounting', onClick: () => setStyle({ numFmt: NUMFMT[3][1] }, 'Number Format') }, { label: '$ English (US)', onClick: () => setStyle({ numFmt: '$#,##0.00' }, 'Number Format') }]} onClick={() => setStyle({ numFmt: NUMFMT[3][1] }, 'Number Format')} keytip="AN" />
+            <SmallButton icon={<Glyph text={CURRENCY_SYMBOL.length === 1 ? CURRENCY_SYMBOL : '$'} />} tip={{ title: 'Accounting Number Format' }} split menu={[
+              { label: '₹ English (India)', onClick: () => setStyle({ numFmt: '_ ₹* #,##0.00_ ;_ ₹* -#,##0.00_ ;_ ₹* "-"??_ ;_ @_ ' }, 'Number Format') },
+              { label: '$ English (United States)', onClick: () => setStyle({ numFmt: '_($* #,##0.00_);_($* (#,##0.00);_($* "-"??_);_(@_)' }, 'Number Format') },
+              { label: '£ English (United Kingdom)', onClick: () => setStyle({ numFmt: '_-£* #,##0.00_-;-£* #,##0.00_-;_-£* "-"??_-;_-@_-' }, 'Number Format') },
+              { label: '€ Euro (€ 123)', onClick: () => setStyle({ numFmt: '_-[$€-x-euro2] * #,##0.00_-;-[$€-x-euro2] * #,##0.00_-;_-[$€-x-euro2] * "-"??_-;_-@_-' }, 'Number Format') },
+              'separator',
+              { label: '&More Accounting Formats...', onClick: () => setUi({ dialog: { kind: 'formatCells', props: { tab: 'Number' } } }) }
+            ]} onClick={() => setStyle({ numFmt: NUMFMT[3][1] }, 'Number Format')} keytip="AN" />
             <SmallButton icon={<Glyph text="%" />} tip={{ title: 'Percent Style (Ctrl+Shift+%)' }} onClick={() => setStyle({ numFmt: '0%' }, 'Number Format')} keytip="P" />
             <SmallButton icon={<Glyph text="9" sub="," />} tip={{ title: 'Comma Style' }} onClick={() => setStyle({ numFmt: '#,##0.00' }, 'Number Format')} keytip="K" />
             <SmallButton icon={<DecimalGlyph more />} tip={{ title: 'Increase Decimal' }} onClick={() => decimalAdjust(1)} keytip="0" />
@@ -495,15 +503,7 @@ export default function HomeTab() {
         <SplitButton icon={<ArrowSort20Regular />} label="Sort & Filter" tip={{ title: 'Sort & Filter' }} menu={sortMenu} menuOnly keytip="S" />
         <SplitButton icon={<Search20Regular />} label="Find & Select" tip={{ title: 'Find & Select' }} menu={findMenu} menuOnly keytip="FD" />
       </Group>
-      <GroupSep />
 
-      <Group label="Add-ins" icon={<DataFunnel20Regular />}>
-        <BigButton icon={<DataFunnel20Regular fontSize={28} />} label="Get Add-ins" tip={{ title: 'Get Add-ins' }} onClick={() => notAvailable('Get Add-ins')} />
-      </Group>
-      <GroupSep />
-      <Group label="Analysis" icon={<DataHistogram20Regular />}>
-        <BigButton icon={<DataHistogram20Regular fontSize={28} />} label="Analyze Data" tip={{ title: 'Analyze Data' }} onClick={() => notAvailable('Analyze Data')} />
-      </Group>
 
       {colorMenu && (
         <ColorMenu

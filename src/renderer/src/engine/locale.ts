@@ -45,3 +45,22 @@ export function setDayFirst(dayFirst: boolean): void {
   DATE_FORMATS.splice(0, DATE_FORMATS.length, ...dateFormatsFor(dayFirst))
   SHORT_DATE_FORMAT = dayFirst ? 'dd-mm-yyyy' : 'm/d/yyyy'
 }
+
+// The PC's currency symbol for Home > Currency / Accounting (₹ on English (India), $ on US, £ on UK...).
+function detectCurrency(): string {
+  try {
+    const region = (REGION ?? Intl.DateTimeFormat().resolvedOptions().locale).split('-').pop()!.toUpperCase()
+    const map: Record<string, string> = { IN: '₹', US: '$', GB: '£', AE: 'AED', AU: '$', CA: '$', SG: '$', NZ: '$', EU: '€', DE: '€', FR: '€', IE: '€', NL: '€', ES: '€', IT: '€', JP: '¥', CN: '¥', PK: 'Rs', LK: 'Rs', NP: 'Rs', BD: '৳', ZA: 'R' }
+    return map[region] ?? '$'
+  } catch {
+    return '$'
+  }
+}
+export const CURRENCY_SYMBOL = detectCurrency()
+const q = (sym: string) => (sym.length === 1 ? sym : `"${sym} "`)
+/** Home > Number Format "Currency" for this PC, e.g. ₹#,##0.00 */
+export const CURRENCY_FORMAT = `${q(CURRENCY_SYMBOL)}#,##0.00`
+/** Home > Number Format "Accounting" for this PC. */
+export const ACCOUNTING_FORMAT = `_ ${q(CURRENCY_SYMBOL)}* #,##0.00_ ;_ ${q(CURRENCY_SYMBOL)}* -#,##0.00_ ;_ ${q(CURRENCY_SYMBOL)}* "-"??_ ;_ @_ `
+/** Long date as Excel shows it for the region. */
+export const LONG_DATE_FORMAT = DAY_FIRST ? 'dd mmmm yyyy' : 'dddd, mmmm d, yyyy'

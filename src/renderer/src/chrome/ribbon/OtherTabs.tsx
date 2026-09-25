@@ -245,7 +245,7 @@ export function DataTab() {
     { label: 'Outline', big: [
       { label: 'Group', icon: <FlowchartCircle20Regular fontSize={28} /> },
       { label: 'Ungroup', icon: <FlowchartCircle20Regular fontSize={28} /> },
-      { label: 'Subtotal', icon: <MathFormula20Regular fontSize={28} /> }
+      { label: 'Subtotal', icon: <MathFormula20Regular fontSize={28} />, onClick: () => setUi({ dialog: { kind: 'subtotal' } }) }
     ] }
   ]
   return <GenericTab groups={groups} />

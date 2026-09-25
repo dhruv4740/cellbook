@@ -1,4 +1,4 @@
-import { SHORT_DATE_FORMAT, LAKH_GROUPING } from '../engine/locale'
+import { SHORT_DATE_FORMAT, LAKH_GROUPING, DAY_FIRST } from '../engine/locale'
 // Excel number-format engine (en-US). Dependency-free implementation of the Format-Cells
 // number-format grammar: sections, conditions, colors, digit placeholders, percent, scientific,
 // fractions, dates/times and text placeholders. Parsed format codes are cached.
@@ -1012,6 +1012,18 @@ export const FORMAT_CATEGORIES: Record<string, FormatEntry[]> = {
     { label: ' 1,234.00 ', code: '_(* #,##0.00_);_(* (#,##0.00);_(* "-"??_);_(@_)' }
   ],
   Date: [
+    // A day-first PC (India, UK...) lists its regional formats first, as Excel does.
+    ...(DAY_FIRST
+      ? [
+          { label: '14-03-2012', code: 'dd-mm-yyyy' },
+          { label: '14/03/2012', code: 'dd/mm/yyyy' },
+          { label: '14 March 2012', code: 'dd mmmm yyyy' },
+          { label: '14-03-12', code: 'dd-mm-yy' },
+          { label: '14-Mar-2012', code: 'dd-mmm-yyyy' },
+          { label: '14.03.2012', code: 'dd.mm.yyyy' },
+          { label: '14-03-2012 13:30', code: 'dd-mm-yyyy hh:mm' }
+        ]
+      : []),
     { label: '3/14/2012', code: 'm/d/yyyy' },
     { label: 'Wednesday, March 14, 2012', code: 'dddd, mmmm d, yyyy' },
     { label: '3/14', code: 'm/d' },
