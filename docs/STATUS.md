@@ -5,6 +5,6 @@ Fixed: fast .xlsx reader now reads conditional formatting (rules + dxf styles).
 Checks: typecheck clean, 212/212 tests pass, `npm run build` passes.
 
 ## Known gaps
-- Data validation rules are not yet written to / read from .xlsx (in-app only).
-- Charts are not saved to .xlsx.
-- View > New Window not built.
+- Data validation not saved to .xlsx → docs/gemini-prompts/4
+- Charts not saved to .xlsx → docs/gemini-prompts/5
+- View > New Window → docs/gemini-prompts/6
