@@ -4,7 +4,5 @@ Merged: Format Cells polish, Conditional Formatting, Data tools (Sort, Remove Du
 Fixed: fast .xlsx reader now reads conditional formatting (rules + dxf styles).
 Checks: typecheck clean, 212/212 tests pass, `npm run build` passes.
 
-## Known gaps
-- Data validation not saved to .xlsx → docs/gemini-prompts/4
-- Charts not saved to .xlsx → docs/gemini-prompts/5
-- View > New Window → docs/gemini-prompts/6
+Merged from Gemini: data validation save/load, chart save/load (DrawingML), View > New Window (live second view, Arrange All, Switch Windows).
+Checks: typecheck clean, 224/224 tests pass, build passes. Not yet verified: opening saved files in real Excel, New Window by hand in the desktop app.
