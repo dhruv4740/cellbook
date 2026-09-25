@@ -63,7 +63,13 @@ function visibleBadges(scope: 'tabs' | 'commands'): HTMLElement[] {
     // Skip the RibbonScaleProvider's hidden off-screen measurement clone of each group (it
     // renders the same buttons/badges again to measure their natural width) and anything else
     // marked aria-hidden.
-    if (el.closest('.xl-group-measure, [aria-hidden="true"]')) return false
+    // ...except for a group collapsed to a single button: its commands only exist in that clone, and
+    // Excel still runs them from their KeyTips (Alt,A,M = Remove Duplicates at any window width).
+    const measure = el.closest('.xl-group-measure')
+    if (measure) {
+      const owner = measure.parentElement
+      if (!(scope === 'commands' && owner?.querySelector(':scope > .xl-group-collapsed'))) return false
+    } else if (el.closest('[aria-hidden="true"]')) return false
     // Skip buttons that are disabled.
     const btn = el.closest('button') as HTMLButtonElement | null
     return !btn || !btn.disabled
@@ -175,10 +181,11 @@ export default function KeyTips() {
       // so releasing Alt must not toggle KeyTips.
       altMoved.current = true
       if (active === 'off') return
-      if (e.key === 'Escape') { e.preventDefault(); stepBack(); return }
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); stepBack(); return }
       if (e.ctrlKey || e.metaKey) { exit(); return }
       if (e.key.length !== 1 || !/[A-Za-z0-9]/.test(e.key)) return
       e.preventDefault()
+      e.stopPropagation() // a KeyTip letter must never also be typed into the active cell
       buffer.current += e.key.toUpperCase()
       if (active === 'menu') tryMatchMenu()
       else tryMatch(active === 'tabs' ? 'tabs' : 'commands')

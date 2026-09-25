@@ -24,3 +24,23 @@ describe('Excel compatibility functions', () => {
     expect(store.getDisplay(store.active, 1, 0).text).toBe('5')
   })
 })
+
+describe('SUBTOTAL / AGGREGATE with filtered rows', () => {
+  it('skips rows hidden by the filter and recalculates when the filter changes', () => {
+    store.newWorkbook()
+    const s = store.active
+    store.setRangeRaw(s, 0, 0, [['h'], ['1'], ['2'], ['3'], ['4']])
+    store.setRangeRaw(s, 6, 0, [['=SUBTOTAL(9,A2:A5)'], ['=SUBTOTAL(3,A2:A5)'], ['=AGGREGATE(9,5,A2:A5)'], ['=SUBTOTAL(109,A2:A5)'], ['=AGGREGATE(14,3,A2:A5,1)']])
+    const v = (r: number) => store.getDisplay(s, r, 0).text
+    expect([v(6), v(7), v(8)]).toEqual(['10', '4', '10'])
+    store.updateLayout(s, 'Filter', (l) => {
+      l.autoFilter = { range: { r1: 0, c1: 0, r2: 4, c2: 0 }, columns: {}, filteredOutRows: [2, 3] }
+      l.hiddenRows = { 2: true, 3: true }
+    })
+    expect([v(6), v(7), v(8), v(10)]).toEqual(['5', '2', '5', '4'])
+    store.updateLayout(s, 'Hide', (l) => { l.hiddenRows = { ...l.hiddenRows, 4: true } })
+    expect([v(6), v(9)]).toEqual(['5', '1'])
+    store.undo(); store.undo()
+    expect(v(6)).toBe('10')
+  })
+})

@@ -1,3 +1,4 @@
+import { SHORT_DATE_FORMAT } from '../engine/locale'
 // Excel number-format engine (en-US). Dependency-free implementation of the Format-Cells
 // number-format grammar: sections, conditions, colors, digit placeholders, percent, scientific,
 // fractions, dates/times and text placeholders. Parsed format codes are cached.
@@ -938,8 +939,8 @@ export function detectInputFormat(raw: string): string | undefined {
   }
 
   // Date: 1/31/2025, 1/31, 31-Jan, Jan 2025
-  m = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/.exec(s)
-  if (m) return 'm/d/yyyy'
+  m = /^(\d{1,2})([/.-])(\d{1,2})\2(\d{2,4})$/.exec(s)
+  if (m) return SHORT_DATE_FORMAT
   m = /^(\d{1,2})\/(\d{1,2})$/.exec(s)
   if (m) return 'd-mmm'
   m = /^(\d{1,2})-([A-Za-z]{3,9})$/.exec(s)

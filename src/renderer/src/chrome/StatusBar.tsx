@@ -26,13 +26,16 @@ export default function StatusBar() {
   const used = store.usedRange(sheet)
   for (const raw of used ? sheet.selection.ranges : []) {
     const rg = normRange(raw) // ranges dragged up/left arrive reversed
-    for (let r = rg.r1; r <= Math.min(rg.r2, used!.r2); r++)
+    for (let r = rg.r1; r <= Math.min(rg.r2, used!.r2); r++) {
+      if (sheet.layout.hiddenRows?.[r]) continue // Excel's status bar only counts visible cells
       for (let c = rg.c1; c <= Math.min(rg.c2, used!.c2); c++) {
+        if (sheet.layout.hiddenCols?.[c]) continue
         const v = store.getValue(sheet, r, c)
         if (v === null || v === '') continue
         count++
         if (typeof v === 'number') { sum += v; numCount++; if (v < min) min = v; if (v > max) max = v }
       }
+    }
   }
   const showStats = count >= 2 && numCount >= 1
 

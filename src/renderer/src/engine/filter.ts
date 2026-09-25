@@ -12,7 +12,14 @@ export function distinctColumnValues(range: Range, col: number, getDisplay: (r: 
     const t = getDisplay(r, col)
     seen.add(t === '' ? BLANK_TOKEN : t)
   }
-  return [...seen]
+  // Excel lists numbers (ascending) before text (A to Z), with (Blanks) last.
+  const numOf = (v: string): number => (/^-?[\d,]*\.?\d+(E[+-]?\d+)?%?$/i.test(v) ? parseFloat(v.replace(/,/g, '')) : NaN)
+  return [...seen].sort((a, b) => {
+    if (a === BLANK_TOKEN || b === BLANK_TOKEN) return a === BLANK_TOKEN ? (b === BLANK_TOKEN ? 0 : 1) : -1
+    const na = numOf(a), nb = numOf(b)
+    if (!isNaN(na) || !isNaN(nb)) return isNaN(na) ? 1 : isNaN(nb) ? -1 : na - nb
+    return a.localeCompare(b, undefined, { sensitivity: 'base', numeric: true })
+  })
 }
 
 /** Rows (below the header) that fail at least one column's criteria, plus how many pass. */

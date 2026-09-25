@@ -463,7 +463,9 @@ export async function writeXlsx(data: WorkbookData, vba?: VbaProject): Promise<U
       const [r, c] = key.split(',').map(Number)
       const target = ws.getCell(r + 1, c + 1)
       if (cell.raw !== undefined && cell.raw !== '') {
-        if (cell.raw.startsWith('=')) {
+        if (cell.raw.startsWith("'")) {
+          target.value = cell.raw.slice(1) // quote-prefixed text
+        } else if (cell.raw.startsWith('=')) {
           target.value = { formula: cell.raw.slice(1) }
         } else if (cell.style?.numFmt && isDateFormat(cell.style.numFmt) && /^-?\d+(\.\d+)?$/.test(cell.raw)) {
           target.value = serialToDate(Number(cell.raw))

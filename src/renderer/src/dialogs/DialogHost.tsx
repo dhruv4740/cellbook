@@ -1,6 +1,6 @@
 // Renders whichever dialog ui.dialog names, and owns the dialog keyboard shortcuts.
 // Kept separate from App so store changes re-render only this component, not the whole window.
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { setUi, useUi } from '../chrome/ui'
 import { useStore } from '../model/store'
 import { FormatCellsDialog } from './FormatCellsDialog'
@@ -36,6 +36,18 @@ export default function DialogHost() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
+
+  // When a dialog closes, give the keyboard back to the sheet (Excel), unless something else took focus.
+  const hadDialog = useRef(false)
+  useEffect(() => {
+    if (ui.dialog) { hadDialog.current = true; return }
+    if (!hadDialog.current) return
+    hadDialog.current = false
+    requestAnimationFrame(() => {
+      const a = document.activeElement
+      if (!a || a === document.body || !document.body.contains(a)) (document.querySelector('.grid-host') as HTMLElement | null)?.focus()
+    })
+  }, [ui.dialog])
 
   const d = ui.dialog
   if (!d) return null
