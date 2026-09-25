@@ -21,6 +21,7 @@ import { DataValidationErrorDialog } from './DataValidationErrorDialog'
 import { ArrangeWindowsDialog } from './ArrangeWindowsDialog'
 import { DefineNameDialog, NameManagerDialog, CreateFromSelectionDialog } from './NameDialogs'
 import { HyperlinkDialog } from './HyperlinkDialog'
+import { SubtotalDialog } from './SubtotalDialog'
 import { MessageDialog, UnhideSheetDialog, MoveCopySheetDialog, SeriesDialog } from './SheetDialogs'
 
 export default function DialogHost() {
@@ -132,6 +133,8 @@ export default function DialogHost() {
       return <NameManagerDialog onClose={close} />
     case 'createNames':
       return <CreateFromSelectionDialog onClose={close} />
+    case 'subtotal':
+      return <SubtotalDialog onClose={close} />
     case 'hyperlink':
       return <HyperlinkDialog onClose={close} />
     case 'series':

@@ -1,3 +1,4 @@
+import { CURRENCY_SYMBOL, DAY_FIRST } from '../engine/locale'
 import { useState, useRef, useEffect, MouseEvent as ReactMouseEvent } from 'react'
 import { Dialog } from '../components/Dialog'
 import {
@@ -111,7 +112,7 @@ export function FormatCellsDialog({
   const [numDecimals, setNumDecimals] = useState<number>(2)
   const [numThousands, setNumThousands] = useState<boolean>(false)
   const [numNegative, setNumNegative] = useState<0 | 1 | 2 | 3>(0)
-  const [currencySymbol, setCurrencySymbol] = useState<string>('$')
+  const [currencySymbol, setCurrencySymbol] = useState<string>(CURRENCY_SYMBOL.length === 1 ? CURRENCY_SYMBOL : '$')
 
   // --- Alignment State ---
   const [hAlign, setHAlign] = useState<CellStyle['hAlign']>(initialStyle.hAlign || 'general')
@@ -562,6 +563,7 @@ export function FormatCellsDialog({
                           modified.current.add('numFmt')
                         }}
                       >
+                        <option value="₹">₹</option>
                         <option value="$">$</option>
                         <option value="€">€</option>
                         <option value="£">£</option>
@@ -628,6 +630,7 @@ export function FormatCellsDialog({
                           modified.current.add('numFmt')
                         }}
                       >
+                        <option value="₹">₹</option>
                         <option value="$">$</option>
                         <option value="None">None</option>
                       </select>
@@ -658,7 +661,7 @@ export function FormatCellsDialog({
                     <div className="xl-fc-row" style={{ marginTop: 8 }}>
                       <span>Locale (location):</span>
                       <select className="xl-fc-select" style={{ width: 180 }} disabled>
-                        <option>English (United States)</option>
+                        <option>{DAY_FIRST ? 'English (India)' : 'English (United States)'}</option>
                       </select>
                     </div>
                   </div>

@@ -83,18 +83,40 @@ function stat(fn: number, vals: unknown[]): number | CellError {
     default: return new CellError(ErrorType.VALUE)
   }
 }
-/** Values of the range args, skipping rows the filter hid (and manually hidden rows when asked). */
-function visibleValues(args: unknown[], skipManual: boolean, skipFiltered = true): unknown[] {
+/** True when the formula (anywhere in it) calls SUBTOTAL or AGGREGATE. */
+function callsSubtotal(ast: any, depth = 0): boolean {
+  if (!ast || depth > 50) return false
+  if (ast.type === 'FUNCTION_CALL' && (ast.procedureName === 'SUBTOTAL' || ast.procedureName === 'AGGREGATE')) return true
+  for (const k of ['args', 'left', 'right', 'value']) {
+    const v = ast[k]
+    if (Array.isArray(v)) { for (const x of v) if (callsSubtotal(x, depth + 1)) return true }
+    else if (v && typeof v === 'object' && v.type && callsSubtotal(v, depth + 1)) return true
+  }
+  return false
+}
+
+/**
+ * Values of the range args, skipping rows the filter hid (and manually hidden rows when asked).
+ * With `graph`, cells that are themselves SUBTOTAL/AGGREGATE formulas are skipped, as Excel does
+ * so a grand total doesn't double-count the group subtotals inside its range.
+ */
+function visibleValues(args: unknown[], skipManual: boolean, skipFiltered = true, graph?: any): unknown[] {
   const out: unknown[] = []
   for (const a of args) {
     if (a instanceof SimpleRangeValue) {
-      const start = (a.range as any)?.start as { sheet: number; row: number } | undefined
+      const start = (a.range as any)?.start as { sheet: number; row: number; col: number } | undefined
       a.data.forEach((row, i) => {
         if (start) {
           const h = hiddenRow(start.sheet, start.row + i)
           if ((h === 1 && skipFiltered) || (h === 2 && skipManual)) return
         }
-        for (const v of row) out.push(v)
+        row.forEach((v, j) => {
+          if (graph && start && v !== null && v !== undefined) {
+            const vx = graph.addressMapping?.getCell?.({ sheet: start.sheet, row: start.row + i, col: start.col + j })
+            if (vx && vx.formula && callsSubtotal(vx.formula)) return
+          }
+          out.push(v)
+        })
       })
     } else out.push(a)
   }
@@ -115,7 +137,7 @@ class SubtotalPlugin extends FunctionPlugin {
       const f = Math.trunc(fnNum)
       const base = f > 100 ? f - 100 : f
       if (base < 1 || base > 11) return new CellError(ErrorType.VALUE)
-      const vals = visibleValues(ranges, f > 100)
+      const vals = visibleValues(ranges, f > 100, true, (this as any).dependencyGraph)
       const err = vals.find((v) => v instanceof CellError)
       return err ? (err as CellError) : stat(base, vals)
     })
@@ -125,7 +147,8 @@ class SubtotalPlugin extends FunctionPlugin {
       const f = Math.trunc(fnNum), o = Math.trunc(opt)
       const ignoreHidden = o === 1 || o === 3 || o === 5 || o === 7
       const ignoreErrors = o === 2 || o === 3 || o === 6 || o === 7
-      let vals = visibleValues([range], ignoreHidden, true)
+      // Options 0-3 ignore nested SUBTOTAL/AGGREGATE; 4-7 include them.
+      let vals = visibleValues([range], ignoreHidden, true, o <= 3 ? (this as any).dependencyGraph : undefined)
       if (ignoreErrors) vals = vals.filter((v) => !(v instanceof CellError))
       else { const err = vals.find((v) => v instanceof CellError); if (err) return err as CellError }
       if (f === 14 || f === 15) {

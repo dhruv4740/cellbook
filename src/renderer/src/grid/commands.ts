@@ -829,9 +829,12 @@ export function collapseToActiveCell(): void {
 export function mergeCells(kind: 'center' | 'across' | 'merge' | 'unmerge'): void {
   const sheet = store.active
   const rg = normRange(activeRange())
-  if (kind === 'unmerge') {
+  const overlaps = (m: Range) => !(m.r2 < rg.r1 || m.r1 > rg.r2 || m.c2 < rg.c1 || m.c1 > rg.c2)
+  // Merge & Center on a merged cell unmerges it (the button is a toggle in Excel).
+  const already = sheet.layout.merges.some((m) => { const x = normRange(m); return x.r1 === rg.r1 && x.r2 === rg.r2 && x.c1 === rg.c1 && x.c2 === rg.c2 })
+  if (kind === 'unmerge' || (kind === 'center' && already)) {
     store.updateLayout(sheet, 'Unmerge Cells', (l) => {
-      l.merges = l.merges.filter((m) => !(m.r1 >= rg.r1 && m.r2 <= rg.r2 && m.c1 >= rg.c1 && m.c2 <= rg.c2))
+      l.merges = l.merges.filter((m) => !overlaps(normRange(m)))
     })
     return
   }
@@ -854,7 +857,9 @@ export function mergeCells(kind: 'center' | 'across' | 'merge' | 'unmerge'): voi
         if (clears.length) store.setCells(sheet, clears, 'Merge Cells')
       }
       store.updateLayout(sheet, 'Merge Cells', (l) => {
-        for (const m of ranges) l.merges.push(normRange(m))
+        // Existing merges touching the selection are replaced, never stacked.
+        l.merges = l.merges.filter((m) => !overlaps(normRange(m)))
+        for (const m of ranges) { const n = normRange(m); if (n.r1 !== n.r2 || n.c1 !== n.c2) l.merges.push(n) }
       })
       if (kind === 'center') store.applyStyle(sheet, ranges, { hAlign: 'center' }, 'Merge Cells')
     })

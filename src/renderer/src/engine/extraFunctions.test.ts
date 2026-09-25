@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { store } from '../model/store'
+import { store, WorkbookStore } from '../model/store'
 
 describe('Excel compatibility functions', () => {
   it('evaluates bare TRUE/FALSE, CONCAT and TEXTJOIN', () => {
@@ -42,5 +42,17 @@ describe('SUBTOTAL / AGGREGATE with filtered rows', () => {
     expect([v(6), v(9)]).toEqual(['5', '1'])
     store.undo(); store.undo()
     expect(v(6)).toBe('10')
+  })
+})
+
+describe('SUBTOTAL ignores nested subtotals (Excel)', () => {
+  it('grand total does not double count group subtotals', () => {
+    const s = new WorkbookStore()
+    const sh = s.active
+    ;['5', '7', '=SUBTOTAL(9,A1:A2)', '3', '=SUBTOTAL(9,A4:A4)', '=SUBTOTAL(9,A1:A5)', '=SUM(A1:A5)', '=AGGREGATE(9,0,A1:A5)', '=AGGREGATE(9,4,A1:A5)', '=SUBTOTAL(9,A1:A2)*1+0'].forEach((v, r) => s.setRaw(sh, r, 0, v))
+    expect(s.getValue(sh, 5, 0)).toBe(15)
+    expect(s.getValue(sh, 6, 0)).toBe(30) // SUM counts everything
+    expect(s.getValue(sh, 7, 0)).toBe(15)
+    expect(s.getValue(sh, 8, 0)).toBe(30)
   })
 })
