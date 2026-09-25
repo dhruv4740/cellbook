@@ -29,12 +29,45 @@ export function stripFuturePrefixes(formula: string): string {
 
 /** Adds the prefixes Excel expects in the file. */
 export function addFuturePrefixes(formula: string): string {
-  return mapOutsideStrings(formula, (p) =>
-    p.replace(/(^|[^A-Za-z0-9_.])([A-Za-z][A-Za-z0-9.]*)\s*\(/g, (m, pre: string, name: string) => {
+  const out = mapOutsideStrings(formula, (p) =>
+    p.replace(/(?<![A-Za-z0-9_.])([A-Za-z][A-Za-z0-9.]*)\s*\(/g, (m, name: string) => {
       const up = name.toUpperCase()
-      if (WS.has(up)) return `${pre}_xlfn._xlws.${name}(`
-      if (FUTURE_SET.has(up)) return `${pre}_xlfn.${name}(`
+      if (WS.has(up)) return `_xlfn._xlws.${name}(`
+      if (FUTURE_SET.has(up)) return `_xlfn.${name}(`
       return m
     })
+  )
+  return /\b(?:LET|LAMBDA)\s*\(/i.test(out) ? addParamPrefixes(out) : out
+}
+
+/** Top-level comma-separated arguments of the call whose "(" is at `open`. */
+function callArgs(f: string, open: number): string[] {
+  const args: string[] = []
+  let depth = 0, start = open + 1, inStr = false
+  for (let i = open + 1; i < f.length; i++) {
+    const ch = f[i]
+    if (ch === '"') inStr = !inStr
+    else if (inStr) continue
+    else if (ch === '(' || ch === '{') depth++
+    else if ((ch === ')' || ch === '}') && depth > 0) depth--
+    else if (ch === ')') { args.push(f.slice(start, i)); break }
+    else if (ch === ',' && depth === 0) { args.push(f.slice(start, i)); start = i + 1 }
+  }
+  return args.map((a) => a.trim())
+}
+
+/** Excel stores LET/LAMBDA parameter names as "_xlpm.name"; without it Excel refuses to open the file. */
+function addParamPrefixes(f: string): string {
+  const names = new Set<string>()
+  const re = /\b(LET|LAMBDA)\s*\(/gi
+  let m: RegExpExecArray | null
+  while ((m = re.exec(f))) {
+    const args = callArgs(f, m.index + m[0].length - 1)
+    const params = m[1].toUpperCase() === 'LET' ? args.filter((_, i) => i % 2 === 0 && i < args.length - 1) : args.slice(0, -1)
+    for (const p of params) if (/^[A-Za-z_][A-Za-z0-9_.]*$/.test(p) && !p.startsWith('_xlpm.')) names.add(p.toLowerCase())
+  }
+  if (!names.size) return f
+  return mapOutsideStrings(f, (p) =>
+    p.replace(/(?<![A-Za-z0-9_.!$'\]])([A-Za-z_][A-Za-z0-9_.]*)(?![A-Za-z0-9_.(!])/g, (w, name: string) => (names.has(name.toLowerCase()) ? `_xlpm.${name}` : w))
   )
 }

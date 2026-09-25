@@ -6,6 +6,7 @@
 import { unzipSync } from 'fflate'
 import { shiftFormula } from '../engine/shiftFormula'
 import { stripFuturePrefixes } from '../engine/xlfn'
+import { resolveStructuredRefs, type TableDef } from '../engine/structuredRefs'
 import type { BorderSide, CellStyle, CfRule, HyperlinkData, CommentThread, DataValidationRule, DvAllowType, DvErrorStyle, DvOperator, FilterCriteria, NoteData, Range, SheetLayout } from '../model/types'
 import type { WorkbookData, DefinedNameData } from '../model/store'
 import { DEFAULT_AUTHOR, defaultLayout } from '../model/defaults'
@@ -71,6 +72,7 @@ function unzipTextFilter(name: string): boolean {
     /^xl\/drawings\/[^/]+\.xml$/.test(name) ||
     /^xl\/drawings\/_rels\/[^/]+\.xml\.rels$/.test(name) ||
     /^xl\/charts\/[^/]+\.xml$/.test(name) ||
+    /^xl\/tables\/[^/]+\.xml$/.test(name) ||
     // Notes: Excel writes xl/comments1.xml, other producers xl/comments/comment1.xml (found via rels).
     /^xl\/(?:[^/]+\/)?comments?\d*\.xml$/.test(name) ||
     // Raw (non-text) parts, kept only for a .xlsm workbook's VBA project - see parseXlsx below.
@@ -108,6 +110,7 @@ export function parseXlsx(bytes: Uint8Array): WorkbookData & { vbaProject?: VbaP
   const dxfStyles = parseDxfs(get('xl/styles.xml'), themeColors)
 
   const sheets: WorkbookData['sheets'] = []
+  const tables: TableDef[] = []
   for (const def of sheetDefs) {
     const target = def.rId ? relMap.get(def.rId) : undefined
     const path = target ? resolveRelTarget('xl/workbook.xml', target) : undefined
@@ -171,6 +174,17 @@ export function parseXlsx(bytes: Uint8Array): WorkbookData & { vbaProject?: VbaP
       }
     }
 
+    for (const t of parseTables(files, dec, path, def.name)) {
+      tables.push(t.def)
+      // A table's filter lives in the table part, not the sheet; keep it as the sheet's AutoFilter.
+      if (t.autoFilterXml && !layout.autoFilter) {
+        const range = { r1: t.def.r1, c1: t.def.c1, r2: t.def.r2 - t.def.totalsRows, c2: t.def.c2 }
+        const columns: Record<number, FilterCriteria> = {}
+        for (const [colId, crit] of Object.entries(parseAutoFilterColumns(t.autoFilterXml))) columns[Number(colId) + range.c1] = crit
+        layout.autoFilter = { range, columns, filteredOutRows: Object.keys(parsed.hiddenRows).map(Number).filter((r) => r > range.r1 && r <= range.r2) }
+      }
+    }
+
     const cfs = parseConditionalFormats(xml, dxfStyles)
     if (cfs.length) layout.conditionalFormats = cfs
 
@@ -182,9 +196,45 @@ export function parseXlsx(bytes: Uint8Array): WorkbookData & { vbaProject?: VbaP
     sheets.push({ name: def.name, cells: parsed.cells, layout })
   }
 
+  if (tables.length) {
+    for (const s of sheets) {
+      for (const [key, cell] of Object.entries(s.cells)) {
+        if (!cell.raw?.startsWith('=') || cell.raw.indexOf('[') === -1) continue
+        cell.raw = '=' + resolveStructuredRefs(cell.raw.slice(1), tables, s.name, Number(key.split(',')[0]))
+      }
+    }
+  }
+
   const activeSheet = Math.max(0, Math.min(activeTab, sheets.length - 1))
   const names = parseDefinedNames(workbookXml)
   return { sheets, activeSheet, names: names.length ? names : undefined, vbaProject: parseVbaProject(files, relsXml, dec) }
+}
+
+function parseTables(files: Record<string, Uint8Array>, dec: TextDecoder, sheetPath: string, sheetName: string): { def: TableDef; autoFilterXml?: string }[] {
+  const dir = sheetPath.split('/').slice(0, -1).join('/')
+  const relsBytes = files[dir + '/_rels/' + (sheetPath.split('/').pop() ?? '') + '.rels']
+  if (!relsBytes) return []
+  const out: { def: TableDef; autoFilterXml?: string }[] = []
+  for (const rel of parseRelationships(dec.decode(relsBytes))) {
+    if (!/\/table$/.test(rel.type)) continue
+    const bytes = files[resolveRelTarget(sheetPath, rel.target)]
+    if (!bytes) continue
+    const xml = dec.decode(bytes)
+    const head = /<table\b([^>]*)>/.exec(xml)
+    if (!head) continue
+    const a = parseAttrs(head[1], 0, head[1].length)
+    const range = a.ref ? parseSingleOrRange(a.ref) : null
+    if (!range) continue
+    const columns = [...xml.matchAll(/<tableColumn\b([^>]*?)\/?>/g)].map((m) => decodeXmlEntities(parseAttrs(m[1], 0, m[1].length).name ?? ''))
+    out.push({
+      def: {
+        name: decodeXmlEntities(a.displayName ?? a.name ?? ''), sheet: sheetName, ...range,
+        headerRows: a.headerRowCount === '0' ? 0 : 1, totalsRows: a.totalsRowCount ? parseInt(a.totalsRowCount, 10) : 0, columns
+      },
+      autoFilterXml: /<autoFilter\b[^>]*\/>|<autoFilter\b[\s\S]*?<\/autoFilter>/.exec(xml)?.[0]
+    })
+  }
+  return out
 }
 
 // ---------- .xlsm VBA project (kept as opaque bytes so it survives a save back to .xlsm) ----------
@@ -750,6 +800,7 @@ function parseSheetXml(xml: string, xfStyles: (CellStyle | undefined)[], sharedS
   const merges: Range[] = []
   const mastersBySi = new Map<number, SharedFormulaMaster>()
   const followers: { key: string; row: number; col: number; si: number; style?: CellStyle }[] = []
+  const arrayRanges: [number, number, Range][] = []
 
   // sheetPr / tabColor
   const sheetPr = extractSection(xml, 'sheetPr')
@@ -776,7 +827,7 @@ function parseSheetXml(xml: string, xfStyles: (CellStyle | undefined)[], sharedS
     const paneM = /<pane\b([^>]*)\/>/.exec(sheetViewsSection)
     if (paneM) {
       const a = parseAttrs(paneM[1], 0, paneM[1].length)
-      if (a.state === 'frozen') {
+      if (a.state === 'frozen' || a.state === 'frozenSplit') {
         frozen = { rows: a.ySplit ? parseInt(a.ySplit, 10) || 0 : 0, cols: a.xSplit ? parseInt(a.xSplit, 10) || 0 : 0 }
       }
     }
@@ -836,8 +887,22 @@ function parseSheetXml(xml: string, xfStyles: (CellStyle | undefined)[], sharedS
       }
       const closeRow = dataSection.indexOf('</row>', gt + 1)
       const rowEnd = closeRow === -1 ? n : closeRow
-      parseCellsInRow(dataSection, gt + 1, rowEnd, r, cells, xfStyles, sharedStrings, mastersBySi, followers)
+      parseCellsInRow(dataSection, gt + 1, rowEnd, r, cells, xfStyles, sharedStrings, mastersBySi, followers, arrayRanges)
       pos = closeRow === -1 ? n : closeRow + 6
+    }
+  }
+
+  // Excel caches an array formula's results (e.g. FILTER's spill) as plain values in the cells it
+  // covers; kept, they would block the formula from spilling here and show #SPILL!.
+  for (const [ar, ac, rg] of arrayRanges) {
+    for (let rr = rg.r1; rr <= rg.r2; rr++) for (let cc = rg.c1; cc <= rg.c2; cc++) {
+      if (rr === ar && cc === ac) continue
+      const k = rr + ',' + cc
+      const cell = cells[k]
+      if (cell && !cell.raw?.startsWith('=')) {
+        if (cell.style) cells[k] = { style: cell.style }
+        else delete cells[k]
+      }
     }
   }
 
@@ -970,7 +1035,8 @@ function parseCellsInRow(
   xfStyles: (CellStyle | undefined)[],
   sharedStrings: string[],
   mastersBySi: Map<number, SharedFormulaMaster>,
-  followers: { key: string; row: number; col: number; si: number; style?: CellStyle }[]
+  followers: { key: string; row: number; col: number; si: number; style?: CellStyle }[],
+  arrayRanges: [number, number, Range][]
 ): void {
   let pos = start
   let colCounter = -1
@@ -1038,6 +1104,9 @@ function parseCellsInRow(
         }
       } else {
         cells[key] = { raw: '=' + stripFuturePrefixes(decodeXmlEntities(fText ?? '')), style }
+        const arrRef = fGt !== -1 && attrVal(xml, fAfter, fAttrsEnd, 't') === 'array' ? attrVal(xml, fAfter, fAttrsEnd, 'ref') : undefined
+        const rg = arrRef ? parseSingleOrRange(arrRef) : null
+        if (rg && (rg.r2 > rg.r1 || rg.c2 > rg.c1)) arrayRanges.push([r, c, rg])
       }
       continue
     }

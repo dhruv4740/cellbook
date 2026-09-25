@@ -134,3 +134,18 @@ describe('fastXlsx vs exceljs reader', () => {
     await expectEqualReads(bytes)
   })
 })
+
+describe('workbook saved by real Excel (samples/excel-made-features.xlsx)', () => {
+  it('turns table references into ranges, lets FILTER spill, keeps frozen panes, the table filter and data-bar colors', async () => {
+    const bytes = new Uint8Array(await readFile(join(here, '..', '..', '..', '..', 'samples', 'excel-made-features.xlsx')))
+    const s = (await readXlsx(bytes)).sheets[0]
+    expect(s.cells['5,7'].raw).toBe('=SUM($C$2:$C$6)') // =SUM(Orders[Qty])
+    expect(s.cells['7,7'].raw).toBe('=FILTER(A2:A6,F2:F6="Open")')
+    expect(s.cells['8,7']?.raw).toBeUndefined() // Excel's cached spill value
+    expect(s.layout?.frozen).toEqual({ rows: 1, cols: 1 }) // state="frozenSplit"
+    expect(s.layout?.autoFilter?.columns[5]).toEqual({ selected: ['Open'] })
+    const cf = s.layout?.conditionalFormats ?? []
+    expect(cf.find((r) => r.type === 'dataBar')?.dataBar?.color).toBe('#638EC6')
+    expect(cf.find((r) => r.type === 'colorScale')?.colorScale?.midColor).toBe('#FFEB84')
+  })
+})

@@ -852,3 +852,36 @@ describe('data bars, color scales and icon sets', () => {
     expect(cfs[2].iconSet?.name).toBe('3Arrows')
   })
 })
+
+describe('sheet parts after a data bar', () => {
+  it('keeps data validations outside the data-bar rule (Excel refused to open such files)', async () => {
+    const data = {
+      sheets: [{
+        name: 'Sheet1',
+        cells: { '0,0': { raw: '1' }, '1,0': { raw: '5' } },
+        layout: {
+          conditionalFormats: [{ id: 'a', priority: 1, ranges: [{ r1: 0, c1: 0, r2: 1, c2: 0 }], type: 'dataBar', dataBar: { color: '#638EC6' } }],
+          notes: { '0,0': { text: 'hi', author: 'me' } },
+          dataValidations: [{ id: 'v', ranges: [{ r1: 0, c1: 1, r2: 1, c2: 1 }], type: 'list', source: '"Yes,No"', allowBlank: true, showDropdown: true, showErrorMessage: true }]
+        }
+      }]
+    } as unknown as WorkbookData
+    const xml = new TextDecoder().decode(unzipSync(await writeXlsx(data))['xl/worksheets/sheet1.xml'])
+    const cfEnd = xml.lastIndexOf('</conditionalFormatting>')
+    expect(xml.indexOf('<dataValidations')).toBeGreaterThan(cfEnd)
+    expect(xml.slice(xml.indexOf('<cfRule'), cfEnd)).not.toContain('<dataValidations')
+    expect(xml.indexOf('<legacyDrawing')).toBeGreaterThan(0)
+    expect(xml.indexOf('<legacyDrawing')).toBeLessThan(xml.lastIndexOf('<extLst>'))
+  })
+})
+
+describe('cached formula results', () => {
+  it('never writes an error code Excel does not know (Excel refused the file over "#ERROR!")', async () => {
+    const data = {
+      sheets: [{ name: 'S', cells: { '0,0': { raw: '=1/0', value: { error: '#DIV/0!' } }, '1,0': { raw: '=SUM(T[Qty])', value: { error: '#ERROR!' } } } }]
+    } as unknown as WorkbookData
+    const xml = new TextDecoder().decode(unzipSync(await writeXlsx(data))['xl/worksheets/sheet1.xml'])
+    expect(xml).toContain('#DIV/0!')
+    expect(xml).not.toContain('#ERROR!')
+  })
+})
