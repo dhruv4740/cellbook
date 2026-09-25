@@ -22,8 +22,14 @@ export default function TitleBar() {
   const [search, setSearch] = useState('')
   const undoBtn = useRef<HTMLDivElement>(null)
   const qatBtn = useRef<HTMLButtonElement>(null)
+  const [viewIndex, setViewIndex] = useState(0)
 
-  const title = store.fileName + (store.filePath ? '' : '') + (grouped ? ' [Group]' : '') + ' - Excel'
+  useEffect(() => {
+    return window.api?.onViewIndexChanged?.((idx) => setViewIndex(idx))
+  }, [])
+
+  const viewSuffix = viewIndex > 0 ? `:${viewIndex}` : ''
+  const title = store.fileName + viewSuffix + (grouped ? ' [Group]' : '') + ' - Excel'
   useEffect(() => {
     document.title = title
     window.api?.setTitle?.(title)
@@ -66,7 +72,7 @@ export default function TitleBar() {
         </div>
 
         <div className="xl-titlebar-center">
-          <span className="xl-filename">{store.fileName}{grouped ? ' [Group]' : ''}</span>
+          <span className="xl-filename">{store.fileName}{viewSuffix}{grouped ? ' [Group]' : ''}</span>
           <span className="xl-saved">{store.dirty ? '' : '• Saved to this PC'}</span>
         </div>
 

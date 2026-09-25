@@ -158,6 +158,7 @@ export async function save(): Promise<boolean> {
   if (ok) {
     store.dirty = false
     store.notify()
+    window.api?.reportWorkbookSaved?.({ fileName: store.fileName, filePath: store.filePath })
   }
   return ok
 }
@@ -177,6 +178,7 @@ export async function saveAs(): Promise<boolean> {
       store.notify()
       setTitle()
       addRecentFile(path.split(/[\\/]/).pop() || currentName, path)
+      window.api?.reportWorkbookSaved?.({ fileName: store.fileName, filePath: store.filePath })
     }
     return ok
   }
@@ -276,6 +278,28 @@ export function installFileShortcuts(): void {
       // current workbook untouched instead of crashing, matching Excel's own error prompt.
       window.alert(`Excel cannot open the file '${name}' because the file format or file extension is not valid. Verify that the file has not been corrupted and that the file extension matches the format of the file.`)
     }
+  })
+
+  // Multi-window view synchronization
+  store.onBroadcast = (msg) => {
+    window.api?.broadcastOp?.(msg)
+  }
+
+  window.api?.onRemoteOp?.((msg) => {
+    store.applyRemoteSync(msg as any)
+  })
+
+  window.api?.onWorkbookSaved?.((info) => {
+    store.fileName = info.fileName
+    store.filePath = info.filePath
+    store.dirty = false
+    store.notify()
+    setTitle()
+  })
+
+  window.api?.onInitView?.((payload) => {
+    store.load(payload.data as any, payload.fileName, payload.filePath)
+    setTitle()
   })
 
   // Report this window's state whenever the workbook changes (name/path/dirty), so main can
