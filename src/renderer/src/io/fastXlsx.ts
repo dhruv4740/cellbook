@@ -22,6 +22,7 @@ import {
   resolveRelTarget,
   parseRelationships
 } from './fastXlsxXml'
+import { parseDrawingMlCharts } from './xlsxCharts'
 
 const VBA_REL_TYPE = 'http://schemas.microsoft.com/office/2006/relationships/vbaProject'
 const VBA_SIGNATURE_REL_TYPE_RE = /vbaProjectSignature/
@@ -66,6 +67,9 @@ function unzipTextFilter(name: string): boolean {
     name === 'xl/theme/theme1.xml' ||
     /^xl\/worksheets\/[^/]+\.xml$/.test(name) ||
     /^xl\/worksheets\/_rels\/[^/]+\.xml\.rels$/.test(name) ||
+    /^xl\/drawings\/[^/]+\.xml$/.test(name) ||
+    /^xl\/drawings\/_rels\/[^/]+\.xml\.rels$/.test(name) ||
+    /^xl\/charts\/[^/]+\.xml$/.test(name) ||
     /^xl\/comments\d*\.xml$/.test(name) ||
     // Raw (non-text) parts, kept only for a .xlsm workbook's VBA project - see parseXlsx below.
     name === 'xl/vbaProject.bin' ||
@@ -165,6 +169,9 @@ export function parseXlsx(bytes: Uint8Array): WorkbookData & { vbaProject?: VbaP
 
     const cfs = parseConditionalFormats(xml, dxfStyles)
     if (cfs.length) layout.conditionalFormats = cfs
+
+    const charts = parseDrawingMlCharts(files, dec, path, xml, parsed.colWidths, parsed.rowHeights)
+    if (charts.length) layout.charts = charts
 
     sheets.push({ name: def.name, cells: parsed.cells, layout })
   }
