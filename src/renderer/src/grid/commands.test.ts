@@ -61,4 +61,70 @@ describe('commands', () => {
     expect([raw(0, 1), raw(1, 1)]).toEqual(['=A1*10', '=A2*10'])
     expect(store.getValue(store.active, 0, 1)).toBe(10)
   })
+
+  // ---- Ctrl+[ / Ctrl+]: precedents / dependents ----
+  it('selectPrecedents selects the direct precedent of a formula cell', () => {
+    store.setRaw(store.active, 0, 0, '5') // A1
+    store.setRaw(store.active, 1, 0, '=A1*2') // A2
+    sel(1, 0)
+    cmds.selectPrecedents(false)
+    const s = store.active.selection
+    expect(s.active).toEqual({ r: 0, c: 0 })
+    expect(s.ranges).toEqual([{ r1: 0, c1: 0, r2: 0, c2: 0 }])
+  })
+
+  it('selectDependents selects the direct dependent of a cell', () => {
+    store.setRaw(store.active, 0, 0, '5') // A1
+    store.setRaw(store.active, 1, 0, '=A1*2') // A2
+    sel(0, 0)
+    cmds.selectDependents(false)
+    expect(store.active.selection.active).toEqual({ r: 1, c: 0 })
+  })
+
+  it('selectPrecedents(true) walks all levels of the chain', () => {
+    store.setRaw(store.active, 0, 0, '1') // A1
+    store.setRaw(store.active, 1, 0, '=A1+1') // A2
+    store.setRaw(store.active, 2, 0, '=A2+1') // A3
+    sel(2, 0)
+    cmds.selectPrecedents(true)
+    const cells = store.active.selection.ranges.map((r) => `${r.r1},${r.c1}`).sort()
+    expect(cells).toEqual(['0,0', '1,0'])
+  })
+
+  it('selectPrecedents does nothing for a cell with no formula precedents', () => {
+    store.setRaw(store.active, 0, 0, 'plain text')
+    sel(0, 0)
+    const before = store.active.selection
+    cmds.selectPrecedents(false)
+    expect(store.active.selection).toBe(before)
+  })
+
+  // ---- Ctrl+/: current array ----
+  it('selectCurrentArray grows to a contiguous block sharing the same formula', () => {
+    store.setRangeRaw(store.active, 0, 0, [['=1'], ['=1'], ['=1'], ['=2']])
+    sel(1, 0)
+    cmds.selectCurrentArray()
+    expect(store.active.selection.ranges).toEqual([{ r1: 0, c1: 0, r2: 2, c2: 0 }])
+  })
+
+  // ---- Alt+;: visible cells only ----
+  it('selectVisibleCells splits a range around hidden rows', () => {
+    store.setRangeRaw(store.active, 0, 0, [['1'], ['2'], ['3'], ['4']])
+    store.updateLayout(store.active, 'Hide Rows', (l) => { l.hiddenRows = { 1: true } })
+    sel(0, 0, 3, 0)
+    cmds.selectVisibleCells()
+    const ranges = store.active.selection.ranges.map((r) => ({ ...r }))
+    expect(ranges).toEqual([
+      { r1: 0, c1: 0, r2: 0, c2: 0 },
+      { r1: 2, c1: 0, r2: 3, c2: 0 }
+    ])
+  })
+
+  // ---- Alt+Down: pick-from-list ----
+  it('pickListValues returns unique values from the column above/below, skipping formulas', () => {
+    store.setRangeRaw(store.active, 0, 0, [['Apple'], ['Banana'], ['Apple'], ['=1+1'], [''], ['Cherry']])
+    sel(4, 0) // the blank row between the two blocks
+    const values = cmds.pickListValues()
+    expect(values).toEqual(['Apple', 'Banana', 'Cherry'])
+  })
 })

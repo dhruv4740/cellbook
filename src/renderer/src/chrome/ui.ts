@@ -15,9 +15,37 @@ export interface UiState {
    * null = not editing. Start editing by setting this; commit with commitEdit() / cancel with cancelEdit().
    */
   edit: null | { r: number; c: number; text: string; caret?: number; source: 'cell' | 'bar'; mode: 'Enter' | 'Edit' }
+  /** The cell whose Note editor box (Review/right-click > New Note or Edit Note) is open, if any. */
+  noteEditor: null | { r: number; c: number }
+  /** The cell whose Comment thread card (New Comment, or clicking an existing indicator) is open. */
+  commentPanel: null | { r: number; c: number }
+  /** The floating chart currently selected on the active sheet, if any; shows the Chart Design/Format tabs. */
+  selectedChart: string | null
+  /** Ctrl+` (Show Formulas): cells display their raw formula text instead of the computed value. */
+  formulasVisible: boolean
+  /** F8/Shift+F8: keyboard "Extend Selection" / "Add to Selection" mode (shown on the status bar;
+   *  while active, arrow keys extend/add to the selection without needing Shift held down). */
+  selectMode: 'none' | 'extend' | 'add'
+  /** Which File-backstage pane to land on next time it opens (e.g. Ctrl+F2 -> Print); consumed
+   *  once by Backstage.tsx and left as-is otherwise (it defaults to Home). */
+  backstageTab: string | null
+  /** Scroll Lock: arrow keys scroll the sheet instead of moving the active cell (status bar shows "Scroll Lock"). */
+  scrollLock: boolean
+  /** "End Mode": armed by a bare End keypress; the next arrow key jumps to the edge of the data
+   *  region (like Ctrl+Arrow) once, then disarms (status bar shows "End Mode" while armed). */
+  endMode: boolean
+  /** Ctrl+Shift+PageUp/PageDown grouped-sheet selection: contiguous sheet indices, or null. */
+  groupedSheets: number[] | null
+  /** Alt+Down "pick from list": the open dropdown of unique values from the column above/below. */
+  pickList: null | { r: number; c: number; x: number; y: number; values: string[] }
 }
 
-let state: UiState = { backstage: false, ribbonTab: 'Home', ribbonCollapsed: false, hideFormulaBar: false, dialog: null, formatPainter: null, edit: null }
+let state: UiState = {
+  backstage: false, ribbonTab: 'Home', ribbonCollapsed: false, hideFormulaBar: false, dialog: null,
+  formatPainter: null, edit: null, noteEditor: null, commentPanel: null, selectedChart: null,
+  formulasVisible: false, selectMode: 'none', backstageTab: null, scrollLock: false, endMode: false,
+  groupedSheets: null, pickList: null
+}
 const listeners = new Set<() => void>()
 
 export function setUi(patch: Partial<UiState>): void {

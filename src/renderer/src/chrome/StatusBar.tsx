@@ -36,6 +36,9 @@ export default function StatusBar() {
   }
   const showStats = count >= 2 && numCount >= 1
 
+  const af = sheet.layout.autoFilter
+  const recordsText = af ? `${af.range.r2 - af.range.r1 - af.filteredOutRows.length} of ${af.range.r2 - af.range.r1} records found` : null
+
   const zoom = sheet.layout.zoom
   const setZoom = (z: number) => store.updateLayout(sheet, 'Zoom', (l) => (l.zoom = Math.max(10, Math.min(400, Math.round(z)))))
 
@@ -50,11 +53,11 @@ export default function StatusBar() {
     'separator',
     { label: 'Caps Lock', checked: false, onClick: () => {} },
     { label: 'Num Lock', checked: true, onClick: () => {} },
-    { label: 'Scroll Lock', checked: false, onClick: () => {} },
+    { label: 'Scroll Lock', checked: ui.scrollLock, onClick: () => setUi({ scrollLock: !ui.scrollLock }) },
     { label: 'Fixed Decimal', checked: false, onClick: () => {} },
     'separator',
     { label: 'Overtype Mode', checked: false, onClick: () => {} },
-    { label: 'End Mode', checked: false, onClick: () => {} },
+    { label: 'End Mode', checked: ui.endMode, onClick: () => setUi({ endMode: !ui.endMode }) },
     'separator',
     { label: 'Cell Mode', checked: true, onClick: () => {} },
     'separator',
@@ -77,7 +80,12 @@ export default function StatusBar() {
   return (
     <div className="xl-statusbar" onContextMenu={(e) => { e.preventDefault(); openMenu(e) }}>
       <div className="xl-status-left">
-        <span className="xl-status-mode">{store.mode}</span>
+        <span className="xl-status-mode">
+          {ui.selectMode === 'extend' ? 'Extend Selection' : ui.selectMode === 'add' ? 'Add to Selection' : store.mode}
+        </span>
+        {ui.scrollLock && <span className="xl-status-records">Scroll Lock</span>}
+        {ui.endMode && <span className="xl-status-records">End Mode</span>}
+        {recordsText && <span className="xl-status-records">{recordsText}</span>}
         <span className="xl-status-a11y"><CheckmarkCircle20Regular fontSize={14} /> Accessibility: Good to go</span>
         {showStats && (
           <span className="xl-status-stats">

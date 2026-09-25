@@ -4,7 +4,7 @@ import { useStore } from '../../model/store'
 import { useUi, setUi, getUi } from '../ui'
 import { CellStyle, normRange } from '../../model/types'
 import { MenuItem } from '../../components/Menu'
-import { Group, GroupSep, BigButton, SplitButton, StackSplit, SmallButton, DialogLauncher, Combo } from './controls'
+import { Group, GroupSep, BigButton, SplitButton, StackSplit, SmallButton, DialogLauncher, Combo, KeyTipBadge } from './controls'
 import { ChevronDown12Regular } from '@fluentui/react-icons'
 import { ColorMenu } from './ColorMenu'
 import * as cmds from '../../grid/commands'
@@ -26,8 +26,8 @@ import {
 } from './icons'
 
 const FONTS = [
-  'Aptos Narrow', 'Aptos', 'Aptos Display', 'Arial', 'Arial Black', 'Bahnschrift', 'Calibri', 'Calibri Light',
-  'Cambria', 'Candara', 'Comic Sans MS', 'Consolas', 'Constantia', 'Corbel', 'Courier New', 'Georgia',
+  'Calibri', 'Calibri Light', 'Arial', 'Arial Black', 'Bahnschrift', 'Cambria', 'Candara',
+  'Comic Sans MS', 'Consolas', 'Constantia', 'Corbel', 'Courier New', 'Georgia',
   'Segoe UI', 'Tahoma', 'Times New Roman', 'Trebuchet MS', 'Verdana'
 ]
 const SIZES = ['8', '9', '10', '11', '12', '14', '16', '18', '20', '24', '28', '36', '48', '72']
@@ -158,7 +158,7 @@ export default function HomeTab() {
     { label: '&Top Border', onClick: () => applyBorders('top') },
     { label: '&Left Border', onClick: () => applyBorders('left') },
     { label: '&Right Border', onClick: () => applyBorders('right') },
-    { label: 'No Border', onClick: () => applyBorders('none') },
+    { label: '&No Border', onClick: () => applyBorders('none') },
     { label: '&All Borders', onClick: () => applyBorders('all') },
     { label: 'Ou&tside Borders', onClick: () => applyBorders('outside') },
     { label: '&Thick Outside Borders', onClick: () => applyBorders('thickOutside') },
@@ -199,26 +199,35 @@ export default function HomeTab() {
     { label: 'Delete Sheet &Columns', onClick: () => cmds.deleteSheetColumns() },
     { label: 'Delete &Sheet', onClick: () => store.deleteSheet(store.activeIndex) }
   ]
+  // Access keys here match real Excel 2021's Home > Format dropdown exactly (Alt,H,O,<letter>):
+  // H row height, A autofit row, W column width, I autofit column, D default width, U hide &
+  // unhide (submenu), R rename sheet, M move/copy sheet, T tab color, P protect sheet, L lock
+  // cell, E format cells.
+  const hideUnhideMenu: MenuItem[] = [
+    { label: 'Hide &Rows', onClick: () => cmds.hideRows(true) },
+    { label: 'Hide &Columns', onClick: () => cmds.hideColumns(true) },
+    { label: 'Hide &Sheet', onClick: () => {} },
+    'separator',
+    { label: '&Unhide Rows...', onClick: () => cmds.hideRows(false) },
+    { label: 'U&nhide Columns...', onClick: () => cmds.hideColumns(false) },
+    { label: 'Unhide S&heet...', onClick: () => {} }
+  ]
   const formatMenu: MenuItem[] = [
     { label: 'Row &Height...', onClick: () => setUi({ dialog: { kind: 'rowHeight' } }) },
     { label: '&AutoFit Row Height', onClick: () => cmds.autoFitRows() },
     { label: 'Column &Width...', onClick: () => setUi({ dialog: { kind: 'columnWidth' } }) },
-    { label: 'AutoFit Column &Width', onClick: () => cmds.autoFitColumns() },
-    { label: 'Default Width...', onClick: () => setUi({ dialog: { kind: 'columnWidth' } }) },
+    { label: 'AutoF&it Column Width', onClick: () => cmds.autoFitColumns() },
+    { label: '&Default Width...', onClick: () => setUi({ dialog: { kind: 'columnWidth' } }) },
     'separator',
-    { label: 'Hide &Rows', onClick: () => cmds.hideRows(true) },
-    { label: 'Unhide Rows', onClick: () => cmds.hideRows(false) },
-    { label: 'Hide &Columns', onClick: () => cmds.hideColumns(true) },
-    { label: 'Unhide Columns', onClick: () => cmds.hideColumns(false) },
-    { label: 'Hide &Sheet', onClick: () => {} },
+    { label: 'Hide, &Unhide', submenu: hideUnhideMenu },
     'separator',
     { label: '&Rename Sheet', onClick: () => setUi({ dialog: { kind: 'renameSheet' } }) },
     { label: '&Move or Copy Sheet...', onClick: () => {} },
-    { label: 'Tab &Color', onClick: () => {} },
+    { label: 'Ta&b Color', onClick: () => {} },
     'separator',
     { label: '&Protect Sheet...', onClick: () => {} },
-    { label: 'Lock Cell', onClick: () => setStyle({ locked: !style.locked }, 'Lock Cell') },
-    { label: 'Format Cells...', shortcut: 'Ctrl+1', onClick: () => setUi({ dialog: { kind: 'formatCells', props: { tab: 'Number' } } }) }
+    { label: '&Lock Cell', onClick: () => setStyle({ locked: !style.locked }, 'Lock Cell') },
+    { label: 'Format C&ells...', shortcut: 'Ctrl+1', onClick: () => setUi({ dialog: { kind: 'formatCells', props: { tab: 'Number' } } }) }
   ]
 
   const autoSumMenu: MenuItem[] = [
@@ -250,9 +259,9 @@ export default function HomeTab() {
     { label: 'Sort &Z to A', onClick: () => cmds.sortSelection('desc') },
     { label: 'Custom Sort...', onClick: () => {} },
     'separator',
-    { label: '&Filter', icon: <Filter20Regular />, onClick: () => {} },
-    { label: 'Clear', onClick: () => {} },
-    { label: 'Reapply', onClick: () => {} }
+    { label: '&Filter', icon: <Filter20Regular />, checked: !!store.active.layout.autoFilter, shortcut: 'Ctrl+Shift+L', onClick: () => store.toggleAutoFilter() },
+    { label: 'Clear', onClick: () => store.clearAllFilters(), disabled: !store.active.layout.autoFilter },
+    { label: 'Reapply', onClick: () => store.reapplyFilter(), disabled: !store.active.layout.autoFilter }
   ]
   const findMenu: MenuItem[] = [
     { label: '&Find...', shortcut: 'Ctrl+F', onClick: () => setUi({ dialog: { kind: 'find' } }) },
@@ -287,13 +296,13 @@ export default function HomeTab() {
 
   return (
     <>
-      <Group label="Clipboard">
+      <Group label="Clipboard" icon={<ClipboardPaste24Regular fontSize={20} />}>
         <div className="xl-col">
-          <SplitButton icon={<ClipboardPaste24Regular fontSize={28} />} label="Paste" tip={{ title: 'Paste (Ctrl+V)', desc: 'Paste the contents of the Clipboard.' }} onClick={() => cmds.paste('all')} menu={pasteMenu} />
+          <SplitButton icon={<ClipboardPaste24Regular fontSize={28} />} label="Paste" tip={{ title: 'Paste (Ctrl+V)', desc: 'Paste the contents of the Clipboard.' }} onClick={() => cmds.paste('all')} menu={pasteMenu} keytip="V" />
         </div>
         <div className="xl-col xl-stack">
-          <SmallButton icon={<Cut20Regular />} label="Cut" tip={{ title: 'Cut (Ctrl+X)' }} onClick={() => cmds.cut()} />
-          <SmallButton icon={<Copy20Regular />} label="Copy" menu={[{ label: '&Copy', onClick: () => cmds.copy() }, { label: 'Copy as &Picture...', onClick: () => {} }]} tip={{ title: 'Copy (Ctrl+C)' }} onClick={() => cmds.copy()} />
+          <SmallButton icon={<Cut20Regular />} label="Cut" tip={{ title: 'Cut (Ctrl+X)' }} onClick={() => cmds.cut()} keytip="X" />
+          <SmallButton icon={<Copy20Regular />} label="Copy" menu={[{ label: '&Copy', onClick: () => cmds.copy() }, { label: 'Copy as &Picture...', onClick: () => {} }]} tip={{ title: 'Copy (Ctrl+C)' }} onClick={() => cmds.copy()} keytip="C" />
           <SmallButton
             icon={<PaintBrush20Regular />}
             label="Format Painter"
@@ -301,31 +310,33 @@ export default function HomeTab() {
             active={!!getUi().formatPainter}
             onClick={() => setUi({ formatPainter: getUi().formatPainter ? null : { once: true } })}
             onDoubleClick={() => setUi({ formatPainter: { once: false } })}
+            keytip="FP"
           />
         </div>
       </Group>
       <GroupSep />
 
-      <Group label="Font">
+      <Group label="Font" icon={<TextFont20Regular />}>
         <div className="xl-col">
           <div className="xl-row">
-            <Combo value={style.fontFamily ?? 'Aptos Narrow'} options={FONTS} width={120} tip={{ title: 'Font' }} onChange={(v) => setStyle({ fontFamily: v }, 'Font')} />
-            <Combo value={String(style.fontSize ?? 11)} options={SIZES} width={48} tip={{ title: 'Font Size' }} onChange={(v) => { const n = +v; if (n > 0) setStyle({ fontSize: n }, 'Font Size') }} />
-            <SmallButton icon={<FontIncrease20Regular />} tip={{ title: 'Increase Font Size' }} onClick={() => setStyle({ fontSize: (style.fontSize ?? 11) + 1 }, 'Font Size')} />
-            <SmallButton icon={<FontDecrease20Regular />} tip={{ title: 'Decrease Font Size' }} onClick={() => setStyle({ fontSize: Math.max(1, (style.fontSize ?? 11) - 1) }, 'Font Size')} />
+            <Combo value={style.fontFamily ?? 'Calibri'} options={FONTS} width={120} tip={{ title: 'Font' }} onChange={(v) => setStyle({ fontFamily: v }, 'Font')} keytip="FF" />
+            <Combo value={String(style.fontSize ?? 11)} options={SIZES} width={48} tip={{ title: 'Font Size' }} onChange={(v) => { const n = +v; if (n > 0) setStyle({ fontSize: n }, 'Font Size') }} keytip="FS" />
+            <SmallButton icon={<FontIncrease20Regular />} tip={{ title: 'Increase Font Size' }} onClick={() => setStyle({ fontSize: (style.fontSize ?? 11) + 1 }, 'Font Size')} keytip="FG" />
+            <SmallButton icon={<FontDecrease20Regular />} tip={{ title: 'Decrease Font Size' }} onClick={() => setStyle({ fontSize: Math.max(1, (style.fontSize ?? 11) - 1) }, 'Font Size')} keytip="FK" />
           </div>
           <div className="xl-row">
-            <SmallButton icon={<TextBold20Regular />} active={!!style.bold} tip={{ title: 'Bold (Ctrl+B)' }} onClick={() => toggle('bold', 'Bold')} />
-            <SmallButton icon={<TextItalic20Regular />} active={!!style.italic} tip={{ title: 'Italic (Ctrl+I)' }} onClick={() => toggle('italic', 'Italic')} />
-            <SmallButton icon={<TextUnderline20Regular />} active={!!style.underline} tip={{ title: 'Underline (Ctrl+U)' }} menu={underlineMenu} onClick={() => setStyle({ underline: style.underline ? undefined : 'single' }, 'Underline')} />
-            <SmallButton icon={<TextStrikethrough20Regular />} active={!!style.strike} tip={{ title: 'Strikethrough' }} onClick={() => toggle('strike', 'Strikethrough')} />
-            <SmallButton icon={<BorderAll20Regular />} tip={{ title: 'Borders' }} menu={bordersMenu} onClick={() => applyBorders('bottom')} />
+            <SmallButton icon={<TextBold20Regular />} active={!!style.bold} tip={{ title: 'Bold (Ctrl+B)' }} onClick={() => toggle('bold', 'Bold')} keytip="1" />
+            <SmallButton icon={<TextItalic20Regular />} active={!!style.italic} tip={{ title: 'Italic (Ctrl+I)' }} onClick={() => toggle('italic', 'Italic')} keytip="2" />
+            <SmallButton icon={<TextUnderline20Regular />} active={!!style.underline} tip={{ title: 'Underline (Ctrl+U)' }} menu={underlineMenu} onClick={() => setStyle({ underline: style.underline ? undefined : 'single' }, 'Underline')} keytip="3" />
+            <SmallButton icon={<TextStrikethrough20Regular />} active={!!style.strike} tip={{ title: 'Strikethrough' }} onClick={() => toggle('strike', 'Strikethrough')} keytip="4" />
+            <SmallButton icon={<BorderAll20Regular />} tip={{ title: 'Borders' }} menu={bordersMenu} onClick={() => applyBorders('bottom')} keytip="B" />
             <ColorSplit
               icon={<PaintBucket20Regular />}
               color={lastFill}
               tip={{ title: 'Fill Color' }}
               onClick={() => setStyle({ fill: lastFill }, 'Fill Color')}
               onOpen={(x, y) => setColorMenu({ x, y, mode: 'fill' })}
+              keytip="H"
             />
             <ColorSplit
               icon={<TextFont20Regular />}
@@ -333,6 +344,7 @@ export default function HomeTab() {
               tip={{ title: 'Font Color' }}
               onClick={() => setStyle({ color: lastFontColor }, 'Font Color')}
               onOpen={(x, y) => setColorMenu({ x, y, mode: 'font' })}
+              keytip="FC"
             />
           </div>
         </div>
@@ -340,51 +352,51 @@ export default function HomeTab() {
       </Group>
       <GroupSep />
 
-      <Group label="Alignment">
+      <Group label="Alignment" icon={<AlignCenterHorizontal20Regular />}>
         <div className="xl-col">
           <div className="xl-row">
-            <SmallButton icon={<AlignTop20Regular />} active={style.vAlign === 'top'} tip={{ title: 'Top Align' }} onClick={() => setStyle({ vAlign: 'top' }, 'Align')} />
-            <SmallButton icon={<AlignCenterVertical20Regular />} active={style.vAlign === 'middle'} tip={{ title: 'Middle Align' }} onClick={() => setStyle({ vAlign: 'middle' }, 'Align')} />
-            <SmallButton icon={<AlignBottom20Regular />} active={style.vAlign === 'bottom'} tip={{ title: 'Bottom Align' }} onClick={() => setStyle({ vAlign: 'bottom' }, 'Align')} />
-            <SmallButton icon={<TextAlignCenterRotate27020Regular />} tip={{ title: 'Orientation' }} menu={orientationMenu} onClick={() => {}} />
+            <SmallButton icon={<AlignTop20Regular />} active={style.vAlign === 'top'} tip={{ title: 'Top Align' }} onClick={() => setStyle({ vAlign: 'top' }, 'Align')} keytip="AT" />
+            <SmallButton icon={<AlignCenterVertical20Regular />} active={style.vAlign === 'middle'} tip={{ title: 'Middle Align' }} onClick={() => setStyle({ vAlign: 'middle' }, 'Align')} keytip="AM" />
+            <SmallButton icon={<AlignBottom20Regular />} active={style.vAlign === 'bottom'} tip={{ title: 'Bottom Align' }} onClick={() => setStyle({ vAlign: 'bottom' }, 'Align')} keytip="AB" />
+            <SmallButton icon={<TextAlignCenterRotate27020Regular />} tip={{ title: 'Orientation' }} menu={orientationMenu} onClick={() => {}} keytip="TQ" />
           </div>
           <div className="xl-row">
-            <SmallButton icon={<AlignLeft20Regular />} active={style.hAlign === 'left'} tip={{ title: 'Align Left' }} onClick={() => setStyle({ hAlign: 'left' }, 'Align')} />
-            <SmallButton icon={<AlignCenterHorizontal20Regular />} active={style.hAlign === 'center'} tip={{ title: 'Center' }} onClick={() => setStyle({ hAlign: 'center' }, 'Align')} />
-            <SmallButton icon={<AlignRight20Regular />} active={style.hAlign === 'right'} tip={{ title: 'Align Right' }} onClick={() => setStyle({ hAlign: 'right' }, 'Align')} />
-            <SmallButton icon={<TextWrap20Regular />} active={!!style.wrap} tip={{ title: 'Wrap Text' }} onClick={() => setStyle({ wrap: !style.wrap }, 'Wrap Text')} />
+            <SmallButton icon={<AlignLeft20Regular />} active={style.hAlign === 'left'} tip={{ title: 'Align Left' }} onClick={() => setStyle({ hAlign: 'left' }, 'Align')} keytip="AL" />
+            <SmallButton icon={<AlignCenterHorizontal20Regular />} active={style.hAlign === 'center'} tip={{ title: 'Center' }} onClick={() => setStyle({ hAlign: 'center' }, 'Align')} keytip="AC" />
+            <SmallButton icon={<AlignRight20Regular />} active={style.hAlign === 'right'} tip={{ title: 'Align Right' }} onClick={() => setStyle({ hAlign: 'right' }, 'Align')} keytip="AR" />
+            <SmallButton icon={<TextWrap20Regular />} active={!!style.wrap} tip={{ title: 'Wrap Text' }} onClick={() => setStyle({ wrap: !style.wrap }, 'Wrap Text')} keytip="W" />
           </div>
           <div className="xl-row">
-            <SmallButton icon={<TextIndentDecrease20Regular />} tip={{ title: 'Decrease Indent' }} onClick={() => setStyle({ indent: Math.max(0, (style.indent ?? 0) - 1) }, 'Indent')} />
-            <SmallButton icon={<TextIndentIncrease20Regular />} tip={{ title: 'Increase Indent' }} onClick={() => setStyle({ indent: (style.indent ?? 0) + 1 }, 'Indent')} />
+            <SmallButton icon={<TextIndentDecrease20Regular />} tip={{ title: 'Decrease Indent' }} onClick={() => setStyle({ indent: Math.max(0, (style.indent ?? 0) - 1) }, 'Indent')} keytip="AO" />
+            <SmallButton icon={<TextIndentIncrease20Regular />} tip={{ title: 'Increase Indent' }} onClick={() => setStyle({ indent: (style.indent ?? 0) + 1 }, 'Indent')} keytip="AI" />
           </div>
         </div>
         <div className="xl-col xl-align-side">
           <SmallButton icon={<TextWrap20Regular />} label="Wrap Text" active={!!style.wrap} tip={{ title: 'Wrap Text' }} onClick={() => setStyle({ wrap: !style.wrap }, 'Wrap Text')} />
-          <SmallButton icon={<TableCellsMerge20Regular />} label="Merge & Center" tip={{ title: 'Merge & Center' }} menu={mergeMenu} onClick={() => cmds.mergeCells('center')} />
+          <SmallButton icon={<TableCellsMerge20Regular />} label="Merge & Center" tip={{ title: 'Merge & Center' }} menu={mergeMenu} onClick={() => cmds.mergeCells('center')} keytip="M" />
         </div>
         <DialogLauncher tip={{ title: 'Format Cells: Alignment' }} onClick={() => setUi({ dialog: { kind: 'formatCells', props: { tab: 'Alignment' } } })} />
       </Group>
       <GroupSep />
 
-      <Group label="Number">
+      <Group label="Number" icon={<TextPercent20Regular />}>
         <div className="xl-col">
-          <Combo value={curFmtName} options={NUMFMT.map(([n]) => n)} width={122} editable={false} tip={{ title: 'Number Format' }} onPick={(name) => { const f = NUMFMT.find(([n]) => n === name); if (f) setStyle({ numFmt: f[1] }, 'Number Format') }} />
+          <Combo value={curFmtName} options={NUMFMT.map(([n]) => n)} width={122} editable={false} tip={{ title: 'Number Format' }} onPick={(name) => { const f = NUMFMT.find(([n]) => n === name); if (f) setStyle({ numFmt: f[1] }, 'Number Format') }} keytip="N" />
           <div className="xl-row">
-            <SmallButton icon={<Glyph text="$" />} tip={{ title: 'Accounting Number Format' }} menu={[{ label: 'Accounting', onClick: () => setStyle({ numFmt: NUMFMT[3][1] }, 'Number Format') }, { label: '$ English (US)', onClick: () => setStyle({ numFmt: '$#,##0.00' }, 'Number Format') }]} onClick={() => setStyle({ numFmt: NUMFMT[3][1] }, 'Number Format')} />
-            <SmallButton icon={<Glyph text="%" />} tip={{ title: 'Percent Style (Ctrl+Shift+%)' }} onClick={() => setStyle({ numFmt: '0%' }, 'Number Format')} />
-            <SmallButton icon={<Glyph text="9" sub="," />} tip={{ title: 'Comma Style' }} onClick={() => setStyle({ numFmt: '#,##0.00' }, 'Number Format')} />
-            <SmallButton icon={<DecimalGlyph more />} tip={{ title: 'Increase Decimal' }} onClick={() => decimalAdjust(1)} />
-            <SmallButton icon={<DecimalGlyph />} tip={{ title: 'Decrease Decimal' }} onClick={() => decimalAdjust(-1)} />
+            <SmallButton icon={<Glyph text="$" />} tip={{ title: 'Accounting Number Format' }} menu={[{ label: 'Accounting', onClick: () => setStyle({ numFmt: NUMFMT[3][1] }, 'Number Format') }, { label: '$ English (US)', onClick: () => setStyle({ numFmt: '$#,##0.00' }, 'Number Format') }]} onClick={() => setStyle({ numFmt: NUMFMT[3][1] }, 'Number Format')} keytip="AN" />
+            <SmallButton icon={<Glyph text="%" />} tip={{ title: 'Percent Style (Ctrl+Shift+%)' }} onClick={() => setStyle({ numFmt: '0%' }, 'Number Format')} keytip="P" />
+            <SmallButton icon={<Glyph text="9" sub="," />} tip={{ title: 'Comma Style' }} onClick={() => setStyle({ numFmt: '#,##0.00' }, 'Number Format')} keytip="K" />
+            <SmallButton icon={<DecimalGlyph more />} tip={{ title: 'Increase Decimal' }} onClick={() => decimalAdjust(1)} keytip="0" />
+            <SmallButton icon={<DecimalGlyph />} tip={{ title: 'Decrease Decimal' }} onClick={() => decimalAdjust(-1)} keytip="9" />
           </div>
         </div>
         <DialogLauncher tip={{ title: 'Format Cells: Number' }} onClick={() => setUi({ dialog: { kind: 'formatCells', props: { tab: 'Number' } } })} />
       </Group>
       <GroupSep />
 
-      <Group label="Styles">
-        <BigButton wide icon={<TableCellsMerge20Regular fontSize={28} />} label="Conditional Formatting" tip={{ title: 'Conditional Formatting' }} menu={[{ label: 'Highlight Cells Rules', submenu: [{ label: 'Greater Than...', onClick: () => {} }] }, { label: 'Clear Rules', onClick: () => {} }, { label: 'Manage Rules...', onClick: () => {} }]} onClick={() => {}} />
-        <BigButton wide icon={<TableSimple20Regular fontSize={28} />} label="Format as Table" tip={{ title: 'Format as Table' }} menu={[{ label: 'New Table Style...', onClick: () => {} }]} onClick={() => {}} />
+      <Group label="Styles" icon={<TableCellsMerge20Regular />}>
+        <BigButton wide icon={<TableCellsMerge20Regular fontSize={28} />} label="Conditional Formatting" tip={{ title: 'Conditional Formatting' }} menu={[{ label: 'Highlight Cells Rules', submenu: [{ label: 'Greater Than...', onClick: () => {} }] }, { label: 'Clear Rules', onClick: () => {} }, { label: 'Manage Rules...', onClick: () => {} }]} onClick={() => {}} keytip="L" />
+        <BigButton wide icon={<TableSimple20Regular fontSize={28} />} label="Format as Table" tip={{ title: 'Format as Table' }} menu={[{ label: 'New Table Style...', onClick: () => {} }]} onClick={() => {}} keytip="T" />
         <BigButton
           wide
           icon={<TableInsertRow20Regular fontSize={28} />}
@@ -392,35 +404,36 @@ export default function HomeTab() {
           tip={{ title: 'Cell Styles' }}
           onClick={() => {}}
           menu={CELL_STYLES.map(([name, s]) => ({ label: name, onClick: () => setStyle(s, 'Cell Styles') } as MenuItem))}
+          keytip="J"
         />
       </Group>
       <GroupSep />
 
-      <Group label="Cells">
+      <Group label="Cells" icon={<TableInsertRow20Regular />}>
         <div className="xl-col xl-stack">
-          <StackSplit icon={<TableInsertRow20Regular />} label="Insert" tip={{ title: 'Insert Cells' }} menu={insertMenu} onClick={() => cmds.insertCellsDialog()} />
-          <StackSplit icon={<Delete20Regular />} label="Delete" tip={{ title: 'Delete Cells' }} menu={deleteMenu} onClick={() => cmds.deleteCellsDialog()} />
-          <StackSplit icon={<ArrowExpand20Regular />} label="Format" tip={{ title: 'Format' }} menu={formatMenu} onClick={() => setUi({ dialog: { kind: 'formatCells', props: { tab: 'Number' } } })} />
+          <StackSplit icon={<TableInsertRow20Regular />} label="Insert" tip={{ title: 'Insert Cells' }} menu={insertMenu} onClick={() => cmds.insertCellsDialog()} keytip="I" />
+          <StackSplit icon={<Delete20Regular />} label="Delete" tip={{ title: 'Delete Cells' }} menu={deleteMenu} onClick={() => cmds.deleteCellsDialog()} keytip="D" />
+          <StackSplit icon={<ArrowExpand20Regular />} label="Format" tip={{ title: 'Format' }} menu={formatMenu} onClick={() => setUi({ dialog: { kind: 'formatCells', props: { tab: 'Number' } } })} keytip="O" />
         </div>
       </Group>
       <GroupSep />
 
-      <Group label="Editing">
+      <Group label="Editing" icon={<ArrowSort20Regular />}>
         <div className="xl-col xl-stack">
-          <StackSplit icon={<MathFormula20Regular />} label="AutoSum" tip={{ title: 'AutoSum (Alt+=)' }} menu={autoSumMenu} onClick={() => cmds.autoSum('SUM')} />
-          <StackSplit icon={<TableInsertRow20Regular />} label="Fill" tip={{ title: 'Fill' }} menu={fillDirMenu} onClick={() => cmds.fill('down')} />
-          <StackSplit icon={<Delete20Regular />} label="Clear" tip={{ title: 'Clear' }} menu={clearMenu} onClick={() => cmds.clearSelection('contents')} />
+          <StackSplit icon={<MathFormula20Regular />} label="AutoSum" tip={{ title: 'AutoSum (Alt+=)' }} menu={autoSumMenu} onClick={() => cmds.autoSum('SUM')} keytip="U" />
+          <StackSplit icon={<TableInsertRow20Regular />} label="Fill" tip={{ title: 'Fill' }} menu={fillDirMenu} onClick={() => cmds.fill('down')} keytip="FI" />
+          <StackSplit icon={<Delete20Regular />} label="Clear" tip={{ title: 'Clear' }} menu={clearMenu} onClick={() => cmds.clearSelection('contents')} keytip="E" />
         </div>
-        <SplitButton icon={<ArrowSort20Regular />} label="Sort & Filter" tip={{ title: 'Sort & Filter' }} menu={sortMenu} onClick={() => cmds.sortSelection('asc')} />
-        <SplitButton icon={<Search20Regular />} label="Find & Select" tip={{ title: 'Find & Select' }} menu={findMenu} onClick={() => setUi({ dialog: { kind: 'find' } })} />
+        <SplitButton icon={<ArrowSort20Regular />} label="Sort & Filter" tip={{ title: 'Sort & Filter' }} menu={sortMenu} onClick={() => cmds.sortSelection('asc')} keytip="S" />
+        <SplitButton icon={<Search20Regular />} label="Find & Select" tip={{ title: 'Find & Select' }} menu={findMenu} onClick={() => setUi({ dialog: { kind: 'find' } })} keytip="FD" />
       </Group>
       <GroupSep />
 
-      <Group label="Add-ins">
+      <Group label="Add-ins" icon={<DataFunnel20Regular />}>
         <BigButton icon={<DataFunnel20Regular fontSize={28} />} label="Get Add-ins" tip={{ title: 'Get Add-ins' }} onClick={() => {}} />
       </Group>
       <GroupSep />
-      <Group label="Analysis">
+      <Group label="Analysis" icon={<DataHistogram20Regular />}>
         <BigButton icon={<DataHistogram20Regular fontSize={28} />} label="Analyze Data" tip={{ title: 'Analyze Data' }} onClick={() => {}} />
       </Group>
 
@@ -441,13 +454,13 @@ export default function HomeTab() {
 }
 
 function ColorSplit({
-  icon, color, tip, onClick, onOpen
-}: { icon: ReactNode; color: string; tip: { title: string }; onClick: () => void; onOpen: (x: number, y: number) => void }) {
+  icon, color, tip, onClick, onOpen, keytip
+}: { icon: ReactNode; color: string; tip: { title: string }; onClick: () => void; onOpen: (x: number, y: number) => void; keytip?: string }) {
   const boxRef = useRef<HTMLDivElement | null>(null)
   return (
     <div className="xl-small-btn xl-split" ref={boxRef}>
       <button className="xl-small-split-main" title={tip.title} onClick={onClick}>
-        <span className="xl-small-icon">{icon}<span className="xl-color-bar" style={{ background: color }} /></span>
+        <span className="xl-small-icon" style={{ position: 'relative' }}>{icon}<span className="xl-color-bar" style={{ background: color }} /><KeyTipBadge code={keytip} /></span>
       </button>
       <button
         className="xl-small-split-caret"

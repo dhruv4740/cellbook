@@ -1,6 +1,7 @@
 .xl-statusbar { display: flex; align-items: center; height: 22px; background: var(--xl-green); color: #fff; font-size: 12px; flex: none; padding: 0 8px; justify-content: space-between; }
 .xl-status-left { display: flex; align-items: center; gap: 14px; overflow: hidden; }
 .xl-status-mode { min-width: 54px; }
+.xl-status-records { padding: 0 8px; }
 .xl-status-a11y { display: flex; align-items: center; gap: 4px; opacity: 0.95; }
 .xl-status-stats { display: flex; align-items: center; gap: 14px; white-space: nowrap; }
 .xl-status-right { display: flex; align-items: center; gap: 10px; }

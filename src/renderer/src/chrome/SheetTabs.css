@@ -6,6 +6,8 @@
 .xl-sheet-tab { position: relative; padding: 3px 14px; font-size: 12px; color: #444; background: #e0e0e0; border-right: 1px solid var(--header-border); height: 24px; display: flex; align-items: center; cursor: default; white-space: nowrap; }
 .xl-sheet-tab.active { background: #fff; color: var(--xl-green); font-weight: 600; border-top: 2px solid var(--xl-green); padding-top: 1px; }
 .xl-sheet-tab.drag-over { outline: 2px dashed var(--xl-green); }
+.xl-sheet-tab.grouped { background: #fff; font-weight: 600; }
+.xl-sheet-tab.grouped.active { background: #fff; }
 .xl-sheet-rename { font: inherit; font-size: 12px; border: 1px solid var(--sel-border); padding: 0 2px; width: 80px; }
 .xl-sheet-add { border: none; background: transparent; display: flex; align-items: center; width: 26px; height: 24px; justify-content: center; color: #444; cursor: default; }
 .xl-sheet-add:hover { background: rgba(0,0,0,0.06); }

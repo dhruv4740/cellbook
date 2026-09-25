@@ -10,11 +10,14 @@
     "start": "electron-vite preview",
     "web": "vite --config vite.web.config.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "dist": "npm run build && electron-builder --win --x64",
+    "dist:dir": "npm run build && electron-builder --linux dir"
   },
   "dependencies": {
     "@fluentui/react-icons": "^2.0.341",
     "exceljs": "^4.4.0",
+    "fflate": "^0.8.3",
     "hyperformula": "^3.4.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"
@@ -25,9 +28,48 @@
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^5.2.0",
     "electron": "^44.4.5",
+    "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
     "typescript": "^7.0.2",
     "vite": "^7.3.6",
     "vitest": "^3.2.7"
+  },
+  "build": {
+    "appId": "com.ramanroadways.cellbook",
+    "productName": "Cellbook",
+    "copyright": "Copyright © 2026",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Cellbook",
+      "artifactName": "Cellbook Setup ${version}.exe"
+    },
+    "fileAssociations": [
+      { "ext": "xlsx", "name": "Excel Workbook", "description": "Excel Workbook", "role": "Editor" },
+      { "ext": "xlsm", "name": "Excel Macro-Enabled Workbook", "description": "Excel Macro-Enabled Workbook", "role": "Editor" },
+      { "ext": "csv", "name": "CSV File", "description": "Comma Separated Values File", "role": "Editor" }
+    ],
+    "linux": {
+      "target": ["dir"],
+      "category": "Office"
+    }
   }
 }

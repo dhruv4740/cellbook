@@ -1,54 +1,26 @@
 // XLSX read/write via exceljs, mapping to/from the app's WorkbookData model.
 import { shiftFormula } from '../engine/shiftFormula'
 import ExcelJS from 'exceljs'
-import type { CellStyle, BorderLineStyle, BorderSide, SheetLayout, Range } from '../model/types'
+import { unzipSync } from 'fflate'
+import type { CellStyle, BorderLineStyle, BorderSide, FilterCriteria, SheetLayout, Range, NoteData, CommentThread } from '../model/types'
 import { DEFAULT_ROW_HEIGHT } from '../model/types'
 import type { WorkbookData } from '../model/store'
-import { defaultLayout } from '../model/store'
+import { DEFAULT_AUTHOR, defaultLayout } from '../model/defaults'
+import {
+  THEME_COLORS, BORDER_STYLES, applyTint, ptToPx, pxToPt, colWidthToPx, pxToColWidth,
+  colLetterToIndex, parseRangeStr, parseAutoFilterColumns, threadToLegacyNote, legacyNoteToThread
+} from './xlsxShared'
+import { extractSection, parseAttrs, parseRelationships, resolveRelTarget } from './fastXlsxXml'
+import type { VbaProject } from './xlsxPostProcess'
+import { postProcessXlsx } from './xlsxPostProcess'
 
-// ---------- column width / row height conversions ----------
-// Excel character-width <-> pixel conversion for the default 11pt font (Maximum Digit Width ~7px).
-export function colWidthToPx(w: number): number {
-  return Math.trunc(((256 * w + Math.trunc(128 / 7)) / 256) * 7)
+// Re-exported for existing `from './xlsx'` call sites (the fast reader/worker import these
+// directly from xlsxShared instead, so they don't pull exceljs into their bundle - see fastXlsx.ts).
+export {
+  THEME_COLORS, BORDER_STYLES, applyTint, ptToPx, pxToPt, colWidthToPx, pxToColWidth,
+  colLetterToIndex, parseRangeStr
 }
-export function pxToColWidth(px: number): number {
-  if (px <= 0) return 0
-  return Math.round(((px * 256) / 7 - Math.trunc(128 / 7)) / 256 * 100) / 100
-}
-// Row height: points <-> pixels at 96 dpi.
-export function ptToPx(pt: number): number {
-  return Math.round((pt * 4) / 3)
-}
-export function pxToPt(px: number): number {
-  return Math.round(((px * 3) / 4) * 100) / 100
-}
-
-// ---------- Office default theme colors (Office 2013+ theme) ----------
-const THEME_COLORS = [
-  'FFFFFF', // 0 bg1 (light1)
-  '000000', // 1 tx1 (dark1)
-  'E7E6E6', // 2 bg2 (light2)
-  '44546A', // 3 tx2 (dark2)
-  '4472C4', // 4 accent1
-  'ED7D31', // 5 accent2
-  'A5A5A5', // 6 accent3
-  'FFC000', // 7 accent4
-  '5B9BD5', // 8 accent5
-  '70AD47' // 9 accent6
-]
-
-function applyTint(hex: string, tint: number): string {
-  // Excel tint: positive lightens toward white, negative darkens toward black.
-  const r = parseInt(hex.slice(0, 2), 16)
-  const g = parseInt(hex.slice(2, 4), 16)
-  const b = parseInt(hex.slice(4, 6), 16)
-  const adj = (c: number): number => {
-    if (tint < 0) return Math.round(c * (1 + tint))
-    return Math.round(c * (1 - tint) + 255 * tint)
-  }
-  const toHex = (n: number): string => Math.max(0, Math.min(255, n)).toString(16).padStart(2, '0')
-  return (toHex(adj(r)) + toHex(adj(g)) + toHex(adj(b))).toUpperCase()
-}
+export type { VbaProject }
 
 interface ExcelColor {
   argb?: string
@@ -73,11 +45,6 @@ function hexToArgb(hex: string): string {
 }
 
 // ---------- borders ----------
-const BORDER_STYLES: BorderLineStyle[] = [
-  'thin', 'medium', 'thick', 'double', 'dotted', 'dashed', 'hair',
-  'mediumDashed', 'dashDot', 'mediumDashDot', 'dashDotDot', 'mediumDashDotDot', 'slantDashDot'
-]
-
 function readBorderSide(b: Partial<ExcelJS.Border> | undefined): BorderSide | undefined {
   if (!b || !b.style) return undefined
   const style = BORDER_STYLES.includes(b.style as BorderLineStyle) ? (b.style as BorderLineStyle) : 'thin'
@@ -203,21 +170,55 @@ function isDateFormat(fmt: string | undefined): boolean {
   return /[ymdhs]/i.test(stripped) && !/^general$/i.test(fmt)
 }
 
-// ---------- read ----------
-export async function readXlsx(data: Uint8Array): Promise<WorkbookData> {
+// exceljs's object model doesn't expose a worksheet's raw XML (and has no filterColumn support at
+// all), so for the AutoFilter-criteria read path below we separately unzip the same bytes and map
+// each sheet name to its raw xl/worksheets/sheetN.xml text, the same way fastXlsx.ts does.
+function mapSheetXmlByName(data: Uint8Array): Map<string, string> {
+  const map = new Map<string, string>()
+  const files = unzipSync(data, {
+    filter: (f) => f.name === 'xl/workbook.xml' || f.name === 'xl/_rels/workbook.xml.rels' || /^xl\/worksheets\/[^/]+\.xml$/.test(f.name)
+  })
+  const dec = new TextDecoder('utf-8')
+  const workbookXml = files['xl/workbook.xml'] ? dec.decode(files['xl/workbook.xml']) : undefined
+  if (!workbookXml) return map
+  const relsXml = files['xl/_rels/workbook.xml.rels'] ? dec.decode(files['xl/_rels/workbook.xml.rels']) : ''
+  const relMap = new Map<string, string>()
+  for (const r of parseRelationships(relsXml)) relMap.set(r.id, r.target)
+  const section = extractSection(workbookXml, 'sheets')
+  if (!section) return map
+  const re = /<sheet\b([^>]*)\/?>/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(section))) {
+    const a = parseAttrs(m[1], 0, m[1].length)
+    if (a.name === undefined || !a.id) continue
+    const target = relMap.get(a.id)
+    if (!target) continue
+    const path = resolveRelTarget('xl/workbook.xml', target)
+    const xml = files[path]
+    if (xml) map.set(a.name, dec.decode(xml))
+  }
+  return map
+}
+
+// ---------- read (exceljs, kept for the differential test against the fast reader) ----------
+export async function readXlsxExceljs(data: Uint8Array): Promise<WorkbookData> {
   const wb = new ExcelJS.Workbook()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await wb.xlsx.load(data as any)
+  const sheetXmlByName = mapSheetXmlByName(data)
 
   const sheets: WorkbookData['sheets'] = []
   wb.eachSheet((ws) => {
     const cells: WorkbookData['sheets'][number]['cells'] = {}
+    const notes: Record<string, NoteData> = {}
     ws.eachRow({ includeEmpty: true }, (row, rowNum) => {
       row.eachCell({ includeEmpty: true }, (cell, colNum) => {
         const r = rowNum - 1
         const c = colNum - 1
         const key = r + ',' + c
         const style = readStyle(cell)
+        const noteVal = cell.note as string | ExcelJS.Comment | undefined
+        if (noteVal) notes[key] = readNote(noteVal)
         let raw: string | undefined
         const v = cell.value
         if (v === null || v === undefined) raw = undefined
@@ -288,6 +289,48 @@ export async function readXlsx(data: Uint8Array): Promise<WorkbookData> {
     }
     layout.merges = merges
 
+    // Notes vs. threaded comments: a legacy note whose text is Excel's own threaded-comment
+    // fallback format (see xlsxShared.ts) came from a `comments` thread on save, not a plain note.
+    const comments: Record<string, CommentThread> = {}
+    for (const [key, note] of Object.entries(notes)) {
+      const thread = legacyNoteToThread(note)
+      if (thread) {
+        comments[key] = thread
+        delete notes[key]
+      }
+    }
+    layout.notes = notes
+    layout.comments = comments
+
+    // AutoFilter: exceljs's object model only round-trips the filtered range, not per-column
+    // criteria (there's no filterColumn support at all), so those are parsed from the sheet's raw
+    // XML instead, via the same parser the fast reader uses.
+    const af = ws.autoFilter as ExcelJS.AutoFilter | string | undefined
+    let range: Range | undefined
+    if (typeof af === 'string') {
+      range = parseRangeStr(af) ?? undefined
+    } else if (af && typeof af === 'object') {
+      const from = typeof af.from === 'object' ? af.from : parseA1CellRef(af.from)
+      const to = typeof af.to === 'object' ? af.to : parseA1CellRef(af.to)
+      if (from && to) range = { r1: from.row - 1, c1: from.column - 1, r2: to.row - 1, c2: to.column - 1 }
+    }
+    if (range) {
+      const sheetXml = sheetXmlByName.get(ws.name)
+      const columns: Record<number, FilterCriteria> = {}
+      if (sheetXml) {
+        for (const [colId, crit] of Object.entries(parseAutoFilterColumns(sheetXml))) {
+          columns[Number(colId) + range.c1] = crit
+        }
+      }
+      const r1 = range.r1
+      const r2 = range.r2
+      layout.autoFilter = {
+        range,
+        columns,
+        filteredOutRows: Object.keys(hiddenRows).map(Number).filter((r) => r > r1 && r <= r2)
+      }
+    }
+
     // frozen panes
     const view = ws.views && ws.views[0]
     if (view && (view as ExcelJS.WorksheetViewFrozen).state === 'frozen') {
@@ -315,19 +358,31 @@ export async function readXlsx(data: Uint8Array): Promise<WorkbookData> {
   return { sheets, activeSheet }
 }
 
-function parseRangeStr(s: string): Range | null {
-  const m = /^([A-Z]+)(\d+):([A-Z]+)(\d+)$/.exec(s)
+function parseA1CellRef(s: string | undefined): { row: number; column: number } | null {
+  if (!s) return null
+  const m = /^([A-Z]+)(\d+)$/.exec(s.split(':')[0])
   if (!m) return null
-  return { r1: +m[2] - 1, c1: colLetterToIndex(m[1]), r2: +m[4] - 1, c2: colLetterToIndex(m[3]) }
+  return { row: +m[2], column: colLetterToIndex(m[1]) + 1 }
 }
-function colLetterToIndex(s: string): number {
-  let n = 0
-  for (const ch of s) n = n * 26 + (ch.charCodeAt(0) - 64)
-  return n - 1
+
+// ---------- notes (exceljs "note" = the classic cell comment box, not a threaded Comment) ----------
+function readNote(v: string | ExcelJS.Comment): NoteData {
+  if (typeof v === 'string') return { text: v, author: DEFAULT_AUTHOR }
+  const runs = v.texts ?? []
+  if (runs.length && runs[0].font?.bold && /:\s*$/.test(runs[0].text)) {
+    return { author: runs[0].text.replace(/:\s*$/, '').trim(), text: runs.slice(1).map((r) => r.text).join('') }
+  }
+  return { author: DEFAULT_AUTHOR, text: runs.map((r) => r.text).join('') }
+}
+function writeNote(note: NoteData): ExcelJS.Comment {
+  return { texts: [{ font: { bold: true }, text: note.author + ':\n' }, { text: note.text }] }
 }
 
 // ---------- write ----------
-export async function writeXlsx(data: WorkbookData): Promise<Uint8Array> {
+/** `vba`, when given, is re-injected into the written package after exceljs writes it (exceljs
+ *  itself has no concept of a VBA project and always drops one) - pass it only when saving to
+ *  .xlsm; saving to .xlsx must drop macros, same as real Excel. */
+export async function writeXlsx(data: WorkbookData, vba?: VbaProject): Promise<Uint8Array> {
   const wb = new ExcelJS.Workbook()
   wb.creator = 'Excel Clone'
   wb.created = new Date()
@@ -356,6 +411,17 @@ export async function writeXlsx(data: WorkbookData): Promise<Uint8Array> {
       if (cell.style) writeStyle(target, cell.style)
     }
 
+    // Comments win over a plain note at the same cell: a threaded comment is saved as a legacy
+    // note in Excel's own fallback format (xlsxShared.ts), so a cell can't show both anyway.
+    const noteEntries: Record<string, NoteData> = { ...layout.notes }
+    for (const [key, thread] of Object.entries(layout.comments ?? {})) {
+      noteEntries[key] = threadToLegacyNote(thread)
+    }
+    for (const [key, note] of Object.entries(noteEntries)) {
+      const [r, c] = key.split(',').map(Number)
+      ws.getCell(r + 1, c + 1).note = writeNote(note)
+    }
+
     for (const [c, px] of Object.entries(layout.colWidths)) {
       ws.getColumn(+c + 1).width = pxToColWidth(px)
     }
@@ -378,6 +444,13 @@ export async function writeXlsx(data: WorkbookData): Promise<Uint8Array> {
     if (layout.tabColor) {
       ws.properties.tabColor = { argb: hexToArgb(layout.tabColor) }
     }
+    if (layout.autoFilter) {
+      const { range } = layout.autoFilter
+      ws.autoFilter = {
+        from: { row: range.r1 + 1, column: range.c1 + 1 },
+        to: { row: range.r2 + 1, column: range.c2 + 1 }
+      }
+    }
 
     const view: Partial<ExcelJS.WorksheetView> = {
       showGridLines: layout.showGridlines,
@@ -397,6 +470,47 @@ export async function writeXlsx(data: WorkbookData): Promise<Uint8Array> {
 
   wb.views = [{ x: 0, y: 0, width: 25000, height: 15000, firstSheet: 0, activeTab: data.activeSheet ?? 0, visibility: 'visible' }]
 
-  const buf = await wb.xlsx.writeBuffer()
-  return new Uint8Array(buf as ArrayBuffer)
+  const buf = new Uint8Array(await wb.xlsx.writeBuffer() as ArrayBuffer)
+
+  // AutoFilter per-column criteria and the VBA project part both need editing the raw package -
+  // exceljs's object model can express neither. Skip the unzip/rezip when there's nothing to add.
+  const sheetFilters = data.sheets.map((sd) => sd.layout?.autoFilter)
+  const hasCriteria = sheetFilters.some((af) => af && Object.keys(af.columns).length)
+  return hasCriteria || vba ? postProcessXlsx(buf, sheetFilters, vba) : buf
+}
+
+// ---------- read (fast path) ----------
+// Parsing is the hot path for big files, so the real work lives in fastXlsx.ts (fflate unzip + a
+// hand-written XML scanner, no exceljs/DOMParser). In a browser/Electron renderer it runs inside a
+// Web Worker so the UI thread never blocks; in Node (tests, tooling) it falls back to parsing inline.
+export async function readXlsx(data: Uint8Array): Promise<WorkbookData & { vbaProject?: VbaProject }> {
+  if (typeof Worker !== 'undefined' && typeof window !== 'undefined') {
+    return new Promise<WorkbookData & { vbaProject?: VbaProject }>((resolve, reject) => {
+      let worker: Worker
+      try {
+        worker = new Worker(new URL('./xlsx.worker.ts', import.meta.url), { type: 'module' })
+      } catch {
+        // Worker construction unsupported in this host (e.g. certain test runners) - fall back inline.
+        void parseXlsxInline(data).then(resolve, reject)
+        return
+      }
+      const ab = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer
+      worker.onmessage = (ev: MessageEvent<{ ok: true; data: WorkbookData & { vbaProject?: VbaProject } } | { ok: false; error: string }>): void => {
+        worker.terminate()
+        if (ev.data.ok) resolve(ev.data.data)
+        else reject(new Error(ev.data.error))
+      }
+      worker.onerror = (ev: ErrorEvent): void => {
+        worker.terminate()
+        reject(ev.error instanceof Error ? ev.error : new Error(ev.message || 'xlsx worker failed'))
+      }
+      worker.postMessage(ab, [ab])
+    })
+  }
+  return parseXlsxInline(data)
+}
+
+async function parseXlsxInline(data: Uint8Array): Promise<WorkbookData & { vbaProject?: VbaProject }> {
+  const { parseXlsx } = await import('./fastXlsx')
+  return parseXlsx(data)
 }

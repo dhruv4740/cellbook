@@ -5,9 +5,17 @@ import { HyperFormula, DetailedCellError } from 'hyperformula'
 import { useSyncExternalStore } from 'react'
 import {
   CellStyle, CellValue, Range, Selection, SheetLayout, cellKey, normRange,
-  DEFAULT_COL_WIDTH, DEFAULT_ROW_HEIGHT
+  DEFAULT_COL_WIDTH, DEFAULT_ROW_HEIGHT, MAX_ROWS, MAX_COLS, FilterCriteria, NoteData, CommentThread
 } from './types'
 import { formatValue, detectInputFormat, FormattedValue } from '../format/numfmt'
+import { computeFilteredRows } from '../engine/filter'
+import { shiftFormula } from '../engine/shiftFormula'
+import { DEFAULT_AUTHOR, defaultLayout } from './defaults'
+
+// Re-exported so existing `import { DEFAULT_AUTHOR, defaultLayout } from '../model/store'` call
+// sites keep working; the actual definitions live in defaults.ts (no HyperFormula/React), which
+// the fast xlsx reader/worker import directly instead of pulling in this whole heavy module.
+export { DEFAULT_AUTHOR, defaultLayout }
 
 export interface SheetState {
   uid: number // stable id, independent of HyperFormula's sheet id
@@ -33,13 +41,6 @@ interface UndoEntry {
   redo: () => void
 }
 
-export function defaultLayout(): SheetLayout {
-  return {
-    colWidths: {}, rowHeights: {}, hiddenRows: {}, hiddenCols: {}, merges: [],
-    frozen: { rows: 0, cols: 0 }, showGridlines: true, showHeadings: true, zoom: 100
-  }
-}
-
 function defaultSelection(): Selection {
   return { ranges: [{ r1: 0, c1: 0, r2: 0, c2: 0 }], active: { r: 0, c: 0 } }
 }
@@ -48,6 +49,8 @@ let nextUid = 1
 
 // US-locale input parsing, matching Excel en-US.
 const HF_CONFIG = {
+  maxRows: 1048576,
+  maxColumns: 16384,
   licenseKey: 'gpl-v3',
   undoLimit: 0,
   useArrayArithmetic: true,
@@ -164,6 +167,171 @@ export class WorkbookStore {
   /** The merge range covering (r,c), if any. */
   mergeAt(sheet: SheetState, r: number, c: number): Range | undefined {
     return sheet.layout.merges.find((m) => r >= m.r1 && r <= m.r2 && c >= m.c1 && c <= m.c2)
+  }
+
+  /** The contiguous block of non-empty cells containing (r,c) — Excel's "current region",
+   *  used to guess the table AutoFilter/Ctrl+T should cover. */
+  currentRegion(sheet: SheetState, r: number, c: number): Range {
+    const has = (rr: number, cc: number): boolean => rr >= 0 && cc >= 0 && this.getRaw(sheet, rr, cc) !== ''
+    if (!has(r, c)) return { r1: r, c1: c, r2: r, c2: c }
+    let r1 = r, r2 = r, c1 = c, c2 = c
+    const rowHas = (rr: number): boolean => { if (rr < 0 || rr >= MAX_ROWS) return false; for (let cc = c1; cc <= c2; cc++) if (has(rr, cc)) return true; return false }
+    const colHas = (cc: number): boolean => { if (cc < 0 || cc >= MAX_COLS) return false; for (let rr = r1; rr <= r2; rr++) if (has(rr, cc)) return true; return false }
+    // Grow rows as far as they go, then columns, and repeat until neither side moves. Growing a
+    // whole axis per pass keeps a 100k-row table linear instead of re-scanning every column
+    // edge per added row. Bounded only by the sheet itself.
+    for (;;) {
+      let grew = false
+      while (rowHas(r1 - 1)) { r1--; grew = true }
+      while (rowHas(r2 + 1)) { r2++; grew = true }
+      while (colHas(c1 - 1)) { c1--; grew = true }
+      while (colHas(c2 + 1)) { c2++; grew = true }
+      if (!grew) break
+    }
+    return { r1, c1, r2, c2 }
+  }
+
+  // ---------- AutoFilter ----------
+  /** Recomputes which rows the current AutoFilter criteria hide, updating hiddenRows in place.
+   *  Called from inside updateLayout, so it mutates the layout draft it's given directly. */
+  private recomputeAutoFilter(sheet: SheetState, l: SheetLayout): void {
+    const af = l.autoFilter
+    if (!af) return
+    for (const r of af.filteredOutRows) delete l.hiddenRows[r]
+    const getDisplay = (r: number, c: number) => this.getDisplay(sheet, r, c).text
+    const { hidden } = computeFilteredRows(af.range, af.columns, getDisplay)
+    // Only rows this filter hides itself are recorded, so a row the user hid by hand stays
+    // hidden when the filter is cleared or removed.
+    af.filteredOutRows = hidden.filter((r) => !l.hiddenRows[r])
+    for (const r of af.filteredOutRows) l.hiddenRows[r] = true
+  }
+
+  /** Data > Filter / Ctrl+Shift+L: toggles an AutoFilter over the current region. */
+  toggleAutoFilter(sheet: SheetState = this.active): void {
+    const on = !sheet.layout.autoFilter
+    this.updateLayout(sheet, on ? 'AutoFilter' : 'Remove Filter', (l) => {
+      if (!on) {
+        for (const r of l.autoFilter?.filteredOutRows ?? []) delete l.hiddenRows[r]
+        delete l.autoFilter
+        return
+      }
+      const active = sheet.selection.active
+      const sel = normRange(sheet.selection.ranges[sheet.selection.ranges.length - 1])
+      const region = sel.r1 !== sel.r2 || sel.c1 !== sel.c2 ? sel : this.currentRegion(sheet, active.r, active.c)
+      l.autoFilter = { range: region, columns: {}, filteredOutRows: [] }
+    })
+  }
+
+  /** Sets (or, with `null`, clears) one column's checked-values criteria. */
+  setColumnFilter(sheet: SheetState, col: number, criteria: FilterCriteria | null): void {
+    this.updateLayout(sheet, criteria ? 'Filter' : 'Clear Filter', (l) => {
+      if (!l.autoFilter) return
+      if (criteria) l.autoFilter.columns[col] = criteria
+      else delete l.autoFilter.columns[col]
+      this.recomputeAutoFilter(sheet, l)
+    })
+  }
+
+  /** Data > Clear: removes every column's criteria but keeps the AutoFilter dropdowns. */
+  clearAllFilters(sheet: SheetState = this.active): void {
+    this.updateLayout(sheet, 'Clear Filter', (l) => {
+      if (!l.autoFilter) return
+      l.autoFilter.columns = {}
+      this.recomputeAutoFilter(sheet, l)
+    })
+  }
+
+  /** Data > Reapply: re-runs the current criteria against (possibly changed) data. */
+  reapplyFilter(sheet: SheetState = this.active): void {
+    this.updateLayout(sheet, 'Reapply', (l) => this.recomputeAutoFilter(sheet, l))
+  }
+
+  /** Sorts every row of the AutoFilter range (keeping rows intact) by one column. */
+  sortFilterRange(sheet: SheetState, col: number, order: 'asc' | 'desc'): void {
+    const af = sheet.layout.autoFilter
+    if (!af) return
+    const n = af.range
+    const rows: { r: number; cells: { raw: string; style?: CellStyle }[] }[] = []
+    for (let r = n.r1 + 1; r <= n.r2; r++) {
+      const cells: { raw: string; style?: CellStyle }[] = []
+      for (let c = n.c1; c <= n.c2; c++) cells.push({ raw: this.getRaw(sheet, r, c), style: this.getStyle(sheet, r, c) })
+      rows.push({ r, cells })
+    }
+    const key = (row: (typeof rows)[number]): [number, number | string] => {
+      const v = this.getValue(sheet, row.r, col)
+      if (v === null || v === undefined || v === '') return [2, '']
+      if (typeof v === 'number') return [0, v]
+      return [1, String(v).toLowerCase()]
+    }
+    const sorted = [...rows].sort((a, b) => {
+      const [ta, va] = key(a)
+      const [tb, vb] = key(b)
+      if (ta !== tb) return ta - tb
+      const cmp = va < vb ? -1 : va > vb ? 1 : 0
+      return order === 'asc' ? cmp : -cmp
+    })
+    const cells: { r: number; c: number; raw: string; style?: CellStyle }[] = []
+    // A moved formula keeps pointing at the same relative cells (=B5*2 moving up 3 rows becomes
+    // =B2*2), matching sortSelection in grid/commands.ts.
+    sorted.forEach((row, i) => row.cells.forEach((cell, j) => {
+      const r = n.r1 + 1 + i
+      cells.push({ r, c: n.c1 + j, raw: shiftFormula(cell.raw, r - row.r, 0), style: cell.style })
+    }))
+    const label = order === 'asc' ? 'Sort A to Z' : 'Sort Z to A'
+    // Rows move, so which ones the filter hides must be recomputed in the same undo step.
+    this.transact(label, () => {
+      this.setCells(sheet, cells, label)
+      this.updateLayout(sheet, label, (l) => this.recomputeAutoFilter(sheet, l))
+    })
+  }
+
+  // ---------- Notes & Comments ----------
+  setNote(sheet: SheetState, r: number, c: number, text: string, author = DEFAULT_AUTHOR): void {
+    const key = cellKey(r, c)
+    this.updateLayout(sheet, text.trim() ? 'Note' : 'Delete Note', (l) => {
+      if (text.trim() === '') delete l.notes[key]
+      else l.notes[key] = { text, author }
+    })
+  }
+  deleteNote(sheet: SheetState, r: number, c: number): void {
+    this.setNote(sheet, r, c, '')
+  }
+
+  addComment(sheet: SheetState, r: number, c: number, text: string, author = DEFAULT_AUTHOR): void {
+    if (!text.trim()) return
+    const key = cellKey(r, c)
+    this.updateLayout(sheet, 'New Comment', (l) => {
+      l.comments[key] = { author, text, time: new Date().toISOString(), replies: [] }
+    })
+  }
+  replyToComment(sheet: SheetState, r: number, c: number, text: string, author = DEFAULT_AUTHOR): void {
+    if (!text.trim()) return
+    const key = cellKey(r, c)
+    this.updateLayout(sheet, 'Reply', (l) => {
+      const t = l.comments[key]
+      if (t) t.replies.push({ id: 'c' + Date.now() + Math.random().toString(36).slice(2, 7), author, text, time: new Date().toISOString() })
+    })
+  }
+  resolveComment(sheet: SheetState, r: number, c: number, resolved = true): void {
+    const key = cellKey(r, c)
+    this.updateLayout(sheet, resolved ? 'Resolve Thread' : 'Reopen Thread', (l) => {
+      const t = l.comments[key]
+      if (t) t.resolved = resolved
+    })
+  }
+  deleteComment(sheet: SheetState, r: number, c: number): void {
+    const key = cellKey(r, c)
+    this.updateLayout(sheet, 'Delete Comment', (l) => { delete l.comments[key] })
+  }
+
+  /** Review > Notes > Convert to Comments: every note becomes a (single-post) comment thread. */
+  convertNotesToComments(sheet: SheetState = this.active): void {
+    this.updateLayout(sheet, 'Convert to Comments', (l) => {
+      for (const [key, note] of Object.entries(l.notes)) {
+        l.comments[key] = { author: note.author, text: note.text, time: new Date().toISOString(), replies: [] }
+      }
+      l.notes = {}
+    })
   }
 
   // ---------- undo machinery ----------
@@ -534,24 +702,27 @@ export class WorkbookStore {
 
   // ---------- whole workbook ----------
   load(data: WorkbookData, fileName: string, filePath: string | null): void {
-    this.hf.destroy()
-    this.hf = HyperFormula.buildEmpty(HF_CONFIG)
+    // Build HyperFormula in one pass from dense 2-D arrays: setting cells one by one
+    // (even inside a batch) is orders of magnitude slower on large files.
+    const contents: Record<string, (string | null)[][]> = {}
     this.sheets = []
-    // Add all sheets first so cross-sheet formulas resolve.
-    data.sheets.forEach((sd, i) => {
-      const s = this.addSheetRaw(sd.name, i)
-      s.layout = { ...defaultLayout(), ...sd.layout }
+    data.sheets.forEach((sd) => {
+      const rows: (string | null)[][] = []
+      const s: SheetState = { uid: nextUid++, name: sd.name, styles: new Map(), layout: { ...defaultLayout(), ...sd.layout }, selection: defaultSelection() }
+      for (const k in sd.cells) {
+        const cell = sd.cells[k]
+        const comma = k.indexOf(',')
+        const r = +k.slice(0, comma), c = +k.slice(comma + 1)
+        if (cell.raw) (rows[r] ??= [])[c] = cell.raw
+        if (cell.style && Object.keys(cell.style).length) s.styles.set(k, cell.style)
+      }
+      // HyperFormula wants no holes in the outer array.
+      for (let r = 0; r < rows.length; r++) rows[r] ??= []
+      contents[sd.name] = rows
+      this.sheets.push(s)
     })
-    this.batch(() => {
-      data.sheets.forEach((sd, i) => {
-        const s = this.sheets[i]
-        for (const [k, cell] of Object.entries(sd.cells)) {
-          const [r, c] = k.split(',').map(Number)
-          if (cell.raw) this.writeRaw(s, r, c, cell.raw)
-          if (cell.style) this.writeStyle(s, r, c, cell.style)
-        }
-      })
-    })
+    this.hf.destroy()
+    this.hf = data.sheets.length ? HyperFormula.buildFromSheets(contents, HF_CONFIG) : HyperFormula.buildEmpty(HF_CONFIG)
     if (!this.sheets.length) this.addSheetRaw('Sheet1', 0)
     this.activeIndex = Math.min(data.activeSheet ?? 0, this.sheets.length - 1)
     this.fileName = fileName

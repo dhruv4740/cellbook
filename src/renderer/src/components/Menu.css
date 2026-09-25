@@ -1,4 +1,6 @@
-.xl-menu-layer { position: fixed; inset: 0; pointer-events: none; z-index: 1000; }
+/* Above .xl-group-popup (z-index 6000, Ribbon.css) so a dropdown opened from a button inside a
+   collapsed/overflowed ribbon group (e.g. Insert > Charts at narrow widths) renders in front of it. */
+.xl-menu-layer { position: fixed; inset: 0; pointer-events: none; z-index: 7000; }
 .xl-menu, .xl-menu-header { pointer-events: auto; position: fixed; }
 .xl-menu {
   background: #fff; border: 1px solid #c8c6c4; box-shadow: 0 3px 8px rgba(0,0,0,.18);
