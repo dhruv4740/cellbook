@@ -5,7 +5,7 @@
 // against readXlsxExceljs).
 import { unzipSync } from 'fflate'
 import { shiftFormula } from '../engine/shiftFormula'
-import type { BorderSide, CellStyle, CfRule, CommentThread, FilterCriteria, NoteData, Range, SheetLayout } from '../model/types'
+import type { BorderSide, CellStyle, CfRule, CommentThread, DataValidationRule, DvAllowType, DvErrorStyle, DvOperator, FilterCriteria, NoteData, Range, SheetLayout } from '../model/types'
 import type { WorkbookData } from '../model/store'
 import { DEFAULT_AUTHOR, defaultLayout } from '../model/defaults'
 import {
@@ -165,6 +165,9 @@ export function parseXlsx(bytes: Uint8Array): WorkbookData & { vbaProject?: VbaP
 
     const cfs = parseConditionalFormats(xml, dxfStyles)
     if (cfs.length) layout.conditionalFormats = cfs
+
+    const dvs = parseDataValidations(xml)
+    if (dvs.length) layout.dataValidations = dvs
 
     sheets.push({ name: def.name, cells: parsed.cells, layout })
   }
@@ -502,6 +505,83 @@ function parseConditionalFormats(xml: string, dxfs: (Partial<CellStyle> | undefi
   return out
 }
 
+export function parseDataValidations(xml: string): DataValidationRule[] {
+  if (xml.indexOf('<dataValidations') === -1 && xml.indexOf('<dataValidation') === -1) return []
+  const out: DataValidationRule[] = []
+  const dvRe = /<dataValidation\b([^>]*?)(?:\/>|>([\s\S]*?)<\/dataValidation>)/g
+  let m: RegExpExecArray | null
+  while ((m = dvRe.exec(xml))) {
+    const a = parseAttrs(m[1], 0, m[1].length)
+    const inner = m[2] ?? ''
+
+    const ranges = (a.sqref ?? '')
+      .split(/\s+/)
+      .map(parseSingleOrRange)
+      .filter((r): r is Range => r !== null)
+    if (!ranges.length) continue
+
+    const allow = (a.type as DvAllowType) || 'any'
+    const rule: DataValidationRule = {
+      id: 'dv_' + Math.random().toString(36).slice(2, 9),
+      ranges,
+      allow
+    }
+
+    if (a.operator) {
+      rule.operator = a.operator as DvOperator
+    } else if (allow !== 'list' && allow !== 'custom' && allow !== 'any') {
+      rule.operator = 'between'
+    }
+
+    if (a.errorStyle) {
+      rule.errorStyle = a.errorStyle as DvErrorStyle
+    }
+
+    if (a.allowBlank !== undefined) {
+      rule.ignoreBlank = a.allowBlank === '1' || a.allowBlank === 'true'
+    }
+
+    // Invert Excel's showDropDown: showDropDown="1" means dropdown is hidden
+    if (allow === 'list') {
+      rule.inCellDropdown = a.showDropDown !== '1' && a.showDropDown !== 'true'
+    }
+
+    if (a.showInputMessage !== undefined) {
+      rule.showInputMessage = a.showInputMessage === '1' || a.showInputMessage === 'true'
+    }
+
+    if (a.showErrorMessage !== undefined) {
+      rule.showErrorAlert = a.showErrorMessage === '1' || a.showErrorMessage === 'true'
+    }
+
+    if (a.promptTitle !== undefined) {
+      rule.inputTitle = a.promptTitle
+    }
+
+    if (a.prompt !== undefined) {
+      rule.inputMessage = a.prompt
+    }
+
+    if (a.errorTitle !== undefined) {
+      rule.errorTitle = a.errorTitle
+    }
+
+    if (a.error !== undefined) {
+      rule.errorMessage = a.error
+    }
+
+    if (inner) {
+      const f1 = extractChild(inner, 'formula1', 0, inner.length)
+      if (f1) rule.formula1 = decodeXmlEntities(f1.text)
+      const f2 = extractChild(inner, 'formula2', 0, inner.length)
+      if (f2) rule.formula2 = decodeXmlEntities(f2.text)
+    }
+
+    out.push(rule)
+  }
+  return out
+}
+
 function parseStyles(xml: string | undefined, themeColors: string[]): (CellStyle | undefined)[] {
   if (!xml) return [undefined]
 
@@ -771,8 +851,9 @@ function parseSheetXml(xml: string, xfStyles: (CellStyle | undefined)[], sharedS
 }
 
 function parseSingleOrRange(ref: string): Range | null {
-  if (ref.indexOf(':') !== -1) return parseRangeStr(ref)
-  const m = /^([A-Z]+)(\d+)$/.exec(ref)
+  const clean = ref.replace(/\$/g, '')
+  if (clean.indexOf(':') !== -1) return parseRangeStr(clean)
+  const m = /^([A-Z]+)(\d+)$/.exec(clean)
   if (!m) return null
   const c = colLetterToIndex(m[1])
   const r = +m[2] - 1
