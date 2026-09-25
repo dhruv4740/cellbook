@@ -65,6 +65,8 @@ export interface AutoFilter {
 export interface NoteData {
   text: string
   author: string
+  /** Review > Show/Hide Note: the note stays on screen instead of only on hover. */
+  visible?: boolean
 }
 
 export interface CommentReply {
