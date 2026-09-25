@@ -86,7 +86,7 @@ export class WorkbookStore {
   /** Transient UI state any component may read (e.g. edit mode for the status bar). */
   mode: 'Ready' | 'Enter' | 'Edit' | 'Point' = 'Ready'
   /** Defined names carried through load/save; ordinary ones are also live in the engine. */
-  names: DefinedNameData[] = []
+  names: (DefinedNameData & { sheetUid?: number })[] = []
 
   onBroadcast?: (msg: SyncMessage) => void
   isApplyingRemote = false
@@ -318,7 +318,33 @@ export class WorkbookStore {
     // Rows move, so which ones the filter hides must be recomputed in the same undo step.
     this.transact(label, () => {
       this.setCells(sheet, cells, label)
+      this.moveRowAnnotations(sheet, new Map(sorted.map((row, i) => [row.r, n.r1 + 1 + i])), n.c1, n.c2, label)
       this.updateLayout(sheet, label, (l) => this.recomputeAutoFilter(sheet, l))
+    })
+  }
+
+  /** After a sort moved rows (origRow -> newRow within columns c1..c2), moves the notes, comments
+   *  and links in those cells along with them, as Excel does. */
+  moveRowAnnotations(sheet: SheetState, moves: Map<number, number>, c1: number, c2: number, label: string): void {
+    const has = (m?: Record<string, unknown>) => m && Object.keys(m).length
+    if (!has(sheet.layout.notes) && !has(sheet.layout.comments) && !has(sheet.layout.hyperlinks)) return
+    const remap = <T>(m: Record<string, T> | undefined): Record<string, T> | undefined => {
+      if (!m) return m
+      const out: Record<string, T> = {}
+      const moved: [string, T][] = []
+      for (const [k, v] of Object.entries(m)) {
+        const [r, c] = k.split(',').map(Number)
+        const to = c >= c1 && c <= c2 ? moves.get(r) : undefined
+        if (to === undefined) out[k] = v
+        else moved.push([`${to},${c}`, v])
+      }
+      for (const [k, v] of moved) out[k] = v
+      return out
+    }
+    this.updateLayout(sheet, label, (l) => {
+      l.notes = remap(l.notes) ?? {}
+      l.comments = remap(l.comments) ?? {}
+      if (l.hyperlinks) l.hyperlinks = remap(l.hyperlinks)
     })
   }
 
@@ -782,11 +808,18 @@ export class WorkbookStore {
     if (old === trimmed) return null
     this.commit(
       'Rename Sheet',
-      () => { this.hf.renameSheet(this.hf.getSheetId(old)!, trimmed); s.name = trimmed },
-      () => { this.hf.renameSheet(this.hf.getSheetId(trimmed)!, old); s.name = old }
+      () => { this.hf.renameSheet(this.hf.getSheetId(old)!, trimmed); s.name = trimmed; this.renameInBuiltinNames(old, trimmed) },
+      () => { this.hf.renameSheet(this.hf.getSheetId(trimmed)!, old); s.name = old; this.renameInBuiltinNames(trimmed, old) }
     )
     this.broadcastOp({ type: 'renameSheet', index, name: trimmed })
     return null
+  }
+
+  private renameInBuiltinNames(from: string, to: string): void {
+    const q = (n: string) => (/^[A-Za-z_][A-Za-z0-9_.]*$/.test(n) ? n : `'${n.replace(/'/g, "''")}'`)
+    const esc = from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/'/g, "''")
+    const re = new RegExp(`(^|[^A-Za-z0-9_.'])(?:'${esc}'|${esc})!`, 'gi')
+    for (const n of this.names) if (/^_xlnm\./i.test(n.name)) n.ref = n.ref.replace(re, (_m, pre) => pre + q(to) + '!')
   }
 
   moveSheet(from: number, to: number): void {
@@ -844,7 +877,8 @@ export class WorkbookStore {
     })
     this.hf.destroy()
     this.hf = data.sheets.length ? HyperFormula.buildFromSheets(contents, HF_CONFIG, BOOLEAN_NAMES) : HyperFormula.buildEmpty(HF_CONFIG, BOOLEAN_NAMES)
-    this.names = data.names ? data.names.map((n) => ({ ...n })) : []
+    // Local names are tracked by sheet identity so moving/deleting sheets can't reassign them.
+    this.names = (data.names ?? []).map((n) => ({ ...n, sheetUid: n.sheet !== undefined ? this.sheets[n.sheet]?.uid : undefined }))
     this.registerNames()
     if (!this.sheets.length) this.addSheetRaw('Sheet1', 0)
     this.activeIndex = Math.min(data.activeSheet ?? 0, this.sheets.length - 1)
@@ -864,16 +898,45 @@ export class WorkbookStore {
     this.hf.batch(() => {
       for (const n of this.names) {
         if (/^_xlnm\./i.test(n.name)) continue
-        const scope = n.sheet !== undefined && this.sheets[n.sheet] ? this.hfId(this.sheets[n.sheet]) : undefined
+        const sh = n.sheetUid !== undefined ? this.sheetByUid(n.sheetUid) : undefined
+        const scope = sh ? this.hfId(sh) : undefined
         try { this.hf.addNamedExpression(n.name, '=' + n.ref, scope) } catch { /* invalid for the engine */ }
       }
     })
   }
 
+  /** Current defined names for saving: engine-tracked names reflect sheet renames and row/column
+   *  edits; names local to a deleted sheet are dropped (as in Excel). */
+  private exportNames(): DefinedNameData[] | undefined {
+    const out: DefinedNameData[] = []
+    for (const n of this.names) {
+      let sheetIdx: number | undefined
+      let scope: number | undefined
+      if (n.sheetUid !== undefined) {
+        const sh = this.sheetByUid(n.sheetUid)
+        if (!sh) continue
+        sheetIdx = this.sheets.indexOf(sh)
+        scope = this.hfId(sh)
+      }
+      let ref = n.ref
+      if (!/^_xlnm\./i.test(n.name)) {
+        try {
+          const f = this.hf.getNamedExpressionFormula(n.name, scope)
+          if (typeof f === 'string') ref = f.replace(/^=/, '')
+        } catch { /* keep stored ref */ }
+      }
+      const e: DefinedNameData = { name: n.name, ref }
+      if (sheetIdx !== undefined) e.sheet = sheetIdx
+      if (n.hidden) e.hidden = true
+      out.push(e)
+    }
+    return out.length ? out : undefined
+  }
+
   toData(): WorkbookData {
     return {
       activeSheet: this.activeIndex,
-      names: this.names.length ? this.names.map((n) => ({ ...n })) : undefined,
+      names: this.exportNames(),
       sheets: this.sheets.map((s) => {
         const cells: WorkbookData['sheets'][number]['cells'] = {}
         const id = this.hfId(s)

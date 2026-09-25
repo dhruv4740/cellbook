@@ -196,7 +196,9 @@ export function writeActiveCsv(): string {
   const used = store.usedRange(sheet)
   const rows = used ? used.r2 + 1 : 0
   const cols = used ? used.c2 + 1 : 0
-  return writeCsv(rows, cols, (r, c) => store.getDisplay(sheet, r, c).text)
+  const text = writeCsv(rows, cols, (r, c) => store.getDisplay(sheet, r, c).text)
+  // Non-ASCII text (Hindi, ₹, ...) needs the UTF-8 BOM, as in Excel's "CSV UTF-8", or Excel shows it garbled.
+  return /[^\x00-\x7f]/.test(text) ? '\uFEFF' + text : text
 }
 
 export function downloadCsv(): void {
