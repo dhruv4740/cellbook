@@ -148,6 +148,33 @@ export function fixLegacyDrawingOrder(zipBytes: Uint8Array): Uint8Array {
   return changed ? zipSync(files, { level: 6 }) : zipBytes
 }
 
+const DYNAMIC_ARRAY_METADATA = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<metadata xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:xda="http://schemas.microsoft.com/office/spreadsheetml/2017/dynamicarray"><metadataTypes count="1"><metadataType name="XLDAPR" minSupportedVersion="120000" copy="1" pasteAll="1" pasteValues="1" merge="1" splitFirst="1" rowColShift="1" clearFormats="1" clearComments="1" assign="1" coerce="1" cellMeta="1"/></metadataTypes><futureMetadata name="XLDAPR" count="1"><bk><extLst><ext uri="{bdbb8cdc-fa1e-496e-a857-3c3f30c029c3}"><xda:dynamicArrayProperties fDynamic="1" fCollapsed="0"/></ext></extLst></bk></futureMetadata><cellMetadata count="1"><bk><rc t="1" v="0"/></bk></cellMetadata></metadata>'
+
+/** Marks array formulas as dynamic (spilling) arrays the way Excel does: cm="1" on the cell plus
+ *  xl/metadata.xml. Without it Excel treats FILTER/UNIQUE as fixed legacy array formulas. */
+export function markDynamicArrays(zipBytes: Uint8Array): Uint8Array {
+  const files = unzipSync(zipBytes)
+  const dec = new TextDecoder()
+  const enc = new TextEncoder()
+  let any = false
+  for (const name of Object.keys(files)) {
+    if (!/^xl\/worksheets\/sheet\d+\.xml$/.test(name)) continue
+    const xml = dec.decode(files[name])
+    if (xml.indexOf('t="array"') === -1) continue
+    const next = xml.replace(/<c ((?:(?!cm=)[^>])*?)>(<f t="array")/g, '<c $1 cm="1">$2')
+    if (next !== xml) { files[name] = enc.encode(next); any = true }
+  }
+  if (!any) return zipBytes
+  if (!files['xl/metadata.xml']) {
+    files['xl/metadata.xml'] = enc.encode(DYNAMIC_ARRAY_METADATA)
+    const ct = dec.decode(files['[Content_Types].xml'])
+    files['[Content_Types].xml'] = enc.encode(ct.replace('</Types>', '<Override PartName="/xl/metadata.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheetMetadata+xml"/></Types>'))
+    const rels = dec.decode(files['xl/_rels/workbook.xml.rels'])
+    files['xl/_rels/workbook.xml.rels'] = enc.encode(rels.replace('</Relationships>', '<Relationship Id="rIdMeta1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sheetMetadata" Target="metadata.xml"/></Relationships>'))
+  }
+  return zipSync(files, { level: 6 })
+}
+
 /** Finds a worksheet-level element (global regex) past sheetData/conditionalFormatting, so an
  *  <extLst> nested inside a data-bar cfRule is never mistaken for the sheet's own extLst. */
 function execTopLevel(re: RegExp, xml: string): RegExpExecArray | null {

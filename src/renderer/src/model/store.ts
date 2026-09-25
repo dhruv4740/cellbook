@@ -5,7 +5,7 @@ import { HyperFormula, DetailedCellError } from 'hyperformula'
 import { useSyncExternalStore } from 'react'
 import {
   CellStyle, CellValue, Range, Selection, SheetLayout, cellKey, normRange,
-  DEFAULT_COL_WIDTH, DEFAULT_ROW_HEIGHT, MAX_ROWS, MAX_COLS, FilterCriteria, NoteData, CommentThread
+  DEFAULT_COL_WIDTH, DEFAULT_ROW_HEIGHT, MAX_ROWS, MAX_COLS, FilterCriteria, NoteData, CommentThread, rangeA1
 } from './types'
 import { formatValue, detectInputFormat, FormattedValue } from '../format/numfmt'
 import { computeFilteredRows } from '../engine/filter'
@@ -31,8 +31,9 @@ export interface SheetState {
 export interface WorkbookData {
   sheets: {
     name: string
-    /** `value`: a formula's last computed result, saved as Excel's cached value. */
-    cells: Record<string, { raw?: string; style?: CellStyle; value?: CellValue }> // key 'r,c'
+    /** `value`: a formula's last computed result, saved as Excel's cached value.
+     *  `spill`: for a formula whose result spills (FILTER, UNIQUE...), the covered range, e.g. "H8:H10". */
+    cells: Record<string, { raw?: string; style?: CellStyle; value?: CellValue; spill?: string }> // key 'r,c'
     layout?: Partial<SheetLayout>
   }[]
   activeSheet?: number
@@ -944,6 +945,9 @@ export class WorkbookStore {
         content.forEach((row, r) =>
           row.forEach((v, c) => {
             if (v === null || v === undefined || v === '') return
+            // A spilled result (e.g. FILTER's rows below the formula) is not data: saving it as a value
+            // would freeze it (losing leading zeros) and block the spill when the file is reopened.
+            if (!(typeof v === 'string' && v.startsWith('=')) && this.hf.isCellPartOfArray({ sheet: id, row: r, col: c })) return
             let raw = typeof v === 'boolean' ? (v ? 'TRUE' : 'FALSE') : String(v)
             // Typed "1/2/2024", "$1,200", "25%" are numbers to the engine: save the number.
             if (typeof v === 'string' && !v.startsWith('=') && !v.startsWith("'") && !/^-?\d+(\.\d+)?([eE][+-]?\d+)?$/.test(v)) {
@@ -951,8 +955,21 @@ export class WorkbookStore {
               if (typeof val === 'number') raw = String(val)
               else if (typeof val === 'boolean') raw = val ? 'TRUE' : 'FALSE'
             }
-            const cell: { raw: string; value?: CellValue } = { raw }
-            if (raw.startsWith('=')) cell.value = this.getValue(s, r, c)
+            const cell: { raw: string; value?: CellValue; spill?: string } = { raw }
+            if (raw.startsWith('=')) {
+              cell.value = this.getValue(s, r, c)
+              const inArray = (rr: number, cc: number): boolean =>
+                this.hf.isCellPartOfArray({ sheet: id, row: rr, col: cc }) && !this.hf.doesCellHaveFormula({ sheet: id, row: rr, col: cc })
+              let r2 = r
+              let c2 = c
+              while (inArray(r2 + 1, c)) r2++
+              while (inArray(r, c2 + 1)) c2++
+              // HyperFormula reserves FILTER's maximum size; the real result ends at the last non-empty row/column.
+              const empty = (rr: number, cc: number): boolean => { const x = this.hf.getCellValue({ sheet: id, row: rr, col: cc }); return x === null || x === '' }
+              while (r2 > r && Array.from({ length: c2 - c + 1 }, (_, k) => c + k).every((cc) => empty(r2, cc))) r2--
+              while (c2 > c && Array.from({ length: r2 - r + 1 }, (_, k) => r + k).every((rr) => empty(rr, c2))) c2--
+              if (r2 > r || c2 > c) cell.spill = rangeA1({ r1: r, c1: c, r2, c2 })
+            }
             cells[cellKey(r, c)] = cell
           })
         )

@@ -36,6 +36,16 @@ describe('input parsing', () => {
     s.setRaw(s.active, 0, 0, '1/31/2025')
     expect(s.getValue(s.active, 0, 0)).toBe(45688)
   })
+  it('does not save a spilled result as data (it froze FILTER output and dropped leading zeros)', () => {
+    const s = new WorkbookStore()
+    s.setRaw(s.active, 0, 0, "'00012")
+    s.setRaw(s.active, 1, 0, "'00056")
+    s.setRaw(s.active, 0, 2, '=FILTER(A1:A2,A1:A2<>"")')
+    expect(s.getValue(s.active, 1, 2)).toBe('00056')
+    const cells = s.toData().sheets[0].cells
+    expect(cells['0,2'].raw).toBe('=FILTER(A1:A2,A1:A2<>"")')
+    expect(cells['1,2']).toBeUndefined()
+  })
   it('parses day-first dates on an English (India) PC, like Excel', () => {
     setDayFirst(true)
     const s = new WorkbookStore()

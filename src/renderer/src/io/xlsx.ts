@@ -13,7 +13,7 @@ import {
 } from './xlsxShared'
 import { extractSection, parseAttrs, parseRelationships, resolveRelTarget } from './fastXlsxXml'
 import type { VbaProject } from './xlsxPostProcess'
-import { fixLegacyDrawingOrder, injectDefinedNames, injectHyperlinks, postProcessXlsx } from './xlsxPostProcess'
+import { fixLegacyDrawingOrder, markDynamicArrays, injectDefinedNames, injectHyperlinks, postProcessXlsx } from './xlsxPostProcess'
 import { parseDataValidations } from './fastXlsx'
 
 const EXCEL_ERRORS = new Set(['#NULL!', '#DIV/0!', '#VALUE!', '#REF!', '#NAME?', '#NUM!', '#N/A', '#GETTING_DATA', '#SPILL!', '#CALC!'])
@@ -476,7 +476,8 @@ export async function writeXlsx(data: WorkbookData, vba?: VbaProject): Promise<U
           const err = v && typeof v === 'object' ? (v as { error: string }).error : undefined
           const result = v === null || v === undefined || (err !== undefined && !EXCEL_ERRORS.has(err)) ? undefined : err !== undefined ? { error: err } : v
           const formula = addFuturePrefixes(cell.raw.slice(1))
-          target.value = (result === undefined ? { formula } : { formula, result }) as ExcelJS.CellValue
+          const spill = cell.spill ? { shareType: 'array', ref: cell.spill } : {}
+          target.value = (result === undefined ? { formula, ...spill } : { formula, result, ...spill }) as ExcelJS.CellValue
         } else if (cell.style?.numFmt && isDateFormat(cell.style.numFmt) && /^-?\d+(\.\d+)?$/.test(cell.raw)) {
           target.value = serialToDate(Number(cell.raw))
         } else if (cell.raw === 'TRUE' || cell.raw === 'FALSE') {
@@ -638,7 +639,7 @@ export async function writeXlsx(data: WorkbookData, vba?: VbaProject): Promise<U
   const processed = hasCriteria || hasValidations || hasCharts || vba
     ? postProcessXlsx(buf, sheetFilters, vba, sheetValidations, sheetCharts, sheetNames, sheetCells, sheetLayouts)
     : buf
-  const linked = fixLegacyDrawingOrder(injectHyperlinks(processed, data.sheets.map((sd) => sd.layout?.hyperlinks)))
+  const linked = markDynamicArrays(fixLegacyDrawingOrder(injectHyperlinks(processed, data.sheets.map((sd) => sd.layout?.hyperlinks))))
   return data.names?.length ? injectDefinedNames(linked, data.names) : linked
 }
 
