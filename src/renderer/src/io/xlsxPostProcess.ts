@@ -4,7 +4,7 @@
 // wb.xlsx.writeBuffer() already produced, so a normal .xlsx save with no criteria and no macros
 // pays nothing beyond the unzip/rezip when there's actually something to patch.
 import { unzipSync, zipSync } from 'fflate'
-import type { AutoFilter } from '../model/types'
+import type { AutoFilter, DataValidationRule } from '../model/types'
 import { rangeA1 } from '../model/types'
 import { BLANK_TOKEN } from '../engine/filter'
 
@@ -20,6 +20,10 @@ const VBA_REL_TYPE = 'http://schemas.microsoft.com/office/2006/relationships/vba
 
 function escapeXmlAttr(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+function escapeXmlText(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
 /** Builds the full `<autoFilter ref="..">...</autoFilter>` element, replacing exceljs's
@@ -39,6 +43,87 @@ function buildAutoFilterXml(af: AutoFilter): string {
     })
     .join('')
   return `<autoFilter ref="${ref}">${body}</autoFilter>`
+}
+
+function buildDataValidationXml(rule: DataValidationRule): string {
+  const attrs: string[] = []
+
+  if (rule.allow && rule.allow !== 'any') {
+    attrs.push(`type="${escapeXmlAttr(rule.allow)}"`)
+  }
+
+  if (rule.errorStyle) {
+    attrs.push(`errorStyle="${escapeXmlAttr(rule.errorStyle)}"`)
+  }
+
+  if (
+    rule.operator &&
+    rule.allow !== 'list' &&
+    rule.allow !== 'custom' &&
+    rule.allow !== 'any'
+  ) {
+    attrs.push(`operator="${escapeXmlAttr(rule.operator)}"`)
+  }
+
+  if (rule.ignoreBlank !== undefined) {
+    attrs.push(`allowBlank="${rule.ignoreBlank ? '1' : '0'}"`)
+  }
+
+  // Note Excel's inverted flag: showDropDown="1" means the in-cell dropdown is HIDDEN.
+  if (rule.allow === 'list' && rule.inCellDropdown === false) {
+    attrs.push('showDropDown="1"')
+  }
+
+  if (rule.showInputMessage !== undefined) {
+    attrs.push(`showInputMessage="${rule.showInputMessage ? '1' : '0'}"`)
+  }
+
+  if (rule.showErrorAlert !== undefined) {
+    attrs.push(`showErrorMessage="${rule.showErrorAlert ? '1' : '0'}"`)
+  }
+
+  if (rule.inputTitle) {
+    attrs.push(`promptTitle="${escapeXmlAttr(rule.inputTitle)}"`)
+  }
+
+  if (rule.inputMessage) {
+    attrs.push(`prompt="${escapeXmlAttr(rule.inputMessage)}"`)
+  }
+
+  if (rule.errorTitle) {
+    attrs.push(`errorTitle="${escapeXmlAttr(rule.errorTitle)}"`)
+  }
+
+  if (rule.errorMessage) {
+    attrs.push(`error="${escapeXmlAttr(rule.errorMessage)}"`)
+  }
+
+  const sqref = rule.ranges.map(rangeA1).join(' ')
+  attrs.push(`sqref="${escapeXmlAttr(sqref)}"`)
+
+  let children = ''
+  if (rule.formula1 !== undefined && rule.formula1 !== '') {
+    let f1 = rule.formula1
+    if (rule.allow === 'list' && !f1.startsWith('=') && !f1.startsWith('"')) {
+      f1 = `"${f1}"`
+    }
+    children += `<formula1>${escapeXmlText(f1)}</formula1>`
+  }
+  if (rule.formula2 !== undefined && rule.formula2 !== '') {
+    children += `<formula2>${escapeXmlText(rule.formula2)}</formula2>`
+  }
+
+  const attrStr = attrs.length ? ' ' + attrs.join(' ') : ''
+  if (children) {
+    return `<dataValidation${attrStr}>${children}</dataValidation>`
+  }
+  return `<dataValidation${attrStr}/>`
+}
+
+export function buildDataValidationsXml(rules: DataValidationRule[]): string {
+  if (!rules || !rules.length) return ''
+  const items = rules.map(buildDataValidationXml).join('')
+  return `<dataValidations count="${rules.length}">${items}</dataValidations>`
 }
 
 function injectVbaProject(files: Record<string, Uint8Array>, vba: VbaProject): void {
@@ -79,18 +164,48 @@ function injectVbaProject(files: Record<string, Uint8Array>, vba: VbaProject): v
 export function postProcessXlsx(
   zipBytes: Uint8Array,
   sheetFilters: (AutoFilter | undefined)[],
-  vba?: VbaProject
+  vba?: VbaProject,
+  sheetValidations?: (DataValidationRule[] | undefined)[]
 ): Uint8Array {
   const files = unzipSync(zipBytes)
-  sheetFilters.forEach((af, i) => {
-    if (!af || !Object.keys(af.columns).length) return
+  const sheetCount = Math.max(sheetFilters.length, sheetValidations?.length ?? 0)
+
+  for (let i = 0; i < sheetCount; i++) {
+    const af = sheetFilters[i]
+    const dvs = sheetValidations?.[i]
+    const hasAf = af && Object.keys(af.columns).length > 0
+    const hasDvs = dvs && dvs.length > 0
+    if (!hasAf && !hasDvs) continue
+
     const path = `xl/worksheets/sheet${i + 1}.xml`
     const xml = files[path]
-    if (!xml) return
-    const text = new TextDecoder('utf-8').decode(xml)
-    const patched = text.replace(/<autoFilter ref="[^"]*"\/>/, buildAutoFilterXml(af))
-    if (patched !== text) files[path] = new TextEncoder().encode(patched)
-  })
+    if (!xml) continue
+    let text = new TextDecoder('utf-8').decode(xml)
+
+    if (hasAf) {
+      text = text.replace(/<autoFilter ref="[^"]*"\/>/, buildAutoFilterXml(af!))
+    }
+
+    if (hasDvs) {
+      const dvXml = buildDataValidationsXml(dvs!)
+      if (dvXml) {
+        if (text.includes('<dataValidations')) {
+          text = text.replace(/<dataValidations[\s\S]*?<\/dataValidations>/, dvXml)
+        } else {
+          const insertBeforeRegex = /<(?:hyperlinks|printOptions|pageMargins|pageSetup|headerFooter|rowBreaks|colBreaks|customProperties|cellWatches|ignoredErrors|smartTags|drawing|drawingHF|picture|oleObjects|controls|webPublishItems|tableParts|extLst)[\s\/>]|<\/worksheet>/
+          const m = insertBeforeRegex.exec(text)
+          if (m) {
+            text = text.slice(0, m.index) + dvXml + text.slice(m.index)
+          } else {
+            text = text.replace('</worksheet>', dvXml + '</worksheet>')
+          }
+        }
+      }
+    }
+
+    files[path] = new TextEncoder().encode(text)
+  }
+
   if (vba) injectVbaProject(files, vba)
 
   const out: Record<string, Uint8Array> = {}

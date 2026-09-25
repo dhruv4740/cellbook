@@ -59,8 +59,9 @@ export function getListItems(
     }
   }
 
-  // Comma-separated list like "Apple, Banana, Orange"
-  return src.split(',').map((s) => s.trim()).filter(Boolean)
+  // Comma-separated list like "Apple, Banana, Orange" or 'Apple, Banana, Orange'
+  const clean = src.replace(/^"|"$/g, '')
+  return clean.split(',').map((s) => s.trim()).filter(Boolean)
 }
 
 function checkOperator(val: number, op: DvOperator | undefined, f1: number, f2?: number): boolean {

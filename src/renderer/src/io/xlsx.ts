@@ -13,6 +13,7 @@ import {
 import { extractSection, parseAttrs, parseRelationships, resolveRelTarget } from './fastXlsxXml'
 import type { VbaProject } from './xlsxPostProcess'
 import { postProcessXlsx } from './xlsxPostProcess'
+import { parseDataValidations } from './fastXlsx'
 
 // Re-exported for existing `from './xlsx'` call sites (the fast reader/worker import these
 // directly from xlsxShared instead, so they don't pull exceljs into their bundle - see fastXlsx.ts).
@@ -408,6 +409,12 @@ export async function readXlsxExceljs(data: Uint8Array): Promise<WorkbookData> {
       if (cfs.length > 0) layout.conditionalFormats = cfs
     }
 
+    const sheetXml = sheetXmlByName.get(ws.name)
+    if (sheetXml) {
+      const dvs = parseDataValidations(sheetXml)
+      if (dvs.length > 0) layout.dataValidations = dvs
+    }
+
     sheets.push({ name: ws.name, cells, layout })
   })
 
@@ -588,8 +595,12 @@ export async function writeXlsx(data: WorkbookData, vba?: VbaProject): Promise<U
   // AutoFilter per-column criteria and the VBA project part both need editing the raw package -
   // exceljs's object model can express neither. Skip the unzip/rezip when there's nothing to add.
   const sheetFilters = data.sheets.map((sd) => sd.layout?.autoFilter)
+  const sheetValidations = data.sheets.map((sd) => sd.layout?.dataValidations)
   const hasCriteria = sheetFilters.some((af) => af && Object.keys(af.columns).length)
-  return hasCriteria || vba ? postProcessXlsx(buf, sheetFilters, vba) : buf
+  const hasValidations = sheetValidations.some((dv) => dv && dv.length > 0)
+  return hasCriteria || hasValidations || vba
+    ? postProcessXlsx(buf, sheetFilters, vba, sheetValidations)
+    : buf
 }
 
 // ---------- read (fast path) ----------

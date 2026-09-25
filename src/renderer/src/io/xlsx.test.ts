@@ -323,4 +323,212 @@ describe('conditional formatting round trip', () => {
     expect(rules[0].format?.fill?.toUpperCase()).toBe('#FFC7CE')
     expect(rules[0].format?.color?.toUpperCase()).toBe('#9C0006')
   })
+
+  it('round-trips data validation covering all allow types, error styles, messages, lists, and dropdown flags', async () => {
+    const data: WorkbookData = {
+      sheets: [
+        {
+          name: 'ValidationSheet',
+          cells: {},
+          layout: {
+            dataValidations: [
+              // 1. whole number with between, stop error style, input & error messages
+              {
+                id: 'dv1',
+                ranges: [{ r1: 0, c1: 0, r2: 9, c2: 0 }],
+                allow: 'whole',
+                operator: 'between',
+                formula1: '10',
+                formula2: '100',
+                ignoreBlank: true,
+                showInputMessage: true,
+                inputTitle: 'Whole Number Hint',
+                inputMessage: 'Enter a value between 10 and 100',
+                showErrorAlert: true,
+                errorStyle: 'stop',
+                errorTitle: 'Invalid Number',
+                errorMessage: 'Value must be between 10 and 100'
+              },
+              // 2. decimal with greaterThan, warning error style
+              {
+                id: 'dv2',
+                ranges: [{ r1: 0, c1: 1, r2: 9, c2: 1 }],
+                allow: 'decimal',
+                operator: 'greaterThan',
+                formula1: '0.5',
+                errorStyle: 'warning',
+                showErrorAlert: true,
+                errorTitle: 'Warning',
+                errorMessage: 'Should be > 0.5'
+              },
+              // 3. list with literal items and dropdown enabled (inCellDropdown: true)
+              {
+                id: 'dv3',
+                ranges: [{ r1: 0, c1: 2, r2: 9, c2: 2 }],
+                allow: 'list',
+                formula1: '"Red,Green,Blue"',
+                inCellDropdown: true,
+                ignoreBlank: true
+              },
+              // 4. list with range source and dropdown hidden (inCellDropdown: false)
+              {
+                id: 'dv4',
+                ranges: [{ r1: 0, c1: 3, r2: 9, c2: 3 }],
+                allow: 'list',
+                formula1: '=Sheet1!$Z$1:$Z$5',
+                inCellDropdown: false,
+                ignoreBlank: false
+              },
+              // 5. date with lessThanOrEqual, information error style
+              {
+                id: 'dv5',
+                ranges: [{ r1: 0, c1: 4, r2: 9, c2: 4 }],
+                allow: 'date',
+                operator: 'lessThanOrEqual',
+                formula1: '2025-12-31',
+                errorStyle: 'information',
+                showErrorAlert: true,
+                errorTitle: 'Info',
+                errorMessage: 'Date must be within 2025'
+              },
+              // 6. time with notEqual
+              {
+                id: 'dv6',
+                ranges: [{ r1: 0, c1: 5, r2: 9, c2: 5 }],
+                allow: 'time',
+                operator: 'notEqual',
+                formula1: '12:00:00'
+              },
+              // 7. textLength with equal
+              {
+                id: 'dv7',
+                ranges: [{ r1: 0, c1: 6, r2: 9, c2: 6 }],
+                allow: 'textLength',
+                operator: 'equal',
+                formula1: '5'
+              },
+              // 8. custom with formula
+              {
+                id: 'dv8',
+                ranges: [{ r1: 0, c1: 7, r2: 9, c2: 7 }],
+                allow: 'custom',
+                formula1: '=ISNUMBER(H1)'
+              },
+              // 9. any allow type with input message only
+              {
+                id: 'dv9',
+                ranges: [{ r1: 0, c1: 8, r2: 9, c2: 8 }],
+                allow: 'any',
+                showInputMessage: true,
+                inputTitle: 'Any value',
+                inputMessage: 'Type anything here'
+              },
+              // 10. multi-range sqref
+              {
+                id: 'dv10',
+                ranges: [
+                  { r1: 0, c1: 9, r2: 5, c2: 9 },
+                  { r1: 0, c1: 11, r2: 5, c2: 11 }
+                ],
+                allow: 'whole',
+                operator: 'greaterThanOrEqual',
+                formula1: '0'
+              }
+            ]
+          }
+        }
+      ]
+    }
+
+    const bytes = await writeXlsx(data)
+
+    // Check raw XML in zip for valid OOXML
+    const files = unzipSync(bytes)
+    const sheetXml = new TextDecoder('utf-8').decode(files['xl/worksheets/sheet1.xml'])
+    expect(sheetXml).toContain('<dataValidations count="10">')
+    // Verify showDropDown="1" is emitted ONLY when inCellDropdown === false
+    expect(sheetXml).toContain('type="list"')
+    expect(sheetXml).toContain('showDropDown="1"')
+    // Verify multi-range sqref
+    expect(sheetXml).toContain('sqref="J1:J6 L1:L6"')
+
+    // Fast reader round-trip
+    const back = await readXlsx(bytes)
+    const dvs = back.sheets[0].layout?.dataValidations
+    expect(dvs).toBeDefined()
+    expect(dvs?.length).toBe(10)
+
+    // Verify 1: whole between
+    const r1 = dvs![0]
+    expect(r1.allow).toBe('whole')
+    expect(r1.operator).toBe('between')
+    expect(r1.formula1).toBe('10')
+    expect(r1.formula2).toBe('100')
+    expect(r1.ignoreBlank).toBe(true)
+    expect(r1.showInputMessage).toBe(true)
+    expect(r1.inputTitle).toBe('Whole Number Hint')
+    expect(r1.inputMessage).toBe('Enter a value between 10 and 100')
+    expect(r1.showErrorAlert).toBe(true)
+    expect(r1.errorStyle).toBe('stop')
+    expect(r1.errorTitle).toBe('Invalid Number')
+    expect(r1.errorMessage).toBe('Value must be between 10 and 100')
+
+    // Verify 2: decimal warning
+    const r2 = dvs![1]
+    expect(r2.allow).toBe('decimal')
+    expect(r2.operator).toBe('greaterThan')
+    expect(r2.formula1).toBe('0.5')
+    expect(r2.errorStyle).toBe('warning')
+    expect(r2.showErrorAlert).toBe(true)
+    expect(r2.errorTitle).toBe('Warning')
+
+    // Verify 3: list literal with inCellDropdown: true (dropdown shown)
+    const r3 = dvs![2]
+    expect(r3.allow).toBe('list')
+    expect(r3.formula1).toBe('"Red,Green,Blue"')
+    expect(r3.inCellDropdown).toBe(true)
+
+    // Verify 4: list range with inCellDropdown: false (dropdown hidden)
+    const r4 = dvs![3]
+    expect(r4.allow).toBe('list')
+    expect(r4.formula1).toBe('=Sheet1!$Z$1:$Z$5')
+    expect(r4.inCellDropdown).toBe(false)
+    expect(r4.ignoreBlank).toBe(false)
+
+    // Verify 5: date information
+    const r5 = dvs![4]
+    expect(r5.allow).toBe('date')
+    expect(r5.operator).toBe('lessThanOrEqual')
+    expect(r5.formula1).toBe('2025-12-31')
+    expect(r5.errorStyle).toBe('information')
+
+    // Verify 6: time
+    const r6 = dvs![5]
+    expect(r6.allow).toBe('time')
+    expect(r6.operator).toBe('notEqual')
+    expect(r6.formula1).toBe('12:00:00')
+
+    // Verify 7: textLength
+    const r7 = dvs![6]
+    expect(r7.allow).toBe('textLength')
+    expect(r7.operator).toBe('equal')
+    expect(r7.formula1).toBe('5')
+
+    // Verify 8: custom
+    const r8 = dvs![7]
+    expect(r8.allow).toBe('custom')
+    expect(r8.formula1).toBe('=ISNUMBER(H1)')
+
+    // Verify 9: any
+    const r9 = dvs![8]
+    expect(r9.allow).toBe('any')
+    expect(r9.showInputMessage).toBe(true)
+    expect(r9.inputTitle).toBe('Any value')
+
+    // Verify 10: multi-range sqref
+    const r10 = dvs![9]
+    expect(r10.ranges.length).toBe(2)
+    expect(r10.ranges[0]).toEqual({ r1: 0, c1: 9, r2: 5, c2: 9 })
+    expect(r10.ranges[1]).toEqual({ r1: 0, c1: 11, r2: 5, c2: 11 })
+  })
 })
