@@ -109,7 +109,7 @@ export default function Ribbon() {
         </div>
       )}
       {displayMenu && (
-        <div className="xl-menu-layer" onMouseDown={() => setDisplayMenu(false)}>
+        <div className="xl-menu-layer" style={{ pointerEvents: 'auto' }} onMouseDown={() => setDisplayMenu(false)}>
           <div className="xl-menu" style={{ position: 'fixed', right: 8, top: 62 }} onMouseDown={(e) => e.stopPropagation()}>
             <div className="xl-menu-item" onClick={() => { setUi({ ribbonCollapsed: false }); setDisplayMenu(false) }}><span className="xl-menu-label">Show Tabs and Commands</span></div>
             <div className="xl-menu-item" onClick={() => { setUi({ ribbonCollapsed: true }); setDisplayMenu(false) }}><span className="xl-menu-label">Show Tabs</span></div>

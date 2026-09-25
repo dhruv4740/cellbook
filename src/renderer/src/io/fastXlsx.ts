@@ -7,7 +7,7 @@ import { unzipSync } from 'fflate'
 import { shiftFormula } from '../engine/shiftFormula'
 import { stripFuturePrefixes } from '../engine/xlfn'
 import { resolveStructuredRefs, type TableDef } from '../engine/structuredRefs'
-import type { BorderSide, CellStyle, CfRule, HyperlinkData, CommentThread, DataValidationRule, DvAllowType, DvErrorStyle, DvOperator, FilterCriteria, NoteData, Range, SheetLayout } from '../model/types'
+import type { BorderSide, CellStyle, CfRule, HyperlinkData, CommentThread, DataValidationRule, DvAllowType, DvErrorStyle, DvOperator, FilterCriteria, NoteData, PageSetup, Range, SheetLayout } from '../model/types'
 import type { WorkbookData, DefinedNameData } from '../model/store'
 import { DEFAULT_AUTHOR, defaultLayout } from '../model/defaults'
 import {
@@ -155,6 +155,8 @@ export function parseXlsx(bytes: Uint8Array): WorkbookData & { vbaProject?: VbaP
     if (parsed.showHeadings !== undefined) layout.showHeadings = parsed.showHeadings
     if (parsed.zoom !== undefined) layout.zoom = parsed.zoom
     if (parsed.frozen) layout.frozen = parsed.frozen
+    const ps = parsePageSetup(xml)
+    if (ps) layout.pageSetup = ps
     if (parsed.tabColorAttrs) {
       const c = resolveColor(parseAttrs(parsed.tabColorAttrs, 0, parsed.tabColorAttrs.length), themeColors)
       if (c) layout.tabColor = c
@@ -205,6 +207,9 @@ export function parseXlsx(bytes: Uint8Array): WorkbookData & { vbaProject?: VbaP
     }
   }
 
+  sheetDefs.forEach((d, i) => {
+    if ((d.state === 'hidden' || d.state === 'veryHidden') && sheets[i]) sheets[i].layout = { ...sheets[i].layout, sheetHidden: d.state }
+  })
   const activeSheet = Math.max(0, Math.min(activeTab, sheets.length - 1))
   const names = parseDefinedNames(workbookXml)
   return { sheets, activeSheet, names: names.length ? names : undefined, vbaProject: parseVbaProject(files, relsXml, dec) }
@@ -279,15 +284,15 @@ function parseDefinedNames(xml: string): DefinedNameData[] {
   return out
 }
 
-function parseWorkbookSheets(xml: string): { sheets: { name: string; rId: string }[]; activeTab: number } {
-  const sheets: { name: string; rId: string }[] = []
+function parseWorkbookSheets(xml: string): { sheets: { name: string; rId: string; state?: string }[]; activeTab: number } {
+  const sheets: { name: string; rId: string; state?: string }[] = []
   const section = extractSection(xml, 'sheets')
   if (section) {
     const re = /<sheet\b([^>]*)\/?>/g
     let m: RegExpExecArray | null
     while ((m = re.exec(section))) {
       const a = parseAttrs(m[1], 0, m[1].length)
-      if (a.name !== undefined) sheets.push({ name: a.name, rId: a.id ?? '' })
+      if (a.name !== undefined) sheets.push({ name: a.name, rId: a.id ?? '', state: a.state })
     }
   }
   let activeTab = 0
@@ -762,6 +767,34 @@ function parseStyles(xml: string | undefined, themeColors: string[]): (CellStyle
     }
   }
   return out.length ? out : [undefined]
+}
+
+// ---------- page setup ----------
+const PAPER: Record<string, 'A4' | 'Letter' | 'Legal'> = { '1': 'Letter', '5': 'Legal', '9': 'A4' }
+function parsePageSetup(xml: string): PageSetup | undefined {
+  const tail = xml.slice(Math.max(0, xml.lastIndexOf('</sheetData>')))
+  const out: PageSetup = {}
+  const ps = /<pageSetup\b([^>]*)\/?>/.exec(tail)
+  if (ps) {
+    const a = parseAttrs(ps[1], 0, ps[1].length)
+    if (a.orientation === 'landscape') out.landscape = true
+    if (a.paperSize && PAPER[a.paperSize]) out.pageSize = PAPER[a.paperSize]
+    if (a.fitToHeight === '0' && /<pageSetUpPr\b[^>]*fitToPage="(1|true)"/.test(xml.slice(0, 4000))) out.fitColumns = true
+  }
+  const po = /<printOptions\b([^>]*)\/?>/.exec(tail)
+  if (po) {
+    const a = parseAttrs(po[1], 0, po[1].length)
+    if (a.gridLines === '1' || a.gridLines === 'true') out.gridlines = true
+    if (a.headings === '1' || a.headings === 'true') out.headings = true
+  }
+  const pm = /<pageMargins\b([^>]*)\/?>/.exec(tail)
+  if (pm) {
+    const a = parseAttrs(pm[1], 0, pm[1].length)
+    const l = parseFloat(a.left ?? '0.7')
+    if (l <= 0.3) out.margins = 'narrow'
+    else if (l >= 0.95) out.margins = 'wide'
+  }
+  return Object.keys(out).length ? out : undefined
 }
 
 // ---------- worksheet xml ----------

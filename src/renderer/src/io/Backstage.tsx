@@ -1,5 +1,6 @@
 // Excel 365's File backstage view: full-window overlay with the green nav pane on the left.
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { buildPrintHtml, runPrint, PrintOptions, DEFAULT_PRINT, optionsFor } from './print'
 import { store, useStore } from '../model/store'
 import { setUi, useUi } from '../chrome/ui'
 import {
@@ -267,60 +268,64 @@ function InfoPane() {
 }
 
 function PrintPane() {
-  const sheet = store.active
-  const used = store.usedRange(sheet)
-  const rows = used ? Math.min(used.r2 + 1, 60) : 0
-  const cols = used ? Math.min(used.c2 + 1, 20) : 0
+  const [o, setO] = useState<PrintOptions>(() => optionsFor(store.active))
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const html = useMemo(() => buildPrintHtml(o), [o])
+  const set = (p: Partial<PrintOptions>) => {
+    const next = { ...o, ...p }
+    setO(next)
+    // Page settings belong to the sheet (and are saved with it), as in Excel.
+    if (!('what' in p)) {
+      store.updateLayout(store.active, 'Page Setup', (l) => {
+        l.pageSetup = { landscape: next.landscape, pageSize: next.pageSize, margins: next.margins, fitColumns: next.scaling === 'fitColumns', gridlines: next.gridlines, headings: next.headings }
+      })
+    }
+  }
+  const go = async (mode: 'print' | 'pdf') => {
+    setBusy(true); setErr(null)
+    const e = await runPrint(o, mode)
+    setBusy(false)
+    if (e) setErr(e)
+  }
   return (
     <div className="bs-print-layout">
       <div className="bs-print-settings">
-        <button className="bs-btn" style={{ width: '100%', marginBottom: 20 }} onClick={() => window.print()}>Print</button>
-        <div className="bs-print-label">Copies</div>
-        <input className="bs-select" defaultValue={1} type="number" min={1} />
-        <div className="bs-print-label">Printer</div>
-        <select className="bs-select" defaultValue="pdf">
-          <option value="pdf">Microsoft Print to PDF</option>
-          <option value="xps">Microsoft XPS Document Writer</option>
-        </select>
+        <button className="bs-btn" style={{ width: '100%', marginBottom: 8 }} disabled={busy || !html} onClick={() => void go('print')}>Print</button>
+        <button className="bs-btn" style={{ width: '100%', marginBottom: 20 }} disabled={busy || !html} onClick={() => void go('pdf')}>Save as PDF</button>
+        {err && <div style={{ color: '#a4262c', fontSize: 12, marginBottom: 10 }}>{err}</div>}
         <div className="bs-print-label">Settings</div>
-        <select className="bs-select" defaultValue="active">
+        <select className="bs-select" value={o.what} onChange={(e) => set({ what: e.target.value as PrintOptions['what'] })}>
           <option value="active">Print Active Sheets</option>
           <option value="workbook">Print Entire Workbook</option>
           <option value="selection">Print Selection</option>
         </select>
-        <select className="bs-select" defaultValue="portrait">
+        <select className="bs-select" value={o.landscape ? 'landscape' : 'portrait'} onChange={(e) => set({ landscape: e.target.value === 'landscape' })}>
           <option value="portrait">Portrait Orientation</option>
           <option value="landscape">Landscape Orientation</option>
         </select>
-        <select className="bs-select" defaultValue="letter">
-          <option value="letter">Letter (8.5&quot; x 11&quot;)</option>
-          <option value="a4">A4 (8.27&quot; x 11.69&quot;)</option>
+        <select className="bs-select" value={o.pageSize} onChange={(e) => set({ pageSize: e.target.value as PrintOptions['pageSize'] })}>
+          <option value="A4">A4 (21 cm x 29.7 cm)</option>
+          <option value="Letter">Letter (21.59 cm x 27.94 cm)</option>
+          <option value="Legal">Legal (21.59 cm x 35.56 cm)</option>
         </select>
-        <select className="bs-select" defaultValue="normal">
+        <select className="bs-select" value={o.margins} onChange={(e) => set({ margins: e.target.value as PrintOptions['margins'] })}>
           <option value="normal">Normal Margins</option>
           <option value="wide">Wide Margins</option>
           <option value="narrow">Narrow Margins</option>
         </select>
-        <select className="bs-select" defaultValue="noscale">
-          <option value="noscale">No Scaling</option>
-          <option value="fitsheet">Fit Sheet on One Page</option>
+        <select className="bs-select" value={o.scaling} onChange={(e) => set({ scaling: e.target.value as PrintOptions['scaling'] })}>
+          <option value="none">No Scaling</option>
+          <option value="fitColumns">Fit All Columns on One Page</option>
         </select>
+        <label style={{ display: 'block', fontSize: 12, marginTop: 8 }}><input type="checkbox" checked={o.gridlines} onChange={(e) => set({ gridlines: e.target.checked })} /> Print gridlines</label>
+        <label style={{ display: 'block', fontSize: 12 }}><input type="checkbox" checked={o.headings} onChange={(e) => set({ headings: e.target.checked })} /> Print row and column headings</label>
+        <div style={{ fontSize: 11, color: '#666', marginTop: 12 }}>The printer, copies and page range are chosen in the Windows print dialog.</div>
       </div>
       <div className="bs-print-preview">
-        <div className="bs-print-page">
-          <table>
-            <tbody>
-              {Array.from({ length: rows }).map((_, r) => (
-                <tr key={r}>
-                  {Array.from({ length: cols }).map((_, c) => (
-                    <td key={c}>{store.getDisplay(sheet, r, c).text}</td>
-                  ))}
-                </tr>
-              ))}
-              {rows === 0 && <tr><td>&nbsp;</td></tr>}
-            </tbody>
-          </table>
-        </div>
+        {html
+          ? <iframe title="Print preview" srcDoc={html} className="bs-print-frame" style={{ width: (o.landscape ? 11.69 : 8.27) * 96 * 0.8, height: '100%', border: '1px solid #ccc', background: '#fff' }} />
+          : <div className="bs-print-page"><div style={{ padding: 20, color: '#666' }}>There is nothing to print on this sheet.</div></div>}
       </div>
     </div>
   )
@@ -330,11 +335,11 @@ function ExportPane() {
   return (
     <div className="bs-pad">
       <div className="bs-places-title" style={{ padding: 0 }}>Export</div>
-      <div className="bs-export-tile" onClick={() => window.print()}>
+      <div className="bs-export-tile" onClick={() => void runPrint(optionsFor(store.active), 'pdf')}>
         <div className="bs-tile-icon"><DocumentPdf20Regular fontSize={26} /></div>
         <div>
           <div className="bs-tile-title">Create PDF/XPS Document</div>
-          <div className="bs-tile-desc">Save a copy of the workbook that's fixed-layout and easy to share, using the browser's Print to PDF.</div>
+          <div className="bs-tile-desc">Save a copy of the workbook that's fixed-layout and easy to share, as a PDF file.</div>
         </div>
       </div>
       <div className="bs-export-tile" onClick={downloadCsv}>

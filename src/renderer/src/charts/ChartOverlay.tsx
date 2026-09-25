@@ -118,7 +118,7 @@ function contextMenuItems(store: ReturnType<typeof useStore>, sheet: SheetState,
   return [
     { label: 'Cu&t', shortcut: 'Ctrl+X' },
     { label: '&Copy', shortcut: 'Ctrl+C' },
-    { label: 'Paste &Options:' },
+    { label: 'Paste &Options:', disabled: true },
     'separator',
     { label: '&Reset to Match Style' },
     { label: '&Font...' },

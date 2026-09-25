@@ -588,7 +588,7 @@ export class WorkbookStore {
   }
 
   /** Whole-row/column selections are limited to the used range so styling them stays cheap. */
-  private clampToUsed(sheet: SheetState, rg: Range): Range {
+  clampToUsed(sheet: SheetState, rg: Range): Range {
     const used = this.usedRange(sheet)
     const lim = { r: Math.max(used?.r2 ?? 0, 200), c: Math.max(used?.c2 ?? 0, 50) }
     return { r1: rg.r1, c1: rg.c1, r2: Math.min(rg.r2, rg.r1 + lim.r), c2: Math.min(rg.c2, rg.c1 + lim.c) }
@@ -605,6 +605,19 @@ export class WorkbookStore {
               cells.push({ r, c, raw: '', style: what === 'all' ? undefined : this.getStyle(sheet, r, c) })
           this.setCells(sheet, cells, 'Clear')
         } else this.applyStyle(sheet, [n], () => ({}))
+      }
+      if (what === 'all') {
+        // Excel's Clear All also removes notes, comments and hyperlinks in the range.
+        const rs = ranges.map(normRange)
+        const inSel = (k: string) => { const [r, c] = k.split(',').map(Number); return rs.some((g) => r >= g.r1 && r <= g.r2 && c >= g.c1 && c <= g.c2) }
+        const l = sheet.layout
+        if (Object.keys(l.notes).some(inSel) || Object.keys(l.comments).some(inSel) || Object.keys(l.hyperlinks ?? {}).some(inSel)) {
+          this.updateLayout(sheet, 'Clear', (x) => {
+            x.notes = Object.fromEntries(Object.entries(x.notes).filter(([k]) => !inSel(k)))
+            x.comments = Object.fromEntries(Object.entries(x.comments).filter(([k]) => !inSel(k)))
+            if (x.hyperlinks) x.hyperlinks = Object.fromEntries(Object.entries(x.hyperlinks).filter(([k]) => !inSel(k)))
+          })
+        }
       }
     })
   }
@@ -837,10 +850,82 @@ export class WorkbookStore {
     this.broadcastOp({ type: 'moveSheet', from, to })
   }
 
+  /** Home > Format > Hide & Unhide > Hide Sheet. Excel keeps at least one sheet visible. */
+  hideSheet(index: number): string | null {
+    const s = this.sheets[index]
+    if (!s || s.layout.sheetHidden) return null
+    if (this.sheets.filter((o) => !o.layout.sheetHidden).length <= 1) return 'A workbook must contain at least one visible worksheet.'
+    const prevActive = this.activeIndex
+    this.commit(
+      'Hide Sheet',
+      () => {
+        s.layout = { ...s.layout, sheetHidden: 'hidden' }
+        if (this.activeIndex === index) this.activeIndex = this.nearestVisible(index)
+      },
+      () => { s.layout = { ...s.layout, sheetHidden: undefined }; this.activeIndex = prevActive }
+    )
+    return null
+  }
+
+  unhideSheet(index: number): void {
+    const s = this.sheets[index]
+    if (!s || !s.layout.sheetHidden) return
+    const prevActive = this.activeIndex
+    const was = s.layout.sheetHidden
+    this.commit(
+      'Unhide Sheet',
+      () => { s.layout = { ...s.layout, sheetHidden: undefined }; this.activeIndex = index },
+      () => { s.layout = { ...s.layout, sheetHidden: was }; this.activeIndex = prevActive }
+    )
+  }
+
+  /** The visible sheet closest to index (right first, like Excel after hiding the active sheet). */
+  nearestVisible(index: number): number {
+    for (let i = index + 1; i < this.sheets.length; i++) if (!this.sheets[i].layout.sheetHidden) return i
+    for (let i = index - 1; i >= 0; i--) if (!this.sheets[i].layout.sheetHidden) return i
+    return index
+  }
+
+  /** Move or Copy dialog: duplicates sheet `index` (cells, formulas, styles, layout) at position `to`. */
+  copySheet(index: number, to: number): void {
+    const src = this.sheets[index]
+    let base = src.name.replace(/ \(\d+\)$/, '')
+    let n = 2
+    const taken = new Set(this.sheets.map((o) => o.name.toLowerCase()))
+    let name = `${base} (${n})`
+    while (taken.has(name.toLowerCase())) name = `${base} (${++n})`
+    if (name.length > 31) { base = base.slice(0, 31 - ` (${n})`.length); name = `${base} (${n})` }
+    const content = this.hf.getSheetSerialized(this.hfId(src))
+    const prevActive = this.activeIndex
+    let dst: SheetState | undefined
+    this.commit(
+      'Copy Sheet',
+      () => {
+        dst = this.addSheetRaw(name, to)
+        this.hf.setSheetContent(this.hfId(dst), content)
+        src.styles.forEach((st, k) => dst!.styles.set(k, { ...st }))
+        dst.layout = { ...JSON.parse(JSON.stringify(src.layout)), sheetHidden: undefined }
+        this.activeIndex = to
+      },
+      () => {
+        this.hf.removeSheet(this.hfId(dst!))
+        this.sheets.splice(this.sheets.indexOf(dst!), 1)
+        this.activeIndex = prevActive
+      }
+    )
+  }
+
   setActiveSheet(index: number): void {
     if (index < 0 || index >= this.sheets.length || index === this.activeIndex) return
+    if (this.sheets[index].layout.sheetHidden) return
     this.activeIndex = index
     this.clipboard = null
+    this.notify()
+  }
+
+  /** F9 / Calculate Now: recomputes volatile functions (NOW, TODAY, RAND, OFFSET...). */
+  recalculate(): void {
+    try { this.hf.rebuildAndRecalculate() } catch { /* engine keeps its last values */ }
     this.notify()
   }
 
@@ -885,6 +970,11 @@ export class WorkbookStore {
     this.registerNames()
     if (!this.sheets.length) this.addSheetRaw('Sheet1', 0)
     this.activeIndex = Math.min(data.activeSheet ?? 0, this.sheets.length - 1)
+    if (this.sheets[this.activeIndex]?.layout.sheetHidden) {
+      const v = this.sheets.findIndex((sh) => !sh.layout.sheetHidden)
+      if (v >= 0) this.activeIndex = v
+      else this.sheets[0].layout.sheetHidden = undefined
+    }
     this.fileName = fileName
     this.filePath = filePath
     this.dirty = false
@@ -892,6 +982,77 @@ export class WorkbookStore {
     this.undoStack = []
     this.redoStack = []
     this.notify()
+  }
+
+  /** Formulas > Define Name / Name Manager. Returns Excel's error text, or null on success. */
+  defineName(name: string, refersTo: string, sheetUid?: number, replacing?: { name: string; sheetUid?: number }): string | null {
+    const nm = name.trim()
+    if (!/^[A-Za-z_\\][A-Za-z0-9_.\\]*$/.test(nm) || nm.length > 255 || /^[A-Za-z]{1,3}[0-9]+$/.test(nm) || /^[Rr]([0-9]*)?[Cc]?([0-9]*)?$/.test(nm) || /^[CcRr]$/.test(nm) || /^(TRUE|FALSE)$/i.test(nm))
+      return 'The name that you entered is not valid.\n\nReasons for this can include:\n• The name does not begin with a letter or underscore\n• The name contains a space or other invalid characters\n• The name conflicts with an Excel built-in name or the name of another object in the workbook'
+    const clash = this.names.find((n) => n.name.toLowerCase() === nm.toLowerCase() && n.sheetUid === sheetUid && !(replacing && n.name === replacing.name && n.sheetUid === replacing.sheetUid))
+    if (clash) return 'The name that you entered already exists. Enter a unique name.'
+    const ref = refersTo.trim().replace(/^=/, '')
+    if (!ref) return 'The formula contains an error.'
+    const scopeOf = (uid?: number) => { const sh = uid !== undefined ? this.sheetByUid(uid) : undefined; return sh ? this.hfId(sh) : undefined }
+    const old = replacing ? this.names.find((n) => n.name === replacing.name && n.sheetUid === replacing.sheetUid) : undefined
+    const oldRef = old ? (() => { try { return String(this.hf.getNamedExpressionFormula(old.name, scopeOf(old.sheetUid)) ?? '=' + old.ref).replace(/^=/, '') } catch { return old.ref } })() : ''
+    // Check the engine accepts it before touching anything.
+    try {
+      if (old) this.hf.removeNamedExpression(old.name, scopeOf(old.sheetUid))
+      this.hf.addNamedExpression(nm, '=' + ref, scopeOf(sheetUid))
+    } catch {
+      try { if (old) this.hf.addNamedExpression(old.name, '=' + oldRef, scopeOf(old.sheetUid)) } catch { /* ignore */ }
+      return 'The formula contains an error.'
+    }
+    try { this.hf.removeNamedExpression(nm, scopeOf(sheetUid)) } catch { /* ignore */ }
+    if (old) try { this.hf.addNamedExpression(old.name, '=' + oldRef, scopeOf(old.sheetUid)) } catch { /* ignore */ }
+    const entry = { name: nm, ref, sheetUid }
+    const oldEntry = old ? { ...old, ref: oldRef } : undefined
+    this.commit(
+      old ? 'Edit Name' : 'Define Name',
+      () => {
+        if (oldEntry) { this.names = this.names.filter((n) => !(n.name === oldEntry.name && n.sheetUid === oldEntry.sheetUid)); try { this.hf.removeNamedExpression(oldEntry.name, scopeOf(oldEntry.sheetUid)) } catch { /* */ } }
+        this.names = [...this.names, entry]
+        try { this.hf.addNamedExpression(entry.name, '=' + entry.ref, scopeOf(entry.sheetUid)) } catch { /* */ }
+      },
+      () => {
+        this.names = this.names.filter((n) => !(n.name === entry.name && n.sheetUid === entry.sheetUid))
+        try { this.hf.removeNamedExpression(entry.name, scopeOf(entry.sheetUid)) } catch { /* */ }
+        if (oldEntry) { this.names = [...this.names, oldEntry]; try { this.hf.addNamedExpression(oldEntry.name, '=' + oldEntry.ref, scopeOf(oldEntry.sheetUid)) } catch { /* */ } }
+      }
+    )
+    return null
+  }
+
+  /** Page Layout > Print Area > Set / Clear (Excel's _xlnm.Print_Area name for the sheet). */
+  setPrintArea(sheet: SheetState, ref: string | null): void {
+    const before = this.names
+    const rest = before.filter((n) => !(/^_xlnm\.Print_Area$/i.test(n.name) && n.sheetUid === sheet.uid))
+    const after = ref ? [...rest, { name: '_xlnm.Print_Area', ref, sheetUid: sheet.uid }] : rest
+    this.commit(ref ? 'Set Print Area' : 'Clear Print Area', () => { this.names = after }, () => { this.names = before })
+  }
+
+  deleteName(name: string, sheetUid?: number): void {
+    const scopeOf = (uid?: number) => { const sh = uid !== undefined ? this.sheetByUid(uid) : undefined; return sh ? this.hfId(sh) : undefined }
+    const old = this.names.find((n) => n.name === name && n.sheetUid === sheetUid)
+    if (!old) return
+    let ref = old.ref
+    try { const f = this.hf.getNamedExpressionFormula(name, scopeOf(sheetUid)); if (typeof f === 'string') ref = f.replace(/^=/, '') } catch { /* */ }
+    const entry = { ...old, ref }
+    this.commit(
+      'Delete Name',
+      () => { this.names = this.names.filter((n) => n !== entry && !(n.name === entry.name && n.sheetUid === entry.sheetUid)); try { this.hf.removeNamedExpression(entry.name, scopeOf(entry.sheetUid)) } catch { /* */ } },
+      () => { this.names = [...this.names, entry]; try { this.hf.addNamedExpression(entry.name, '=' + entry.ref, scopeOf(entry.sheetUid)) } catch { /* */ } }
+    )
+  }
+
+  /** Current "Refers to" text of a name (tracks row/column edits and sheet renames). */
+  nameRef(name: string, sheetUid?: number): string {
+    const n = this.names.find((x) => x.name === name && x.sheetUid === sheetUid)
+    if (!n) return ''
+    const sh = sheetUid !== undefined ? this.sheetByUid(sheetUid) : undefined
+    try { const f = this.hf.getNamedExpressionFormula(name, sh ? this.hfId(sh) : undefined); if (typeof f === 'string') return f } catch { /* */ }
+    return '=' + n.ref
   }
 
   /** Makes ordinary defined names usable in formulas. Built-in _xlnm.* names (print areas, filter

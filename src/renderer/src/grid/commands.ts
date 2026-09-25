@@ -6,6 +6,8 @@ import { setUi, getUi } from '../chrome/ui'
 import { CellStyle, Range, normRange, colName, MAX_ROWS, MAX_COLS, parseA1 } from '../model/types'
 import { shiftFormula } from '../engine/shiftFormula'
 import { generateSeries } from '../engine/autofill'
+import { adjustDecimals } from '../format/decimals'
+import { seriesValues, SeriesType, DateUnit } from '../engine/series'
 import { sortRange, detectHeaders, hasAdjacentData, findCurrentRegion } from '../data/sort'
 
 export type PasteKind = 'all' | 'values' | 'formulas' | 'formats' | 'transpose' | 'noBorders' | 'columnWidths' | 'link'
@@ -448,8 +450,25 @@ export function deleteShift(kind: 'left' | 'up' | 'row' | 'col'): void {
 }
 
 // ---------- clear / sort ----------
-export function clearSelection(what: 'all' | 'contents' | 'formats'): void {
-  store.clear(store.active, sel(), what)
+export function clearSelection(what: 'all' | 'contents' | 'formats' | 'notes' | 'hyperlinks'): void {
+  const sheet = store.active
+  if (what === 'notes' || what === 'hyperlinks') {
+    const ranges = sel().map(normRange)
+    const inSel = (key: string) => { const [r, c] = key.split(',').map(Number); return ranges.some((g) => r >= g.r1 && r <= g.r2 && c >= g.c1 && c <= g.c2) }
+    if (what === 'notes') {
+      store.updateLayout(sheet, 'Clear Comments and Notes', (l) => {
+        l.notes = Object.fromEntries(Object.entries(l.notes).filter(([k]) => !inSel(k)))
+        l.comments = Object.fromEntries(Object.entries(l.comments).filter(([k]) => !inSel(k)))
+      })
+    } else {
+      // Excel's Clear Hyperlinks removes the link but keeps the text and its formatting.
+      store.updateLayout(sheet, 'Clear Hyperlinks', (l) => {
+        if (l.hyperlinks) l.hyperlinks = Object.fromEntries(Object.entries(l.hyperlinks).filter(([k]) => !inSel(k)))
+      })
+    }
+    return
+  }
+  store.clear(sheet, sel(), what)
 }
 
 export function openSortDialog(): void {
@@ -980,4 +999,128 @@ export function pickListValues(): string[] {
     if (!seen.has(disp)) { seen.add(disp); out.push(disp) }
   }
   return out
+}
+
+// ---------- Home > Format as Table / Insert > Table ----------
+/** Excel's built-in table style families: [header fill, band fill, border colour]. */
+export const TABLE_STYLES: { name: string; header: string; band: string; line: string; headerFont: string }[] = [
+  { name: 'Blue, Table Style Medium 2', header: '#4472C4', band: '#D9E1F2', line: '#8EA9DB', headerFont: '#FFFFFF' },
+  { name: 'Orange, Table Style Medium 3', header: '#ED7D31', band: '#FCE4D6', line: '#F4B084', headerFont: '#FFFFFF' },
+  { name: 'Gray, Table Style Medium 4', header: '#A5A5A5', band: '#EDEDED', line: '#C9C9C9', headerFont: '#FFFFFF' },
+  { name: 'Gold, Table Style Medium 5', header: '#FFC000', band: '#FFF2CC', line: '#FFD966', headerFont: '#FFFFFF' },
+  { name: 'Light Blue, Table Style Medium 6', header: '#5B9BD5', band: '#DDEBF7', line: '#9BC2E6', headerFont: '#FFFFFF' },
+  { name: 'Green, Table Style Medium 7', header: '#70AD47', band: '#E2EFDA', line: '#A9D08E', headerFont: '#FFFFFF' },
+  { name: 'Light Blue, Table Style Light 9', header: '#4472C4', band: '#FFFFFF', line: '#4472C4', headerFont: '#FFFFFF' },
+  { name: 'Black, Table Style Medium 1', header: '#000000', band: '#D9D9D9', line: '#000000', headerFont: '#FFFFFF' }
+]
+
+/**
+ * Formats the selection (or the current region around the active cell) as a banded table with
+ * a filter on the header row, in one undo step. Cellbook stores this as ordinary formatting plus
+ * an AutoFilter; it isn't saved as an Excel table object.
+ */
+export function formatAsTable(styleIndex = 0): void {
+  const sheet = store.active
+  const n = normRange(activeRange())
+  const region = n.r1 !== n.r2 || n.c1 !== n.c2 ? store.clampToUsed(sheet, n) : store.currentRegion(sheet, sheet.selection.active.r, sheet.selection.active.c)
+  if (region.r2 <= region.r1 && region.c1 === region.c2 && !store.getRaw(sheet, region.r1, region.c1)) {
+    setUi({ dialog: { kind: 'message', props: { text: 'Select a range with data first, then choose Format as Table.' } } })
+    return
+  }
+  const t = TABLE_STYLES[styleIndex] ?? TABLE_STYLES[0]
+  const side = { style: 'thin' as const, color: t.line }
+  store.transact('Format as Table', () => {
+    store.applyStyle(sheet, [region], (s, r) => {
+      const next: CellStyle = { ...s, borders: { top: side, bottom: side, left: side, right: side } }
+      if (r === region.r1) Object.assign(next, { bold: true, fill: t.header, color: t.headerFont })
+      else next.fill = (r - region.r1) % 2 === 1 ? t.band : undefined
+      return next
+    })
+    if (sheet.layout.autoFilter) store.toggleAutoFilter(sheet)
+    store.setSelection({ ranges: [region], active: { r: region.r1, c: region.c1 } })
+    store.toggleAutoFilter(sheet)
+  })
+}
+
+// ---------- Home > Fill > Series... ----------
+export interface SeriesOptions { byRows: boolean; type: SeriesType; unit: DateUnit; step: number; stop?: number }
+
+/** Fills each row/column of the selection from its first cell, as Excel's Series dialog. */
+export function fillSeries(o: SeriesOptions): string | null {
+  const sheet = store.active
+  const n = normRange(activeRange())
+  const cells: { r: number; c: number; raw: string; style?: CellStyle }[] = []
+  const lanes = o.byRows ? [n.r1, n.r2] : [n.c1, n.c2]
+  for (let lane = lanes[0]; lane <= lanes[1]; lane++) {
+    const r0 = o.byRows ? lane : n.r1, c0 = o.byRows ? n.c1 : lane
+    const v = store.getValue(sheet, r0, c0)
+    if (typeof v !== 'number') continue
+    let count = o.byRows ? n.c2 - n.c1 : n.r2 - n.r1
+    if (count === 0) {
+      if (o.stop === undefined) continue
+      if ((o.type === 'growth' && Math.abs(o.step) <= 1) || (o.type !== 'growth' && o.step === 0)) return 'That step value would never reach the stop value.'
+      count = o.byRows ? MAX_COLS - 1 - c0 : Math.min(MAX_ROWS - 1 - r0, 1_000_000)
+    }
+    const vals = seriesValues(v, count, o.type, o.step, o.stop, o.unit)
+    const style = store.getStyle(sheet, r0, c0)
+    vals.forEach((x, k) => cells.push({ r: o.byRows ? r0 : r0 + k + 1, c: o.byRows ? c0 + k + 1 : c0, raw: String(x), style }))
+  }
+  if (!cells.length) return 'Select a range whose first cell contains a number or date (and, for a single cell, enter a Stop value).'
+  store.setCells(sheet, cells, 'Series')
+  return null
+}
+
+/** View > Zoom to Selection: zooms so the selected range fills the grid area. */
+export function zoomToSelection(): void {
+  const sheet = store.active
+  const n = normRange(activeRange())
+  let w = 0, h = 0
+  for (let c = n.c1; c <= Math.min(n.c2, n.c1 + 500); c++) if (!sheet.layout.hiddenCols[c]) w += store.colWidth(sheet, c)
+  for (let r = n.r1; r <= Math.min(n.r2, n.r1 + 2000); r++) if (!sheet.layout.hiddenRows[r]) h += store.rowHeight(sheet, r)
+  const host = document.querySelector('.grid-host') as HTMLElement | null
+  const W = (host?.clientWidth ?? window.innerWidth) - 60, H = (host?.clientHeight ?? window.innerHeight - 250) - 40
+  const z = Math.max(10, Math.min(400, Math.floor(100 * Math.min(W / Math.max(1, w), H / Math.max(1, h)))))
+  store.updateLayout(sheet, 'Zoom', (l) => (l.zoom = z))
+}
+
+/** Home > Increase / Decrease Decimal, based on the active cell's format (as Excel). */
+export function adjustDecimal(delta: 1 | -1): void {
+  const sheet = store.active
+  const a = sheet.selection.active
+  const fmt = adjustDecimals(store.getStyle(sheet, a.r, a.c)?.numFmt, store.getDisplay(sheet, a.r, a.c).text, delta)
+  store.applyStyle(sheet, sel(), { numFmt: fmt }, delta > 0 ? 'Increase Decimal' : 'Decrease Decimal')
+}
+
+/** Home > Borders presets. Edge presets (Bottom, Top, Left, Right...) apply to the outer edge of
+ *  each selected range, like Excel; All Borders applies to every cell. One undo step. */
+export function applyBorderPreset(kind: string): void {
+  const sheet = store.active
+  const thin = { style: 'thin', color: '#000000' } as const
+  const thick = { style: 'medium', color: '#000000' } as const
+  const dbl = { style: 'double', color: '#000000' } as const
+  store.transact('Borders', () => {
+    for (const rg of sel()) {
+      const n = normRange(rg)
+      store.applyStyle(sheet, [rg], (s, r, c) => {
+        const b: NonNullable<CellStyle['borders']> = { ...s.borders }
+        const top = r === n.r1, bottom = r === n.r2, left = c === n.c1, right = c === n.c2
+        switch (kind) {
+          case 'bottom': if (bottom) b.bottom = thin; break
+          case 'top': if (top) b.top = thin; break
+          case 'left': if (left) b.left = thin; break
+          case 'right': if (right) b.right = thin; break
+          case 'none': delete b.top; delete b.right; delete b.bottom; delete b.left; break
+          case 'all': b.top = thin; b.bottom = thin; b.left = thin; b.right = thin; break
+          case 'outside': if (top) b.top = thin; if (bottom) b.bottom = thin; if (left) b.left = thin; if (right) b.right = thin; break
+          case 'thickOutside': if (top) b.top = thick; if (bottom) b.bottom = thick; if (left) b.left = thick; if (right) b.right = thick; break
+          case 'bottomDouble': if (bottom) b.bottom = dbl; break
+          case 'thickBottom': if (bottom) b.bottom = thick; break
+          case 'topBottom': if (top) b.top = thin; if (bottom) b.bottom = thin; break
+          case 'topThickBottom': if (top) b.top = thin; if (bottom) b.bottom = thick; break
+          case 'topDoubleBottom': if (top) b.top = thin; if (bottom) b.bottom = dbl; break
+        }
+        return { ...s, borders: Object.keys(b).length ? b : undefined }
+      }, 'Borders')
+    }
+  })
 }

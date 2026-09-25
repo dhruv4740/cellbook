@@ -4,6 +4,7 @@
 import { ReactNode } from 'react'
 import { Group, GroupSep, BigButton, SmallButton, DialogLauncher } from './controls'
 import { MenuItem } from '../../components/Menu'
+import { notAvailable } from '../ui'
 
 export interface GBtn {
   label: string
@@ -33,20 +34,20 @@ export function GenericTab({ groups }: { groups: GGroup[] }) {
         <div key={gi} style={{ display: 'contents' }}>
           <Group label={g.label} icon={g.big?.[0]?.icon ?? g.rows?.[0]?.[0]?.icon}>
             {g.big?.map((b, i) => (
-              <BigButton key={i} icon={b.icon} label={b.label} menu={b.menu} onClick={b.onClick ?? (() => {})} active={b.active} wide={b.wide ?? b.label.length > 7} tip={{ title: b.label, desc: b.desc, shortcut: b.shortcut }} keytip={b.keytip} />
+              <BigButton key={i} icon={b.icon} label={b.label} menu={b.menu} onClick={b.onClick ?? (() => notAvailable(b.label))} active={b.active} wide={b.wide ?? b.label.length > 7} tip={{ title: b.label, desc: b.desc, shortcut: b.shortcut }} keytip={b.keytip} />
             ))}
             {g.rows && (
               <div className="xl-col xl-stack">
                 {g.rows.map((row, ri) => (
                   <div className="xl-row" key={ri}>
                     {row.map((b, bi) => (
-                      <SmallButton key={bi} icon={b.icon} label={b.label} menu={b.menu} onClick={b.onClick ?? (() => {})} active={b.active} tip={{ title: b.label, desc: b.desc, shortcut: b.shortcut }} keytip={b.keytip} />
+                      <SmallButton key={bi} icon={b.icon} label={b.label} menu={b.menu} onClick={b.onClick ?? (() => notAvailable(b.label))} active={b.active} tip={{ title: b.label, desc: b.desc, shortcut: b.shortcut }} keytip={b.keytip} />
                     ))}
                   </div>
                 ))}
               </div>
             )}
-            {g.launcher && <DialogLauncher tip={{ title: g.label }} onClick={g.onLauncher ?? (() => {})} />}
+            {g.launcher && <DialogLauncher tip={{ title: g.label }} onClick={g.onLauncher ?? (() => notAvailable(g.label))} />}
           </Group>
           <GroupSep />
         </div>

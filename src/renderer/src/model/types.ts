@@ -82,6 +82,15 @@ export interface CommentThread {
   replies: CommentReply[]
 }
 
+export interface PageSetup {
+  landscape?: boolean
+  pageSize?: 'A4' | 'Letter' | 'Legal'
+  margins?: 'normal' | 'wide' | 'narrow'
+  fitColumns?: boolean
+  gridlines?: boolean
+  headings?: boolean
+}
+
 export interface SheetLayout {
   colWidths: Record<number, number> // px, default DEFAULT_COL_WIDTH
   rowHeights: Record<number, number> // px, default DEFAULT_ROW_HEIGHT
@@ -93,6 +102,10 @@ export interface SheetLayout {
   showHeadings: boolean
   zoom: number // 10..400 percent
   tabColor?: string
+  /** Home > Format > Hide Sheet (Excel's sheet state; 'veryHidden' is only settable from VBA). */
+  sheetHidden?: 'hidden' | 'veryHidden'
+  /** Page Layout settings used by Print / PDF and saved to the file. */
+  pageSetup?: PageSetup
   autoFilter?: AutoFilter
   notes: Record<string, NoteData> // key 'r,c'
   comments: Record<string, CommentThread> // key 'r,c'

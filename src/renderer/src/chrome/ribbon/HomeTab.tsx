@@ -1,7 +1,8 @@
 // Home tab: Clipboard, Font, Alignment, Number, Styles, Cells, Editing, Add-ins.
 import { ReactNode, useRef, useState } from 'react'
 import { useStore } from '../../model/store'
-import { useUi, setUi, getUi } from '../ui'
+import { useUi, setUi, getUi, notAvailable } from '../ui'
+import { hideSheet } from '../sheetCommands'
 import { CellStyle, normRange } from '../../model/types'
 import { MenuItem } from '../../components/Menu'
 import { Group, GroupSep, BigButton, SplitButton, StackSplit, SmallButton, DialogLauncher, Combo, KeyTipBadge } from './controls'
@@ -89,52 +90,18 @@ export default function HomeTab() {
   const [colorMenu, setColorMenu] = useState<{ x: number; y: number; mode: 'font' | 'fill' } | null>(null)
   const [lastFontColor, setLastFontColor] = useState('#FF0000')
   const [lastFill, setLastFill] = useState('#FFFF00')
+  const [lastBorder, setLastBorder] = useState('bottom')
 
   const setStyle = (patch: Partial<CellStyle>, label = 'Format Cells') => store.applyStyle(sheet, ranges, patch, label)
   const toggle = (key: 'bold' | 'italic' | 'strike', label: string) => setStyle({ [key]: !style[key] } as Partial<CellStyle>, label)
 
   const applyBorders = (kind: string) => {
-    ranges.forEach((rg) => {
-      const n = normRange(rg)
-      store.applyStyle(sheet, [rg], (s, r, c) => {
-        const b: NonNullable<CellStyle['borders']> = { ...s.borders }
-        const thin = { style: 'thin', color: '#000000' } as const
-        const thick = { style: 'medium', color: '#000000' } as const
-        const clearAll = () => { delete b.top; delete b.right; delete b.bottom; delete b.left }
-        switch (kind) {
-          case 'bottom': b.bottom = thin; break
-          case 'top': b.top = thin; break
-          case 'left': b.left = thin; break
-          case 'right': b.right = thin; break
-          case 'none': clearAll(); break
-          case 'all': b.top = thin; b.bottom = thin; b.left = thin; b.right = thin; break
-          case 'outside':
-            if (r === n.r1) b.top = thin; if (r === n.r2) b.bottom = thin
-            if (c === n.c1) b.left = thin; if (c === n.c2) b.right = thin
-            break
-          case 'thickOutside':
-            if (r === n.r1) b.top = thick; if (r === n.r2) b.bottom = thick
-            if (c === n.c1) b.left = thick; if (c === n.c2) b.right = thick
-            break
-          case 'bottomDouble': b.bottom = { style: 'double', color: '#000000' }; break
-          case 'thickBottom': b.bottom = thick; break
-          case 'topBottom': b.top = thin; b.bottom = thin; break
-          case 'topThickBottom': b.top = thin; b.bottom = thick; break
-        }
-        return { ...s, borders: Object.keys(b).length ? b : undefined }
-      }, 'Borders')
-    })
+    setLastBorder(kind)
+    cmds.applyBorderPreset(kind)
   }
 
-  const decimalAdjust = (delta: number) => {
-    const cur = style.numFmt && style.numFmt !== 'General' ? style.numFmt : '0'
-    const isPct = /%$/.test(cur)
-    const isCur = /^\$/.test(cur)
-    const m = /\.(0+)/.exec(cur)
-    const dec = Math.max(0, (m ? m[1].length : 0) + delta)
-    const base = isCur ? '$#,##0' : (/#,##0/.test(cur) ? '#,##0' : '0')
-    setStyle({ numFmt: base + (dec > 0 ? '.' + '0'.repeat(dec) : '') + (isPct ? '%' : '') }, 'Number Format')
-  }
+
+  const decimalAdjust = (delta: 1 | -1) => cmds.adjustDecimal(delta)
 
   const curFmtName = NUMFMT.find(([, code]) => code === (style.numFmt || 'General'))?.[0] ?? (style.numFmt || 'General')
 
@@ -167,6 +134,7 @@ export default function HomeTab() {
     { label: 'Thick Botto&m Border', onClick: () => applyBorders('thickBottom') },
     { label: 'T&op and Bottom Border', onClick: () => applyBorders('topBottom') },
     { label: 'Top and Thick Bottom Border', onClick: () => applyBorders('topThickBottom') },
+    { label: 'Top and Double Bottom Border', onClick: () => applyBorders('topDoubleBottom') },
     'separator',
     { label: '&More Borders...', onClick: () => setUi({ dialog: { kind: 'formatCells', props: { tab: 'Border' } } }) }
   ]
@@ -207,11 +175,11 @@ export default function HomeTab() {
   const hideUnhideMenu: MenuItem[] = [
     { label: 'Hide &Rows', onClick: () => cmds.hideRows(true) },
     { label: 'Hide &Columns', onClick: () => cmds.hideColumns(true) },
-    { label: 'Hide &Sheet', onClick: () => {} },
+    { label: 'Hide &Sheet', onClick: () => hideSheet() },
     'separator',
     { label: '&Unhide Rows...', onClick: () => cmds.hideRows(false) },
     { label: 'U&nhide Columns...', onClick: () => cmds.hideColumns(false) },
-    { label: 'Unhide S&heet...', onClick: () => {} }
+    { label: 'Unhide S&heet...', disabled: !store.sheets.some((s) => s.layout.sheetHidden === 'hidden'), onClick: () => setUi({ dialog: { kind: 'unhideSheet' } }) }
   ]
   const formatMenu: MenuItem[] = [
     { label: 'Row &Height...', onClick: () => setUi({ dialog: { kind: 'rowHeight' } }) },
@@ -223,10 +191,17 @@ export default function HomeTab() {
     { label: 'Hide, &Unhide', submenu: hideUnhideMenu },
     'separator',
     { label: '&Rename Sheet', onClick: () => setUi({ dialog: { kind: 'renameSheet' } }) },
-    { label: '&Move or Copy Sheet...', onClick: () => {} },
-    { label: 'Ta&b Color', onClick: () => {} },
+    { label: '&Move or Copy Sheet...', onClick: () => setUi({ dialog: { kind: 'moveCopySheet', props: { index: store.activeIndex } } }) },
+    {
+      label: 'Ta&b Color',
+      submenu: ['#FF0000', '#FFC000', '#FFFF00', '#92D050', '#00B050', '#00B0F0', '#0070C0', '#002060', '#7030A0', 'No Color'].map((c) => ({
+        label: c === 'No Color' ? '&No Color' : c,
+        icon: c === 'No Color' ? undefined : <span style={{ display: 'inline-block', width: 12, height: 12, background: c }} />,
+        onClick: () => store.updateLayout(store.active, 'Tab Color', (l) => (l.tabColor = c === 'No Color' ? undefined : c))
+      }))
+    },
     'separator',
-    { label: '&Protect Sheet...', onClick: () => {} },
+    { label: '&Protect Sheet...', onClick: () => notAvailable('Protect Sheet') },
     { label: '&Lock Cell', onClick: () => setStyle({ locked: !style.locked }, 'Lock Cell') },
     { label: 'Format C&ells...', shortcut: 'Ctrl+1', onClick: () => setUi({ dialog: { kind: 'formatCells', props: { tab: 'Number' } } }) }
   ]
@@ -245,15 +220,15 @@ export default function HomeTab() {
     { label: '&Up', onClick: () => cmds.fill('up') },
     { label: '&Left', onClick: () => cmds.fill('left') },
     'separator',
-    { label: '&Series...', onClick: () => {} },
-    { label: '&Justify', onClick: () => {} }
+    { label: '&Series...', onClick: () => setUi({ dialog: { kind: 'series' } }) },
+    { label: '&Justify', onClick: () => notAvailable('Justify') }
   ]
   const clearMenu: MenuItem[] = [
     { label: 'Clear &All', onClick: () => cmds.clearSelection('all') },
     { label: 'Clear &Formats', onClick: () => cmds.clearSelection('formats') },
     { label: 'Clear &Contents', shortcut: 'Del', onClick: () => cmds.clearSelection('contents') },
-    { label: 'Clear Co&mments and Notes', onClick: () => {} },
-    { label: 'Clear H&yperlinks', onClick: () => {} }
+    { label: 'Clear Co&mments and Notes', onClick: () => cmds.clearSelection('notes') },
+    { label: 'Clear H&yperlinks', onClick: () => cmds.clearSelection('hyperlinks') }
   ]
   const sortMenu: MenuItem[] = [
     { label: 'Sort &A to Z', onClick: () => cmds.sortSelection('asc') },
@@ -292,7 +267,7 @@ export default function HomeTab() {
       }
     },
     'separator',
-    { label: 'Select Objects', onClick: () => {} }
+    { label: 'Select Objects', onClick: () => notAvailable('Select Objects') }
   ]
 
   const cfMenu: MenuItem[] = [
@@ -396,7 +371,7 @@ export default function HomeTab() {
         </div>
         <div className="xl-col xl-stack">
           <SmallButton icon={<Cut20Regular />} label="Cut" tip={{ title: 'Cut (Ctrl+X)' }} onClick={() => cmds.cut()} keytip="X" />
-          <SmallButton icon={<Copy20Regular />} label="Copy" menu={[{ label: '&Copy', onClick: () => cmds.copy() }, { label: 'Copy as &Picture...', onClick: () => {} }]} tip={{ title: 'Copy (Ctrl+C)' }} onClick={() => cmds.copy()} keytip="C" />
+          <SmallButton icon={<Copy20Regular />} label="Copy" menu={[{ label: '&Copy', onClick: () => cmds.copy() }, { label: 'Copy as &Picture...', onClick: () => notAvailable('Copy as Picture') }]} tip={{ title: 'Copy (Ctrl+C)' }} onClick={() => cmds.copy()} keytip="C" />
           <SmallButton
             icon={<PaintBrush20Regular />}
             label="Format Painter"
@@ -421,9 +396,9 @@ export default function HomeTab() {
           <div className="xl-row">
             <SmallButton icon={<TextBold20Regular />} active={!!style.bold} tip={{ title: 'Bold (Ctrl+B)' }} onClick={() => toggle('bold', 'Bold')} keytip="1" />
             <SmallButton icon={<TextItalic20Regular />} active={!!style.italic} tip={{ title: 'Italic (Ctrl+I)' }} onClick={() => toggle('italic', 'Italic')} keytip="2" />
-            <SmallButton icon={<TextUnderline20Regular />} active={!!style.underline} tip={{ title: 'Underline (Ctrl+U)' }} menu={underlineMenu} onClick={() => setStyle({ underline: style.underline ? undefined : 'single' }, 'Underline')} keytip="3" />
+            <SmallButton icon={<TextUnderline20Regular />} active={!!style.underline} tip={{ title: 'Underline (Ctrl+U)' }} split menu={underlineMenu} onClick={() => setStyle({ underline: style.underline ? undefined : 'single' }, 'Underline')} keytip="3" />
             <SmallButton icon={<TextStrikethrough20Regular />} active={!!style.strike} tip={{ title: 'Strikethrough' }} onClick={() => toggle('strike', 'Strikethrough')} keytip="4" />
-            <SmallButton icon={<BorderAll20Regular />} tip={{ title: 'Borders' }} menu={bordersMenu} onClick={() => applyBorders('bottom')} keytip="B" />
+            <SmallButton icon={<BorderAll20Regular />} tip={{ title: 'Borders' }} split menu={bordersMenu} onClick={() => applyBorders(lastBorder)} keytip="B" />
             <ColorSplit
               icon={<PaintBucket20Regular />}
               color={lastFill}
@@ -452,7 +427,7 @@ export default function HomeTab() {
             <SmallButton icon={<AlignTop20Regular />} active={style.vAlign === 'top'} tip={{ title: 'Top Align' }} onClick={() => setStyle({ vAlign: 'top' }, 'Align')} keytip="AT" />
             <SmallButton icon={<AlignCenterVertical20Regular />} active={style.vAlign === 'middle'} tip={{ title: 'Middle Align' }} onClick={() => setStyle({ vAlign: 'middle' }, 'Align')} keytip="AM" />
             <SmallButton icon={<AlignBottom20Regular />} active={style.vAlign === 'bottom'} tip={{ title: 'Bottom Align' }} onClick={() => setStyle({ vAlign: 'bottom' }, 'Align')} keytip="AB" />
-            <SmallButton icon={<TextAlignCenterRotate27020Regular />} tip={{ title: 'Orientation' }} menu={orientationMenu} onClick={() => {}} keytip="TQ" />
+            <SmallButton icon={<TextAlignCenterRotate27020Regular />} tip={{ title: 'Orientation' }} menu={orientationMenu} keytip="TQ" />
           </div>
           <div className="xl-row">
             <SmallButton icon={<AlignLeft20Regular />} active={style.hAlign === 'left'} tip={{ title: 'Align Left' }} onClick={() => setStyle({ hAlign: 'left' }, 'Align')} keytip="AL" />
@@ -489,14 +464,13 @@ export default function HomeTab() {
       <GroupSep />
 
       <Group label="Styles" icon={<TableCellsMerge20Regular />}>
-        <BigButton wide icon={<TableCellsMerge20Regular fontSize={28} />} label="Conditional Formatting" tip={{ title: 'Conditional Formatting' }} menu={cfMenu} onClick={() => {}} keytip="L" />
-        <BigButton wide icon={<TableSimple20Regular fontSize={28} />} label="Format as Table" tip={{ title: 'Format as Table' }} menu={[{ label: 'New Table Style...', onClick: () => {} }]} onClick={() => {}} keytip="T" />
+        <BigButton wide icon={<TableCellsMerge20Regular fontSize={28} />} label="Conditional Formatting" tip={{ title: 'Conditional Formatting' }} menu={cfMenu} keytip="L" />
+        <BigButton wide icon={<TableSimple20Regular fontSize={28} />} label="Format as Table" tip={{ title: 'Format as Table' }} menu={[...cmds.TABLE_STYLES.map((t, i) => ({ label: t.name, icon: <span style={{ display: 'inline-block', width: 14, height: 12, background: `linear-gradient(${t.header} 0 34%, ${t.band} 34% 67%, #fff 67%)`, border: `1px solid ${t.line}` }} />, onClick: () => cmds.formatAsTable(i) } as MenuItem)), 'separator', { label: 'New Table Style...', onClick: () => notAvailable('New Table Style') }]} keytip="T" />
         <BigButton
           wide
           icon={<TableInsertRow20Regular fontSize={28} />}
           label="Cell Styles"
           tip={{ title: 'Cell Styles' }}
-          onClick={() => {}}
           menu={CELL_STYLES.map(([name, s]) => ({ label: name, onClick: () => setStyle(s, 'Cell Styles') } as MenuItem))}
           keytip="J"
         />
@@ -524,11 +498,11 @@ export default function HomeTab() {
       <GroupSep />
 
       <Group label="Add-ins" icon={<DataFunnel20Regular />}>
-        <BigButton icon={<DataFunnel20Regular fontSize={28} />} label="Get Add-ins" tip={{ title: 'Get Add-ins' }} onClick={() => {}} />
+        <BigButton icon={<DataFunnel20Regular fontSize={28} />} label="Get Add-ins" tip={{ title: 'Get Add-ins' }} onClick={() => notAvailable('Get Add-ins')} />
       </Group>
       <GroupSep />
       <Group label="Analysis" icon={<DataHistogram20Regular />}>
-        <BigButton icon={<DataHistogram20Regular fontSize={28} />} label="Analyze Data" tip={{ title: 'Analyze Data' }} onClick={() => {}} />
+        <BigButton icon={<DataHistogram20Regular fontSize={28} />} label="Analyze Data" tip={{ title: 'Analyze Data' }} onClick={() => notAvailable('Analyze Data')} />
       </Group>
 
       {colorMenu && (

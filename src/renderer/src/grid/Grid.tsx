@@ -19,6 +19,7 @@ import { COLUMN_BAR_GALLERY } from '../charts/gallery'
 import { AutoFilterMenu } from './AutoFilterMenu'
 import { NoteBox, NoteTooltip, CommentBox, closeNoteEditor, closeCommentPanel } from './Annotations'
 import { evaluateCf } from '../format/conditional'
+import { linkAt, followLink } from './links'
 import { getValidationForCell, getListItems } from '../data/dataValidation'
 import {
   Cut20Regular, Copy20Regular, ClipboardPaste20Regular, ClipboardTaskRegular, ClipboardCodeRegular,
@@ -809,6 +810,7 @@ export default function Grid() {
     return null
   }
 
+  const linkClick = useRef<{ r: number; c: number; t: number } | null>(null)
   function onMouseDown(e: React.MouseEvent): void {
     if (e.button === 2) return
     tabAnchorCol.current = null
@@ -928,6 +930,8 @@ export default function Grid() {
       setSel([...sheet.selection.ranges, { r1: r, c1: c, r2: r, c2: c }], { r, c })
     } else {
       selectSingle(r, c)
+      // Excel follows a hyperlink on a quick click; click-and-hold just selects the cell.
+      linkClick.current = linkAt(sheet, r, c) ? { r, c, t: Date.now() } : null
     }
     drag.current = { kind: 'cells', anchor: { r, c }, extendOnly: false, base: [] }
     window.addEventListener('mousemove', onCellDrag)
@@ -969,6 +973,13 @@ export default function Grid() {
     setSel(ranges, drag.current.anchor)
   }
   function onCellUp(): void {
+    const lc = linkClick.current
+    linkClick.current = null
+    if (lc && Date.now() - lc.t < 700) {
+      const n = normRange(sheet.selection.ranges[sheet.selection.ranges.length - 1])
+      const link = linkAt(sheet, lc.r, lc.c)
+      if (link && n.r1 === lc.r && n.r2 === lc.r && n.c1 === lc.c && n.c2 === lc.c) void followLink(link)
+    }
     drag.current = null
     window.removeEventListener('mousemove', onCellDrag)
     window.removeEventListener('mouseup', onCellUp)
@@ -1277,15 +1288,15 @@ export default function Grid() {
       // ---- Ctrl+` show formulas ----
       if (mod && e.key === '`') { setUi({ formulasVisible: !getUi().formulasVisible }); e.preventDefault(); return }
       // ---- sheet navigation: Ctrl+PgUp/PgDn switch sheet, Shift+F11 / Alt+Shift+F1 insert sheet ----
-      if (mod && e.key === 'PageDown') { store.setActiveSheet(Math.min(store.sheets.length - 1, store.activeIndex + 1)); e.preventDefault(); return }
-      if (mod && e.key === 'PageUp') { store.setActiveSheet(Math.max(0, store.activeIndex - 1)); e.preventDefault(); return }
+      if (mod && e.key === 'PageDown') { for (let k = store.activeIndex + 1; k < store.sheets.length; k++) if (!store.sheets[k].layout.sheetHidden) { store.setActiveSheet(k); break }; e.preventDefault(); return }
+      if (mod && e.key === 'PageUp') { for (let k = store.activeIndex - 1; k >= 0; k--) if (!store.sheets[k].layout.sheetHidden) { store.setActiveSheet(k); break }; e.preventDefault(); return }
       if (e.key === 'F11' && e.shiftKey && !mod) { store.addSheet(); e.preventDefault(); return }
       if (e.key === 'F1' && e.altKey && e.shiftKey) { store.addSheet(); e.preventDefault(); return }
       // ---- Alt+F1: embedded chart of the default type (clustered column) from the selection ----
       if (e.key === 'F1' && e.altKey && !e.shiftKey && !mod) { insertChartFromSelection(store, COLUMN_BAR_GALLERY[0]); e.preventDefault(); return }
       // ---- F9 / Shift+F9: calculate now / calculate active sheet (calc is always automatic here,
       // so these force a redraw rather than changing any calculation mode) ----
-      if ((e.key === 'F9') && !mod) { store.notify(); e.preventDefault(); return }
+      if ((e.key === 'F9') && !mod) { store.recalculate(); e.preventDefault(); return }
       // ---- Shift+F3: Insert Function ----
       if (e.key === 'F3' && e.shiftKey) { const a = sheet.selection.active; setUi({ edit: { r: a.r, c: a.c, text: '=', source: 'bar', mode: 'Enter' } }); e.preventDefault(); return }
       // ---- Ctrl+Alt+V: Paste Special ----
@@ -1531,7 +1542,7 @@ export default function Grid() {
         <MiniBtn icon={<TextBold20Regular />} title="Bold" active={!!style.bold} onClick={() => toggleStyle('bold')} />
         <MiniBtn icon={<TextItalic20Regular />} title="Italic" active={!!style.italic} onClick={() => toggleStyle('italic')} />
         <MiniBtn icon={<TextUnderline20Regular />} title="Underline" active={!!style.underline} onClick={() => toggleStyle('underline')} />
-        <MiniBtn icon={<BorderAll20Regular />} title="Borders" onClick={() => {}} />
+        <MiniBtn icon={<BorderAll20Regular />} title="All Borders" onClick={() => cmd.applyBorderPreset('all')} />
         <MiniBtn icon={<PaintBucket20Regular />} title="Fill Color" onClick={() => setStyle({ fill: '#FFFF00' })} />
         <MiniBtn icon={<TextFont20Regular />} title="Font Color" onClick={() => setStyle({ color: '#FF0000' })} />
         <span className="xl-mini-sep" />
@@ -1540,8 +1551,8 @@ export default function Grid() {
         <MiniBtn icon={<AlignRight20Regular />} title="Align Right" active={style.hAlign === 'right'} onClick={() => setStyle({ hAlign: 'right' })} />
         <span className="xl-mini-sep" />
         <MiniBtn icon={<TextPercent20Regular />} title="Percent Style" onClick={() => setStyle({ numFmt: '0%' })} />
-        <MiniBtn icon={<TextIndentDecrease20Regular />} title="Decrease Decimal" onClick={() => {}} />
-        <MiniBtn icon={<TextIndentIncrease20Regular />} title="Increase Decimal" onClick={() => {}} />
+        <MiniBtn icon={<TextIndentDecrease20Regular />} title="Decrease Decimal" onClick={() => cmd.adjustDecimal(-1)} />
+        <MiniBtn icon={<TextIndentIncrease20Regular />} title="Increase Decimal" onClick={() => cmd.adjustDecimal(1)} />
       </div>
     )
   }
@@ -1588,9 +1599,24 @@ export default function Grid() {
     ...(hasNote ? [{ label: '&Delete Note', icon: <Delete20Regular />, onClick: () => store.deleteNote(sheet, sheet.selection.active.r, sheet.selection.active.c) } as MenuItem] : []),
     'separator',
     { label: '&Format Cells...', icon: <TableCellEdit20Regular />, onClick: () => setUi({ dialog: { kind: 'formatCells' } }) },
-    { label: 'Pic&k From Drop-down List...' },
-    { label: 'Define N&ame...' },
-    { label: 'L&ink', icon: <Link20Regular />, submenu: [{ label: 'Insert Link...' }] },
+    {
+      label: 'Pic&k From Drop-down List...',
+      onClick: () => {
+        const values = cmd.pickListValues()
+        const a = sheet.selection.active
+        const rect = cellRect(a.r, a.c)
+        const hostR = hostRef.current!.getBoundingClientRect()
+        if (values.length) setUi({ pickList: { r: a.r, c: a.c, x: hostR.left + rect.x, y: hostR.top + rect.y + rect.h, values } })
+      }
+    },
+    { label: 'Define N&ame...', onClick: () => setUi({ dialog: { kind: 'defineName' } }) },
+    ...(linkAt(sheet, sheet.selection.active.r, sheet.selection.active.c)
+      ? [
+          { label: '&Edit Hyperlink...', icon: <Link20Regular />, onClick: () => setUi({ dialog: { kind: 'hyperlink' } }) } as MenuItem,
+          { label: '&Open Hyperlink', onClick: () => { const l = linkAt(sheet, sheet.selection.active.r, sheet.selection.active.c); if (l) void followLink(l) } } as MenuItem,
+          { label: '&Remove Hyperlink', onClick: () => cmd.clearSelection('hyperlinks') } as MenuItem
+        ]
+      : [{ label: 'L&ink', icon: <Link20Regular />, shortcut: 'Ctrl+K', onClick: () => setUi({ dialog: { kind: 'hyperlink' } }) } as MenuItem]),
     { label: 'Show Changes' }
   ]
   const colMenu: MenuItem[] = [

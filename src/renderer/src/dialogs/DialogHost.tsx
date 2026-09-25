@@ -1,7 +1,8 @@
 // Renders whichever dialog ui.dialog names, and owns the dialog keyboard shortcuts.
 // Kept separate from App so store changes re-render only this component, not the whole window.
 import { useEffect, useRef } from 'react'
-import { setUi, useUi } from '../chrome/ui'
+import { setUi, useUi, getUi } from '../chrome/ui'
+import { formatAsTable } from '../grid/commands'
 import { useStore } from '../model/store'
 import { FormatCellsDialog } from './FormatCellsDialog'
 import { FindReplaceDialog } from './FindReplaceDialog'
@@ -18,6 +19,9 @@ import { TextToColumnsDialog } from './TextToColumnsDialog'
 import { DataValidationDialog } from './DataValidationDialog'
 import { DataValidationErrorDialog } from './DataValidationErrorDialog'
 import { ArrangeWindowsDialog } from './ArrangeWindowsDialog'
+import { DefineNameDialog, NameManagerDialog, CreateFromSelectionDialog } from './NameDialogs'
+import { HyperlinkDialog } from './HyperlinkDialog'
+import { MessageDialog, UnhideSheetDialog, MoveCopySheetDialog, SeriesDialog } from './SheetDialogs'
 
 export default function DialogHost() {
   const ui = useUi()
@@ -30,6 +34,9 @@ export default function DialogHost() {
       if (mod && !e.shiftKey && k === 'f') setUi({ dialog: { kind: 'find' } })
       else if (mod && !e.shiftKey && k === 'h') setUi({ dialog: { kind: 'replace' } })
       else if ((e.key === 'F5' && !mod) || (mod && k === 'g')) setUi({ dialog: { kind: 'goto' } })
+      else if (mod && !e.shiftKey && !e.altKey && k === 'k') setUi({ dialog: { kind: 'hyperlink' } })
+      else if (mod && !e.shiftKey && !e.altKey && (k === 't' || k === 'l') && !getUi().edit) formatAsTable(0)
+      else if (mod && e.key === 'F3') setUi({ dialog: { kind: e.shiftKey ? 'createNames' : 'nameManager' } })
       else return
       e.preventDefault()
     }
@@ -117,6 +124,22 @@ export default function DialogHost() {
       )
     case 'arrangeWindows':
       return <ArrangeWindowsDialog onClose={close} />
+    case 'message':
+      return <MessageDialog text={String(d.props?.text ?? '')} onClose={close} />
+    case 'defineName':
+      return <DefineNameDialog onClose={close} />
+    case 'nameManager':
+      return <NameManagerDialog onClose={close} />
+    case 'createNames':
+      return <CreateFromSelectionDialog onClose={close} />
+    case 'hyperlink':
+      return <HyperlinkDialog onClose={close} />
+    case 'series':
+      return <SeriesDialog onClose={close} />
+    case 'unhideSheet':
+      return <UnhideSheetDialog onClose={close} />
+    case 'moveCopySheet':
+      return <MoveCopySheetDialog index={(d.props?.index as number | undefined) ?? store.activeIndex} onClose={close} />
     default:
       return null
   }
