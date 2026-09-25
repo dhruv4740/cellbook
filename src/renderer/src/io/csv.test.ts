@@ -50,3 +50,15 @@ describe('writeCsv', () => {
     expect(back.sheets[0].cells['1,1'].raw).toBe('She said "wow"')
   })
 })
+
+describe('CSV like Excel', () => {
+  it('strips the BOM, reads 1,234 as a number and keeps dates formatted', async () => {
+    const { store } = await import('../model/store')
+    store.load(readCsv('﻿Code,Amt,Date,ISO\r\n007,"1,234",03.09.2026,2026-09-03\r\n'), 'c', null)
+    const s = store.active
+    expect(store.getRaw(s, 0, 0)).toBe('Code')
+    expect(store.getValue(s, 1, 1)).toBe(1234)
+    expect(store.getDisplay(s, 1, 3).text).toBe('2026-09-03')
+    expect(store.getDisplay(s, 1, 2).text).not.toMatch(/^\d{5}$/)
+  })
+})

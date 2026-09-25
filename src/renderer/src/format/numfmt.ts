@@ -941,6 +941,8 @@ export function detectInputFormat(raw: string): string | undefined {
   // Date: 1/31/2025, 1/31, 31-Jan, Jan 2025
   m = /^(\d{1,2})([/.-])(\d{1,2})\2(\d{2,4})$/.exec(s)
   if (m) return SHORT_DATE_FORMAT
+  m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(s)
+  if (m) return 'yyyy-mm-dd'
   m = /^(\d{1,2})\/(\d{1,2})$/.exec(s)
   if (m) return 'd-mmm'
   m = /^(\d{1,2})-([A-Za-z]{3,9})$/.exec(s)

@@ -278,5 +278,6 @@ export function sortRange(
     })
 
     store.setCells(sheet, updates, 'Sort')
+    store.moveRowAnnotations(sheet, new Map(rows.map((row, i) => [row.origRow, startRow + i])), n.c1, n.c2, 'Sort')
   })
 }
