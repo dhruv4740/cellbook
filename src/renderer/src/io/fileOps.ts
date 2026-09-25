@@ -77,7 +77,7 @@ function browserPickFile(): Promise<{ name: string; data: Uint8Array } | null> {
   return new Promise((resolve) => {
     const input = document.createElement('input')
     input.type = 'file'
-    input.accept = '.xlsx,.xlsm,.csv'
+    input.accept = '.xlsx,.xlsm,.xls,.csv'
     input.onchange = async () => {
       const f = input.files?.[0]
       if (!f) return resolve(null)
@@ -151,6 +151,10 @@ function vbaForPath(path: string): VbaProject | undefined {
 export async function save(): Promise<boolean> {
   if (!store.filePath && !window.api) return saveAs()
   if (!store.filePath) return saveAs()
+  // We can only READ legacy .xls (BIFF8), never write it back out - so Ctrl+S on one behaves like
+  // Excel's own "Save As" prompt for a format it can't keep, defaulting to .xlsx (saveAs() below
+  // already names its dialog `<name>.xlsx` regardless of the current file's extension).
+  if (extOf(store.filePath) === 'xls') return saveAs()
   const bytes = extOf(store.filePath) === 'csv'
     ? new TextEncoder().encode(writeActiveCsv())
     : await writeXlsx(store.toData(), vbaForPath(store.filePath))

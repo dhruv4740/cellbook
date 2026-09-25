@@ -23,6 +23,8 @@ import { MenuItem } from '../../components/Menu'
 import * as cmds from '../../grid/commands'
 import { COLUMN_BAR_GALLERY, LINE_AREA_GALLERY, PIE_DOUGHNUT_GALLERY, SCATTER_BUBBLE_GALLERY, GalleryEntry } from '../../charts/gallery'
 import { insertChartFromSelection } from '../../charts/insertChart'
+import { PageSetup, PaperSize, PAPER_SIZES, MARGIN_PRESETS, defaultPageSetup, normRange } from '../../model/types'
+import { WorkbookStore, SheetState } from '../../model/store'
 
 function chartGalleryMenu(entries: GalleryEntry[]): MenuItem[] {
   return entries.map((e) => ({ label: e.label, icon: <ChartMultiple20Regular />, onClick: () => insertChartFromSelection(store, e) }))
@@ -32,7 +34,7 @@ export function InsertTab() {
   const groups: GGroup[] = [
     { label: 'Tables', big: [
       { label: 'PivotTable', icon: <TableSettings20Regular fontSize={28} />, keytip: 'V' },
-      { label: 'Table', icon: <Table20Regular fontSize={28} />, shortcut: 'Ctrl+T', keytip: 'T' }
+      { label: 'Table', icon: <Table20Regular fontSize={28} />, shortcut: 'Ctrl+T', keytip: 'T', onClick: () => cmds.openCreateTableDialog() }
     ] },
     { label: 'Illustrations', big: [
       { label: 'Pictures', icon: <ImageAdd20Regular fontSize={28} /> },
@@ -78,28 +80,105 @@ export function InsertTab() {
   return <GenericTab groups={groups} />
 }
 
+/** Undoable PageSetup patch, tolerant of a layout saved before pageSetup existed. */
+function updatePageSetup(store: WorkbookStore, sheet: SheetState, label: string, fn: (ps: PageSetup) => void): void {
+  store.updateLayout(sheet, label, (l) => {
+    const ps = l.pageSetup ?? defaultPageSetup()
+    fn(ps)
+    l.pageSetup = ps
+  })
+}
+
 export function PageLayoutTab() {
   const store = useStore()
   useUi()
-  const layout = store.active.layout
+  const sheet = store.active
+  const layout = sheet.layout
+  const ps = layout.pageSetup ?? defaultPageSetup()
+
+  const marginsMenu: MenuItem[] = [
+    { label: 'Normal', onClick: () => updatePageSetup(store, sheet, 'Margins', (p) => (p.margins = { ...MARGIN_PRESETS.normal })) },
+    { label: 'Wide', onClick: () => updatePageSetup(store, sheet, 'Margins', (p) => (p.margins = { ...MARGIN_PRESETS.wide })) },
+    { label: 'Narrow', onClick: () => updatePageSetup(store, sheet, 'Margins', (p) => (p.margins = { ...MARGIN_PRESETS.narrow })) },
+    { label: 'Custom Margins...', onClick: () => setUi({ dialog: { kind: 'pageSetup', props: { tab: 'Margins' } } }) }
+  ]
+  const orientationMenu: MenuItem[] = [
+    { label: 'Portrait', checked: ps.orientation === 'portrait', onClick: () => updatePageSetup(store, sheet, 'Orientation', (p) => (p.orientation = 'portrait')) },
+    { label: 'Landscape', checked: ps.orientation === 'landscape', onClick: () => updatePageSetup(store, sheet, 'Orientation', (p) => (p.orientation = 'landscape')) }
+  ]
+  const sizeMenu: MenuItem[] = [
+    ...(Object.entries(PAPER_SIZES) as [PaperSize, typeof PAPER_SIZES[PaperSize]][]).map(([k, v]) => ({
+      label: `${v.label} (${v.w}" x ${v.h}")`,
+      checked: ps.paperSize === k,
+      onClick: () => updatePageSetup(store, sheet, 'Paper Size', (p) => (p.paperSize = k))
+    })),
+    'separator' as const,
+    { label: 'More Paper Sizes...', onClick: () => setUi({ dialog: { kind: 'pageSetup', props: { tab: 'Page' } } }) }
+  ]
+  const printAreaMenu: MenuItem[] = [
+    { label: 'Set Print Area', onClick: () => updatePageSetup(store, sheet, 'Set Print Area', (p) => (p.printArea = sheet.selection.ranges.map(normRange))) },
+    { label: 'Clear Print Area', disabled: !ps.printArea.length, onClick: () => updatePageSetup(store, sheet, 'Clear Print Area', (p) => (p.printArea = [])) },
+    { label: 'Add to Print Area', disabled: !ps.printArea.length, onClick: () => updatePageSetup(store, sheet, 'Add to Print Area', (p) => (p.printArea = [...p.printArea, ...sheet.selection.ranges.map(normRange)])) }
+  ]
+  const breaksMenu: MenuItem[] = [
+    {
+      label: 'Insert Page Break', onClick: () => updatePageSetup(store, sheet, 'Insert Page Break', (p) => {
+        const { r, c } = sheet.selection.active
+        if (r > 0 && !p.rowBreaks.includes(r)) p.rowBreaks.push(r)
+        if (c > 0 && !p.colBreaks.includes(c)) p.colBreaks.push(c)
+      })
+    },
+    {
+      label: 'Remove Page Break', onClick: () => updatePageSetup(store, sheet, 'Remove Page Break', (p) => {
+        const { r, c } = sheet.selection.active
+        p.rowBreaks = p.rowBreaks.filter((x) => x !== r)
+        p.colBreaks = p.colBreaks.filter((x) => x !== c)
+      })
+    },
+    { label: 'Reset All Page Breaks', onClick: () => updatePageSetup(store, sheet, 'Reset All Page Breaks', (p) => { p.rowBreaks = []; p.colBreaks = [] }) }
+  ]
+  const widthMenu: MenuItem[] = [0, 1, 2, 3, 4, 5].map((n) => ({
+    label: n === 0 ? 'Automatic' : `${n} Page${n > 1 ? 's' : ''}`,
+    checked: ps.fitToPage && ps.fitToWidth === n,
+    onClick: () => updatePageSetup(store, sheet, 'Scale to Fit', (p) => { p.fitToPage = true; p.fitToWidth = n })
+  }))
+  const heightMenu: MenuItem[] = [0, 1, 2, 3, 4, 5].map((n) => ({
+    label: n === 0 ? 'Automatic' : `${n} Page${n > 1 ? 's' : ''}`,
+    checked: ps.fitToPage && ps.fitToHeight === n,
+    onClick: () => updatePageSetup(store, sheet, 'Scale to Fit', (p) => { p.fitToPage = true; p.fitToHeight = n })
+  }))
+  const scaleMenu: MenuItem[] = [200, 150, 100, 75, 50, 25, 10].map((n) => ({
+    label: `${n}%`,
+    checked: !ps.fitToPage && ps.scalePercent === n,
+    onClick: () => updatePageSetup(store, sheet, 'Scale', (p) => { p.fitToPage = false; p.scalePercent = n })
+  }))
+
   const groups: GGroup[] = [
     { label: 'Themes', big: [{ label: 'Themes', icon: <PenSparkle20Regular fontSize={28} /> }] },
     { label: 'Page Setup', rows: [
-      [{ label: 'Margins', icon: <ArrowMoveInward20Regular /> }, { label: 'Orientation', icon: <DocumentPageBreak20Regular /> }, { label: 'Size', icon: <TableSimple20Regular /> }],
-      [{ label: 'Print Area', icon: <Print20Regular /> }, { label: 'Breaks', icon: <SplitHorizontal20Regular /> }, { label: 'Background', icon: <ImageAdd20Regular /> }],
-      [{ label: 'Print Titles', icon: <TableFreezeRow20Regular /> }]
-    ] },
+      [
+        { label: 'Margins', icon: <ArrowMoveInward20Regular />, menu: marginsMenu },
+        { label: 'Orientation', icon: <DocumentPageBreak20Regular />, menu: orientationMenu },
+        { label: 'Size', icon: <TableSimple20Regular />, menu: sizeMenu }
+      ],
+      [
+        { label: 'Print Area', icon: <Print20Regular />, menu: printAreaMenu },
+        { label: 'Breaks', icon: <SplitHorizontal20Regular />, menu: breaksMenu },
+        { label: 'Background', icon: <ImageAdd20Regular /> } // not implemented - see final report
+      ],
+      [{ label: 'Print Titles', icon: <TableFreezeRow20Regular />, onClick: () => setUi({ dialog: { kind: 'pageSetup', props: { tab: 'Sheet' } } }) }]
+    ], launcher: true, onLauncher: () => setUi({ dialog: { kind: 'pageSetup', props: { tab: 'Page' } } }) },
     { label: 'Scale to Fit', rows: [
-      [{ label: 'Width', icon: <PageFit20Regular /> }],
-      [{ label: 'Height', icon: <PageFit20Regular /> }],
-      [{ label: 'Scale', icon: <ZoomFit20Regular /> }]
+      [{ label: ps.fitToPage ? (ps.fitToWidth === 0 ? 'Width: Automatic' : `Width: ${ps.fitToWidth}`) : 'Width: Automatic', icon: <PageFit20Regular />, menu: widthMenu }],
+      [{ label: ps.fitToPage ? (ps.fitToHeight === 0 ? 'Height: Automatic' : `Height: ${ps.fitToHeight}`) : 'Height: Automatic', icon: <PageFit20Regular />, menu: heightMenu }],
+      [{ label: `Scale: ${ps.fitToPage ? '(fit to)' : ps.scalePercent + '%'}`, icon: <ZoomFit20Regular />, menu: scaleMenu }]
     ] },
     { label: 'Sheet Options', rows: [
-      [{ label: 'Gridlines: View', icon: <GridDots20Regular />, active: layout.showGridlines, onClick: () => store.updateLayout(store.active, 'Gridlines', (l) => (l.showGridlines = !l.showGridlines)) }],
-      [{ label: 'Gridlines: Print', icon: <GridDots20Regular /> }],
-      [{ label: 'Headings: View', icon: <ColumnTriple20Regular />, active: layout.showHeadings, onClick: () => store.updateLayout(store.active, 'Headings', (l) => (l.showHeadings = !l.showHeadings)) }],
-      [{ label: 'Headings: Print', icon: <ColumnTriple20Regular /> }]
-    ], launcher: true, onLauncher: () => setUi({ dialog: { kind: 'formatCells', props: { tab: 'Number' } } }) },
+      [{ label: 'Gridlines: View', icon: <GridDots20Regular />, active: layout.showGridlines, onClick: () => store.updateLayout(sheet, 'Gridlines', (l) => (l.showGridlines = !l.showGridlines)) }],
+      [{ label: 'Gridlines: Print', icon: <GridDots20Regular />, active: ps.gridlines, onClick: () => updatePageSetup(store, sheet, 'Print Gridlines', (p) => (p.gridlines = !p.gridlines)) }],
+      [{ label: 'Headings: View', icon: <ColumnTriple20Regular />, active: layout.showHeadings, onClick: () => store.updateLayout(sheet, 'Headings', (l) => (l.showHeadings = !l.showHeadings)) }],
+      [{ label: 'Headings: Print', icon: <ColumnTriple20Regular />, active: ps.headings, onClick: () => updatePageSetup(store, sheet, 'Print Headings', (p) => (p.headings = !p.headings)) }]
+    ], launcher: true, onLauncher: () => setUi({ dialog: { kind: 'pageSetup', props: { tab: 'Sheet' } } }) },
     { label: 'Arrange', big: [
       { label: 'Bring Forward', icon: <ArrowRepeatAll20Regular fontSize={28} /> },
       { label: 'Send Backward', icon: <ArrowRepeatAllOff20Regular fontSize={28} /> },
@@ -249,7 +328,8 @@ export function ViewTab() {
   const store = useStore()
   const ui = useUi()
   const layout = store.active.layout
-  const [viewMode, setViewMode] = useState<'normal' | 'pageBreak' | 'pageLayout'>('normal')
+  const viewMode = ui.sheetViewMode
+  const setViewMode = (m: typeof ui.sheetViewMode) => setUi({ sheetViewMode: m })
 
   // Other open workbook windows, for the Switch Windows dropdown. Excel keeps one window per
   // workbook, so this doubles as the app's window list.

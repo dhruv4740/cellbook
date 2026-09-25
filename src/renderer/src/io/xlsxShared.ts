@@ -5,6 +5,17 @@ import type { BorderLineStyle, CommentReply, CommentThread, FilterCriteria, Note
 import { BLANK_TOKEN } from '../engine/filter'
 import { decodeXmlEntities, extractSection, parseAttrs } from './fastXlsxXml'
 
+// ---------- file-format sniffing ----------
+/** True for an OLE2/CFB compound file (legacy .xls, .doc, .ppt, ...) regardless of extension -
+ *  used to route a renamed/misnamed legacy workbook to the BIFF8 reader instead of the zip/xlsx one. */
+export function isCfbMagic(bytes: Uint8Array): boolean {
+  return (
+    bytes.length >= 8 &&
+    bytes[0] === 0xd0 && bytes[1] === 0xcf && bytes[2] === 0x11 && bytes[3] === 0xe0 &&
+    bytes[4] === 0xa1 && bytes[5] === 0xb1 && bytes[6] === 0x1a && bytes[7] === 0xe1
+  )
+}
+
 // ---------- column width / row height conversions ----------
 // Excel character-width <-> pixel conversion for the default 11pt font (Maximum Digit Width ~7px).
 export function colWidthToPx(w: number): number {

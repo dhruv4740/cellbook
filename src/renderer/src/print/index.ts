@@ -1,0 +1,6 @@
+export * from './pageGeometry'
+export * from './headerFooter'
+export * from './paginate'
+export * from './renderPage'
+export * from './printDoc'
+export * from './printActions'

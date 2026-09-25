@@ -37,8 +37,28 @@ const api = {
 
   /** Main asks the renderer to confirm before actually closing the window (unsaved-changes prompt). */
   onCloseRequested: (cb: () => void) => ipcRenderer.on('window:closeRequested', () => cb()),
-  confirmClose: (shouldClose: boolean): Promise<void> => ipcRenderer.invoke('window:confirmClose', shouldClose)
+  confirmClose: (shouldClose: boolean): Promise<void> => ipcRenderer.invoke('window:confirmClose', shouldClose),
+
+  // ---- printing (File > Print / Ctrl+P, Page Setup, Export > Create PDF) ----
+  /** Real installed printers (webContents.getPrintersAsync), for the Print pane's Printer dropdown. */
+  getPrinters: (): Promise<PrinterInfo[]> => ipcRenderer.invoke('print:getPrinters'),
+  /** Renders `html` (the assembled print document - print/printDoc.ts) in a hidden window and sends
+   *  it to a real printer via webContents.print(). */
+  printHtml: (html: string, opts: PrintHtmlOptions): Promise<boolean> => ipcRenderer.invoke('print:html', html, opts),
+  /** Same, but via webContents.printToPDF (Export > Create PDF / "Microsoft Print to PDF"). */
+  printToPdf: (html: string, opts: PrintToPdfOptions): Promise<Uint8Array> => ipcRenderer.invoke('print:toPdf', html, opts)
 }
+
+export interface PrinterInfo { name: string; displayName: string; description: string; isDefault: boolean }
+export interface PrintHtmlOptions {
+  copies: number
+  collate: boolean
+  deviceName?: string
+  landscape: boolean
+  widthMicrons: number
+  heightMicrons: number
+}
+export interface PrintToPdfOptions { landscape: boolean; widthMicrons: number; heightMicrons: number }
 
 contextBridge.exposeInMainWorld('api', api)
 export type Api = typeof api

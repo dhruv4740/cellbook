@@ -5,6 +5,9 @@ import HomeTab from './ribbon/HomeTab'
 import { InsertTab, PageLayoutTab, FormulasTab, DataTab, ReviewTab, ViewTab, DrawTab, HelpTab } from './ribbon/OtherTabs'
 import { RibbonScaleProvider } from './ribbon/controls'
 import { ChartDesignTab, ChartFormatTab } from '../charts/ChartRibbonTabs'
+import TableDesignTab from '../tables/TableDesignTab'
+import { store, useStore } from '../model/store'
+import { tableAt } from '../model/tables'
 import { ChevronUp20Regular, ChevronDown20Regular, CommentAdd20Regular, Share20Regular } from '@fluentui/react-icons'
 import KeyTips from './KeyTips'
 import './Ribbon.css'
@@ -12,16 +15,20 @@ import './Ribbon.css'
 const TABS = ['File', 'Home', 'Insert', 'Draw', 'Page Layout', 'Formulas', 'Data', 'Review', 'View', 'Help']
 // Contextual tabs (Chart Tools), shown only while a chart is selected.
 const CHART_TABS = ['Chart Design', 'Format']
+// Contextual tab shown only while the active cell is inside a Table.
+const TABLE_TABS = ['Table Design']
 /** Excel 2021's real tab KeyTips (Alt/F10, then the letter(s)). */
 export const TAB_KEYTIPS: Record<string, string> = {
   File: 'F', Home: 'H', Insert: 'N', Draw: 'JI', 'Page Layout': 'P', Formulas: 'M',
   Data: 'A', Review: 'R', View: 'W', Help: 'Y',
   // Contextual tabs, shown while a chart is selected.
-  'Chart Design': 'JC', Format: 'JA'
+  'Chart Design': 'JC', Format: 'JA', 'Table Design': 'JT'
 }
 
 export default function Ribbon() {
   const ui = useUi()
+  useStore()
+  const activeTable = tableAt(store.active, store.active.selection.active.r, store.active.selection.active.c)
   const [displayMenu, setDisplayMenu] = useState(false)
   const lastClick = useRef(0)
   const groupsRef = useRef<HTMLDivElement>(null)
@@ -38,6 +45,9 @@ export default function Ribbon() {
   useEffect(() => {
     if (!ui.selectedChart && CHART_TABS.includes(ui.ribbonTab)) setUi({ ribbonTab: 'Home' })
   }, [ui.selectedChart, ui.ribbonTab])
+  useEffect(() => {
+    if (!activeTable && TABLE_TABS.includes(ui.ribbonTab)) setUi({ ribbonTab: 'Home' })
+  }, [activeTable, ui.ribbonTab])
 
   const selectTab = (t: string) => {
     if (t === 'File') { setUi({ backstage: true }); return }
@@ -58,6 +68,17 @@ export default function Ribbon() {
               className={'xl-tab' + (t === 'File' ? ' file-tab' : '') + (ui.ribbonTab === t && !ui.backstage ? ' active' : '')}
               onClick={() => selectTab(t)}
               style={{ position: 'relative' }}
+            >
+              {t}
+              <span className="xl-keytip-badge xl-keytip-tab" data-keytip={TAB_KEYTIPS[t]}>{TAB_KEYTIPS[t]}</span>
+            </div>
+          ))}
+          {activeTable && TABLE_TABS.map((t) => (
+            <div
+              key={t}
+              className={'xl-tab' + (ui.ribbonTab === t && !ui.backstage ? ' active' : '')}
+              style={{ color: '#217346', fontWeight: 600, position: 'relative' }}
+              onClick={() => selectTab(t)}
             >
               {t}
               <span className="xl-keytip-badge xl-keytip-tab" data-keytip={TAB_KEYTIPS[t]}>{TAB_KEYTIPS[t]}</span>
@@ -95,6 +116,7 @@ export default function Ribbon() {
               {ui.ribbonTab === 'Help' && <HelpTab />}
               {ui.ribbonTab === 'Chart Design' && <ChartDesignTab />}
               {ui.ribbonTab === 'Format' && ui.selectedChart && <ChartFormatTab />}
+              {ui.ribbonTab === 'Table Design' && activeTable && <TableDesignTab />}
             </RibbonScaleProvider>
           </div>
           <div className="xl-ribbon-collapse">

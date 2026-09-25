@@ -1,0 +1,12 @@
+/* Create Table / Resize Table dialogs */
+.xl-ct-ref {
+  height: 24px;
+  font: 12px var(--ui-font, 'Segoe UI', Tahoma, sans-serif);
+  border: 1px solid #adadad;
+  border-radius: 2px;
+  padding: 0 6px;
+}
+.xl-ct-ref:focus {
+  outline: none;
+  border-color: #0078d7;
+}

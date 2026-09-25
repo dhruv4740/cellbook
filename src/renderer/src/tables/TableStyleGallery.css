@@ -1,0 +1,21 @@
+.xl-tsg {
+  position: fixed;
+  z-index: 10001;
+  background: #fff;
+  border: 1px solid #b0b0b0;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+  padding: 8px;
+  max-height: 480px;
+  overflow-y: auto;
+  width: 296px;
+  font: 12px var(--ui-font, 'Segoe UI', Tahoma, sans-serif);
+}
+.xl-tsg-label { font-weight: 600; padding: 4px 2px; color: #333; }
+.xl-tsg-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.xl-tsw { border: 1px solid transparent; background: none; padding: 2px; cursor: pointer; border-radius: 2px; }
+.xl-tsw:hover { border-color: #0078d7; background: #e5f1fb; }
+.xl-tsw.selected { border-color: #107c41; background: #d3f0e0; }
+.xl-tsw-thumb { width: 32px; height: 24px; border: 1px solid; display: flex; flex-direction: column; overflow: hidden; }
+.xl-tsw-row { flex: 1; }
+.xl-tsg-footer { margin-top: 6px; padding: 6px 2px; border-top: 1px solid #e1e1e1; cursor: pointer; color: #217346; }
+.xl-tsg-footer:hover { text-decoration: underline; }

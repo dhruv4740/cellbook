@@ -23,7 +23,8 @@ export default function TitleBar() {
   const undoBtn = useRef<HTMLDivElement>(null)
   const qatBtn = useRef<HTMLButtonElement>(null)
 
-  const title = store.fileName + (store.filePath ? '' : '') + (grouped ? ' [Group]' : '') + ' - Excel'
+  const compat = !!store.filePath && /\.xls$/i.test(store.filePath)
+  const title = store.fileName + (compat ? ' [Compatibility Mode]' : '') + (grouped ? ' [Group]' : '') + ' - Excel'
   useEffect(() => {
     document.title = title
     window.api?.setTitle?.(title)
@@ -66,7 +67,7 @@ export default function TitleBar() {
         </div>
 
         <div className="xl-titlebar-center">
-          <span className="xl-filename">{store.fileName}{grouped ? ' [Group]' : ''}</span>
+          <span className="xl-filename">{store.fileName}{compat ? ' [Compatibility Mode]' : ''}{grouped ? ' [Group]' : ''}</span>
           <span className="xl-saved">{store.dirty ? '' : '• Saved to this PC'}</span>
         </div>
 

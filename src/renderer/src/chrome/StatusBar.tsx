@@ -100,9 +100,9 @@ export default function StatusBar() {
       </div>
       <div className="xl-status-right">
         <div className="xl-view-btns">
-          <button className="xl-viewbtn active" title="Normal"><TableSimple20Regular /></button>
-          <button className="xl-viewbtn" title="Page Layout"><PageFit20Regular /></button>
-          <button className="xl-viewbtn" title="Page Break Preview"><DocumentPageBreak20Regular /></button>
+          <button className={'xl-viewbtn' + (ui.sheetViewMode === 'normal' ? ' active' : '')} title="Normal" onClick={() => setUi({ sheetViewMode: 'normal' })}><TableSimple20Regular /></button>
+          <button className={'xl-viewbtn' + (ui.sheetViewMode === 'pageLayout' ? ' active' : '')} title="Page Layout" onClick={() => setUi({ sheetViewMode: 'pageLayout' })}><PageFit20Regular /></button>
+          <button className={'xl-viewbtn' + (ui.sheetViewMode === 'pageBreak' ? ' active' : '')} title="Page Break Preview" onClick={() => setUi({ sheetViewMode: 'pageBreak' })}><DocumentPageBreak20Regular /></button>
         </div>
         <div className="xl-zoom">
           <button className="xl-zoombtn" onClick={() => setZoom(zoom - 10)}><Subtract20Regular fontSize={12} /></button>

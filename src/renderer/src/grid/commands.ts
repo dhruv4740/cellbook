@@ -6,6 +6,8 @@ import { CellStyle, Range, normRange, colName, MAX_ROWS, MAX_COLS, parseA1 } fro
 import { shiftFormula } from '../engine/shiftFormula'
 import { generateSeries } from '../engine/autofill'
 import { sortRange, detectHeaders, hasAdjacentData, findCurrentRegion } from '../data/sort'
+import { allTables } from '../model/tables'
+import { commitEdit } from '../chrome/ui'
 
 export type PasteKind = 'all' | 'values' | 'formulas' | 'formats' | 'transpose' | 'noBorders' | 'columnWidths' | 'link'
 
@@ -458,6 +460,14 @@ export function selectAll(): void {
 }
 
 export function goTo(ref: string): boolean {
+  // Table names (Ctrl+T / Format as Table) are visible in the Name Box and Go To, same as a
+  // defined name - selecting one selects its whole range (header through last data/total row).
+  const table = allTables(store).find((x) => x.table.name.toLowerCase() === ref.trim().toLowerCase())
+  if (table) {
+    if (table.sheet !== store.active) store.setActiveSheet(store.sheets.indexOf(table.sheet))
+    store.setSelection({ ranges: [table.table.range], active: { r: table.table.range.r1, c: table.table.range.c1 } }, table.sheet)
+    return true
+  }
   const parts = ref.split('!')
   let target = ref
   let sheet = store.active
@@ -472,6 +482,17 @@ export function goTo(ref: string): boolean {
   if (sheet !== store.active) store.setActiveSheet(store.sheets.indexOf(sheet))
   store.setSelection({ ranges: [rg], active: { r: rg.r1, c: rg.c1 } }, store.sheets[store.activeIndex])
   return true
+}
+
+/** Ctrl+T / Ctrl+L / Insert > Table / Home > Format as Table: opens the Create Table dialog seeded
+ *  with the selection (or, for a single cell, its current region - Excel's own default). */
+export function openCreateTableDialog(styleName?: string): void {
+  if (getUi().edit) commitEdit()
+  const sheet = store.active
+  const active = sheet.selection.active
+  const rg = normRange(sheet.selection.ranges[sheet.selection.ranges.length - 1])
+  const range = rg.r1 !== rg.r2 || rg.c1 !== rg.c2 ? rg : store.currentRegion(sheet, active.r, active.c)
+  setUi({ dialog: { kind: 'createTable', props: { range, styleName } } })
 }
 
 // ---------- column/row sizing ----------

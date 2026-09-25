@@ -4,9 +4,13 @@
 // wb.xlsx.writeBuffer() already produced, so a normal .xlsx save with no criteria and no macros
 // pays nothing beyond the unzip/rezip when there's actually something to patch.
 import { unzipSync, zipSync } from 'fflate'
-import type { AutoFilter } from '../model/types'
+import type { AutoFilter, SheetLayout } from '../model/types'
 import { rangeA1 } from '../model/types'
 import { BLANK_TOKEN } from '../engine/filter'
+import { patchCfAndDv } from './xlsxCfDv'
+import { injectCharts } from './xlsxCharts'
+import { patchColBreaks } from './xlsxColBreaks'
+import { injectTables } from './xlsxTables'
 
 export interface VbaProject {
   bin: Uint8Array
@@ -79,7 +83,9 @@ function injectVbaProject(files: Record<string, Uint8Array>, vba: VbaProject): v
 export function postProcessXlsx(
   zipBytes: Uint8Array,
   sheetFilters: (AutoFilter | undefined)[],
-  vba?: VbaProject
+  vba?: VbaProject,
+  sheetLayouts?: (Partial<SheetLayout> | undefined)[],
+  chartSheets?: { name: string; cells: Record<string, { raw?: string }>; layout?: Partial<SheetLayout> }[]
 ): Uint8Array {
   const files = unzipSync(zipBytes)
   sheetFilters.forEach((af, i) => {
@@ -91,6 +97,13 @@ export function postProcessXlsx(
     const patched = text.replace(/<autoFilter ref="[^"]*"\/>/, buildAutoFilterXml(af))
     if (patched !== text) files[path] = new TextEncoder().encode(patched)
   })
+  if (sheetLayouts) { patchCfAndDv(files, sheetLayouts); patchColBreaks(files, sheetLayouts) }
+  // Charts are injected after CF/DV patching, but before the VBA project: they only touch
+  // worksheet XML, drawing/chart parts and Content_Types, none of which VBA injection reads.
+  if (chartSheets) injectCharts(files, chartSheets)
+  // Tables are injected after charts: both only append a `<...>` element right before
+  // `</worksheet>`, and a `<tableParts>` element must come after `<drawing>` in document order.
+  if (sheetLayouts) injectTables(files, sheetLayouts.map((l) => ({ layout: l })))
   if (vba) injectVbaProject(files, vba)
 
   const out: Record<string, Uint8Array> = {}

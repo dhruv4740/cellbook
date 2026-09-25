@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, screen } from 'electron'
 import { join, basename } from 'path'
 import { promises as fs, existsSync } from 'fs'
+import { tmpdir } from 'os'
 
 // ---------------------------------------------------------------------------
 // One workbook per window, like Excel: each BrowserWindow hosts exactly one
@@ -50,6 +51,15 @@ function preloadSpareWindow(): void {
 
 const filters = [
   { name: 'Excel Workbook', extensions: ['xlsx'] },
+  { name: 'Excel Macro-Enabled Workbook', extensions: ['xlsm'] },
+  { name: 'CSV (Comma delimited)', extensions: ['csv'] },
+  { name: 'All Files', extensions: ['*'] }
+]
+// Open can read legacy .xls (BIFF8); Save/Save As never writes it back out (we can't produce BIFF8),
+// so that format is deliberately left out of `filters` above, which the save dialog also uses.
+const openFilters = [
+  { name: 'Excel Workbook', extensions: ['xlsx'] },
+  { name: 'Excel 97-2003 Workbook', extensions: ['xls'] },
   { name: 'Excel Macro-Enabled Workbook', extensions: ['xlsm'] },
   { name: 'CSV (Comma delimited)', extensions: ['csv'] },
   { name: 'All Files', extensions: ['*'] }
@@ -344,7 +354,7 @@ function arrangeWindows(mode: 'tiled' | 'horizontal' | 'vertical' | 'cascade'): 
 /** Ctrl+O / File > Open > Browse: shows the dialog, then routes to the right window. */
 ipcMain.handle('file:pickAndOpen', async (e) => {
   const win = BrowserWindow.fromWebContents(e.sender)!
-  const r = await dialog.showOpenDialog(win, { properties: ['openFile', 'multiSelections'], filters })
+  const r = await dialog.showOpenDialog(win, { properties: ['openFile', 'multiSelections'], filters: openFilters })
   if (r.canceled || !r.filePaths.length) return false
   for (const p of r.filePaths) await openPathSomewhere(p, win)
   return true
@@ -369,6 +379,81 @@ ipcMain.handle('file:read', async (_e, path: string) => new Uint8Array(await fs.
 ipcMain.handle('file:write', async (_e, path: string, data: Uint8Array) => {
   await fs.writeFile(path, data)
   return true
+})
+
+// ---------------------------------------------------------------------------
+// IPC: printing (File > Print, Page Setup, Export > Create PDF)
+// ---------------------------------------------------------------------------
+
+/** Loads `html` into a hidden, offscreen window sized exactly to one printed page, waits for it to
+ *  finish rendering, runs `use`, then destroys the window. Shared by print:html and print:toPdf so
+ *  both produce byte-identical output to the Print pane's own preview (same HTML, same renderer). */
+async function withPrintWindow<T>(html: string, widthPx: number, heightPx: number, use: (w: BrowserWindow) => Promise<T>): Promise<T> {
+  const file = join(tmpdir(), `excel-print-${Date.now()}-${Math.random().toString(36).slice(2)}.html`)
+  await fs.writeFile(file, html, 'utf-8')
+  const win = new BrowserWindow({
+    show: false,
+    width: Math.max(200, Math.round(widthPx)),
+    height: Math.max(200, Math.round(heightPx)),
+    webPreferences: { sandbox: false }
+  })
+  try {
+    await win.loadFile(file)
+    return await use(win)
+  } finally {
+    win.destroy()
+    fs.unlink(file).catch(() => {})
+  }
+}
+
+ipcMain.handle('print:getPrinters', async (e) => {
+  const win = BrowserWindow.fromWebContents(e.sender)
+  if (!win) return []
+  const printers = await win.webContents.getPrintersAsync()
+  return printers.map((p, i) => ({ name: p.name, displayName: p.displayName, description: p.description, isDefault: i === 0 }))
+})
+
+ipcMain.handle(
+  'print:html',
+  async (
+    _e,
+    html: string,
+    opts: { copies: number; collate: boolean; deviceName?: string; landscape: boolean; widthMicrons: number; heightMicrons: number }
+  ) => {
+    const pxW = (opts.widthMicrons / 25400) * 96
+    const pxH = (opts.heightMicrons / 25400) * 96
+    return withPrintWindow(html, pxW, pxH, (win) =>
+      new Promise<boolean>((resolve, reject) => {
+        win.webContents.print(
+          {
+            silent: false,
+            printBackground: true,
+            copies: Math.max(1, opts.copies || 1),
+            collate: opts.collate,
+            deviceName: opts.deviceName || undefined,
+            landscape: opts.landscape,
+            margins: { marginType: 'none' },
+            pageSize: { width: Math.round(opts.widthMicrons), height: Math.round(opts.heightMicrons) }
+          },
+          (ok, failureReason) => (ok ? resolve(true) : reject(new Error(failureReason || 'print failed')))
+        )
+      })
+    )
+  }
+)
+
+ipcMain.handle('print:toPdf', async (_e, html: string, opts: { landscape: boolean; widthMicrons: number; heightMicrons: number }) => {
+  const pxW = (opts.widthMicrons / 25400) * 96
+  const pxH = (opts.heightMicrons / 25400) * 96
+  const buf = await withPrintWindow(html, pxW, pxH, (win) =>
+    win.webContents.printToPDF({
+      landscape: opts.landscape,
+      printBackground: true,
+      margins: { top: 0, bottom: 0, left: 0, right: 0 },
+      pageSize: { width: Math.round(opts.widthMicrons), height: Math.round(opts.heightMicrons) }
+    })
+  )
+  return new Uint8Array(buf)
 })
 
 // ---------------------------------------------------------------------------

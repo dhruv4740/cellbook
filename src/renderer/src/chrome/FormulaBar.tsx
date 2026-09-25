@@ -4,6 +4,7 @@ import { useStore } from '../model/store'
 import { useUi, setUi, commitEdit, cancelEdit } from './ui'
 import { a1, rangeA1 } from '../model/types'
 import * as cmds from '../grid/commands'
+import { allTables, displayTotalsFormula } from '../model/tables'
 import { ChevronDown12Regular, ChevronDown20Regular, ChevronUp20Regular, Dismiss20Regular, Checkmark20Regular, MathFormula20Regular } from '@fluentui/react-icons'
 import './FormulaBar.css'
 
@@ -16,6 +17,7 @@ export default function FormulaBar() {
   const [nameBox, setNameBox] = useState('')
   const [nameEditing, setNameEditing] = useState(false)
   const [expanded, setExpanded] = useState(false)
+  const [nameMenu, setNameMenu] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -31,7 +33,8 @@ export default function FormulaBar() {
     return rangeA1(rg)
   })()
 
-  const text = editing ? editing.text : store.getRaw(sheet, sel.active.r, sel.active.c)
+  const text = editing ? editing.text : (displayTotalsFormula(sheet, sel.active.r, sel.active.c) ?? store.getRaw(sheet, sel.active.r, sel.active.c))
+  const tableNames = allTables(store).map((t) => t.table.name)
 
   const startEditFromBar = (initial?: string) => {
     if (!editing) {
@@ -54,7 +57,17 @@ export default function FormulaBar() {
             if (e.key === 'Escape') { setNameEditing(false); (e.target as HTMLInputElement).blur() }
           }}
         />
-        <button className="xl-namebox-caret"><ChevronDown12Regular /></button>
+        <button className="xl-namebox-caret" onClick={() => setNameMenu((v) => !v)}><ChevronDown12Regular /></button>
+        {nameMenu && (
+          <div className="xl-menu-layer" onMouseDown={() => setNameMenu(false)}>
+            <div className="xl-menu" style={{ position: 'fixed', left: 4, top: 62, minWidth: 140 }} onMouseDown={(e) => e.stopPropagation()}>
+              {tableNames.length === 0 && <div className="xl-menu-item disabled"><span className="xl-menu-label">(No tables)</span></div>}
+              {tableNames.map((n) => (
+                <div key={n} className="xl-menu-item" onClick={() => { cmds.goTo(n); setNameMenu(false) }}><span className="xl-menu-label">{n}</span></div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
       <div className="xl-fb-splitter">
         <span>⋮</span>

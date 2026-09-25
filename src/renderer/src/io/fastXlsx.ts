@@ -12,7 +12,10 @@ import {
   THEME_COLORS, BORDER_STYLES, applyTint, ptToPx, colWidthToPx, colLetterToIndex, parseRangeStr,
   parseAutoFilterRef, parseAutoFilterColumns, legacyNoteToThread
 } from './xlsxShared'
+import { parseConditionalFormattings, parseDataValidations, parseDxfs } from './xlsxCfDv'
 import type { VbaProject } from './xlsxPostProcess'
+import { parseTablesForSheet } from './xlsxTables'
+import { parseChartsForSheet } from './xlsxCharts'
 import {
   decodeXmlEntities,
   parseAttrs,
@@ -22,6 +25,8 @@ import {
   resolveRelTarget,
   parseRelationships
 } from './fastXlsxXml'
+import { fromExceljsPageSetup, type ExceljsPageSetupLike, type ExceljsHeaderFooterLike } from './xlsxPageSetup'
+import { parseRowBreaksXml, parseColBreaksXml } from './xlsxColBreaks'
 
 const VBA_REL_TYPE = 'http://schemas.microsoft.com/office/2006/relationships/vbaProject'
 const VBA_SIGNATURE_REL_TYPE_RE = /vbaProjectSignature/
@@ -67,6 +72,10 @@ function unzipTextFilter(name: string): boolean {
     /^xl\/worksheets\/[^/]+\.xml$/.test(name) ||
     /^xl\/worksheets\/_rels\/[^/]+\.xml\.rels$/.test(name) ||
     /^xl\/comments\d*\.xml$/.test(name) ||
+    /^xl\/drawings\/[^/]+\.xml$/.test(name) ||
+    /^xl\/drawings\/_rels\/[^/]+\.xml\.rels$/.test(name) ||
+    /^xl\/charts\/[^/]+\.xml$/.test(name) ||
+    /^xl\/tables\/[^/]+\.xml$/.test(name) ||
     // Raw (non-text) parts, kept only for a .xlsm workbook's VBA project - see parseXlsx below.
     name === 'xl/vbaProject.bin' ||
     name === 'xl/vbaProjectSignature.bin' ||
@@ -94,14 +103,16 @@ export function parseXlsx(bytes: Uint8Array): WorkbookData & { vbaProject?: VbaP
   for (const r of parseRelationships(relsXml)) relMap.set(r.id, r.target)
 
   const { sheets: sheetDefs, activeTab } = parseWorkbookSheets(workbookXml)
+  const printDefinedNames = parsePrintDefinedNames(workbookXml)
   const sharedStrings = parseSharedStrings(get('xl/sharedStrings.xml'))
   // Theme colors: resolved from theme1.xml when present (falling back to the Office default
   // palette), matching how colorToHex/THEME_COLORS in xlsx.ts treats a theme index + tint.
   const themeColors = parseThemeColors(get('xl/theme/theme1.xml'))
   const xfStyles = parseStyles(get('xl/styles.xml'), themeColors)
+  const dxfs = parseDxfs(get('xl/styles.xml'))
 
   const sheets: WorkbookData['sheets'] = []
-  for (const def of sheetDefs) {
+  for (const [sheetIdx, def] of sheetDefs.entries()) {
     const target = def.rId ? relMap.get(def.rId) : undefined
     const path = target ? resolveRelTarget('xl/workbook.xml', target) : undefined
     const xml = path ? get(path) : undefined
@@ -113,6 +124,7 @@ export function parseXlsx(bytes: Uint8Array): WorkbookData & { vbaProject?: VbaP
       layout.merges = []
       layout.notes = {}
       layout.comments = {}
+      layout.pageSetup = fromExceljsPageSetup(undefined, undefined, [], [])
       sheets.push({ name: def.name, cells: {}, layout })
       continue
     }
@@ -147,6 +159,11 @@ export function parseXlsx(bytes: Uint8Array): WorkbookData & { vbaProject?: VbaP
       const c = resolveColor(parseAttrs(parsed.tabColorAttrs, 0, parsed.tabColorAttrs.length), themeColors)
       if (c) layout.tabColor = c
     }
+    const cfs = parseConditionalFormattings(xml, dxfs)
+    if (cfs.length > 0) layout.conditionalFormats = cfs
+    const dvs = parseDataValidations(xml)
+    if (dvs.length > 0) layout.dataValidations = dvs
+
     if (parsed.autoFilterRef) {
       const range = parseSingleOrRange(parsed.autoFilterRef)
       if (range) {
@@ -161,6 +178,20 @@ export function parseXlsx(bytes: Uint8Array): WorkbookData & { vbaProject?: VbaP
         }
       }
     }
+
+    const charts = parseChartsForSheet(files, dec, path, layout.colWidths, layout.rowHeights)
+    if (charts.length > 0) layout.charts = charts
+
+    const tables = parseTablesForSheet(files, dec, path, xml)
+    if (tables.length > 0) layout.tables = tables
+
+    const printNames = printDefinedNames.get(sheetIdx)
+    if (printNames) {
+      parsed.pageSetupExps.printArea = printNames.printArea
+      parsed.pageSetupExps.printTitlesRow = printNames.printTitlesRow
+      parsed.pageSetupExps.printTitlesColumn = printNames.printTitlesColumn
+    }
+    layout.pageSetup = fromExceljsPageSetup(parsed.pageSetupExps, parsed.headerFooterExps, parsed.rowBreaks, parsed.colBreaks)
 
     sheets.push({ name: def.name, cells: parsed.cells, layout })
   }
@@ -194,6 +225,42 @@ function parseVbaProject(files: Record<string, Uint8Array>, workbookRelsXml: str
 }
 
 // ---------- workbook.xml ----------
+/** _xlnm.Print_Area / _xlnm.Print_Titles are workbook-scoped defined names keyed by `localSheetId`
+ *  (the 0-based sheet index, matching sheetDefs' declaration order). */
+function parsePrintDefinedNames(xml: string): Map<number, { printArea?: string; printTitlesRow?: string; printTitlesColumn?: string }> {
+  const out = new Map<number, { printArea?: string; printTitlesRow?: string; printTitlesColumn?: string }>()
+  const section = extractSection(xml, 'definedNames')
+  if (!section) return out
+  // exceljs writes one _xlnm.Print_Area <definedName> per disjoint range (all sharing the same
+  // localSheetId) and re-joins them with '&&' on read (workbook-xform.js) - matched here so
+  // xlsxPageSetup.ts's parseRangeList (which splits on '&&') sees the same shape either reader.
+  const printAreaParts = new Map<number, string[]>()
+  const re = /<definedName\b([^>]*)>([\s\S]*?)<\/definedName>/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(section))) {
+    const a = parseAttrs(m[1], 0, m[1].length)
+    if (a.localSheetId === undefined) continue
+    const idx = parseInt(a.localSheetId, 10)
+    const value = decodeXmlEntities(m[2])
+    const entry = out.get(idx) ?? {}
+    if (a.name === '_xlnm.Print_Area') {
+      const parts = printAreaParts.get(idx) ?? []
+      parts.push(value)
+      printAreaParts.set(idx, parts)
+    } else if (a.name === '_xlnm.Print_Titles') {
+      if (/\$?\d+:\$?\d+/.test(value)) entry.printTitlesRow = value
+      if (/\$?[A-Za-z]+:\$?[A-Za-z]+/.test(value.replace(/\$?\d+:\$?\d+/, ''))) entry.printTitlesColumn = value
+    }
+    out.set(idx, entry)
+  }
+  for (const [idx, parts] of printAreaParts) {
+    const entry = out.get(idx) ?? {}
+    entry.printArea = parts.join('&&')
+    out.set(idx, entry)
+  }
+  return out
+}
+
 function parseWorkbookSheets(xml: string): { sheets: { name: string; rId: string }[]; activeTab: number } {
   const sheets: { name: string; rId: string }[] = []
   const section = extractSection(xml, 'sheets')
@@ -530,6 +597,13 @@ interface ParsedSheet {
   showGridlines?: boolean
   showHeadings?: boolean
   zoom?: number
+  /** Page Setup / Print (see io/xlsxPageSetup.ts). printArea/printTitlesRow/printTitlesColumn are
+   *  filled in by the caller from xl/workbook.xml's <definedNames> (a workbook-level part, not
+   *  something a single sheet's own XML has). */
+  pageSetupExps: ExceljsPageSetupLike
+  headerFooterExps: ExceljsHeaderFooterLike
+  rowBreaks: number[]
+  colBreaks: number[]
 }
 
 type CellsMap = WorkbookData['sheets'][number]['cells']
@@ -676,6 +750,65 @@ function parseSheetXml(xml: string, xfStyles: (CellStyle | undefined)[], sharedS
   // autoFilter
   const autoFilterRef = parseAutoFilterRef(xml)
 
+  // Page Setup / Print: matches exceljs's own page-setup-xform.js/page-margins-xform.js/
+  // print-options-xform.js/header-footer-xform.js attribute names and defaults exactly, so
+  // fromExceljsPageSetup (io/xlsxPageSetup.ts) produces the same PageSetup either reader used.
+  const pageSetupExps: ExceljsPageSetupLike = {}
+  const psM = /<pageSetup\b([^>]*)\/?>/.exec(xml)
+  if (psM) {
+    const a = parseAttrs(psM[1], 0, psM[1].length)
+    pageSetupExps.paperSize = a.paperSize !== undefined ? parseInt(a.paperSize, 10) : undefined
+    pageSetupExps.orientation = (a.orientation as 'portrait' | 'landscape') || 'portrait'
+    pageSetupExps.pageOrder = a.pageOrder === 'overThenDown' ? 'overThenDown' : 'downThenOver'
+    pageSetupExps.blackAndWhite = a.blackAndWhite === '1'
+    pageSetupExps.draft = a.draft === '1'
+    pageSetupExps.scale = a.scale !== undefined ? parseInt(a.scale, 10) : 100
+    pageSetupExps.fitToWidth = a.fitToWidth !== undefined ? parseInt(a.fitToWidth, 10) : 1
+    pageSetupExps.fitToHeight = a.fitToHeight !== undefined ? parseInt(a.fitToHeight, 10) : 1
+    pageSetupExps.firstPageNumber = parseInt(a.firstPageNumber || '1', 10)
+    pageSetupExps.useFirstPageNumber = a.useFirstPageNumber === '1'
+  } else {
+    pageSetupExps.orientation = 'portrait'
+    pageSetupExps.pageOrder = 'downThenOver'
+    pageSetupExps.scale = 100
+    pageSetupExps.fitToWidth = 1
+    pageSetupExps.fitToHeight = 1
+  }
+  const sheetPrSection = extractSection(xml, 'sheetPr')
+  if (sheetPrSection) {
+    const fp = /<pageSetUpPr\b([^>]*)\/?>/.exec(sheetPrSection)
+    pageSetupExps.fitToPage = !!fp && parseAttrs(fp[1], 0, fp[1].length).fitToPage === '1'
+  } else pageSetupExps.fitToPage = false
+  const pmM = /<pageMargins\b([^>]*)\/?>/.exec(xml)
+  const pmA = pmM ? parseAttrs(pmM[1], 0, pmM[1].length) : {}
+  pageSetupExps.margins = {
+    left: parseFloat(pmA.left ?? '0.7'), right: parseFloat(pmA.right ?? '0.7'),
+    top: parseFloat(pmA.top ?? '0.75'), bottom: parseFloat(pmA.bottom ?? '0.75'),
+    header: parseFloat(pmA.header ?? '0.3'), footer: parseFloat(pmA.footer ?? '0.3')
+  }
+  const poM = /<printOptions\b([^>]*)\/?>/.exec(xml)
+  const poA = poM ? parseAttrs(poM[1], 0, poM[1].length) : {}
+  pageSetupExps.showRowColHeaders = poA.headings === '1'
+  pageSetupExps.showGridLines = poA.gridLines === '1'
+  pageSetupExps.horizontalCentered = poA.horizontalCentered === '1'
+  pageSetupExps.verticalCentered = poA.verticalCentered === '1'
+
+  const headerFooterExps: ExceljsHeaderFooterLike = {}
+  const hfSection = /<headerFooter\b([^>]*?)(\/>|>([\s\S]*?)<\/headerFooter>)/.exec(xml)
+  if (hfSection) {
+    const a = parseAttrs(hfSection[1], 0, hfSection[1].length)
+    headerFooterExps.differentFirst = a.differentFirst === '1'
+    headerFooterExps.differentOddEven = a.differentOddEven === '1'
+    const body = hfSection[3] ?? ''
+    for (const key of ['oddHeader', 'oddFooter', 'evenHeader', 'evenFooter', 'firstHeader', 'firstFooter'] as const) {
+      const m = new RegExp(`<${key}>([\\s\\S]*?)</${key}>`).exec(body)
+      if (m) headerFooterExps[key] = decodeXmlEntities(m[1])
+    }
+  }
+
+  const rowBreaks = parseRowBreaksXml(xml)
+  const colBreaks = parseColBreaksXml(xml)
+
   return {
     cells,
     colWidths,
@@ -688,7 +821,11 @@ function parseSheetXml(xml: string, xfStyles: (CellStyle | undefined)[], sharedS
     frozen,
     showGridlines,
     showHeadings,
-    zoom
+    zoom,
+    pageSetupExps,
+    headerFooterExps,
+    rowBreaks,
+    colBreaks
   }
 }
 

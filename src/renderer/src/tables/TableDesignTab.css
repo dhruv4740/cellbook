@@ -1,0 +1,9 @@
+.xl-tdt-name {
+  height: 22px;
+  width: 108px;
+  font: 12px var(--ui-font, 'Segoe UI', Tahoma, sans-serif);
+  border: 1px solid #adadad;
+  border-radius: 2px;
+  padding: 0 4px;
+}
+.xl-checkbox { font-size: 13px; }

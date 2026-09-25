@@ -2,6 +2,7 @@
 import { useSyncExternalStore } from 'react'
 import { store } from '../model/store'
 import { validateInput } from '../data/dataValidation'
+import { maybeAutoExpandTable, maybeAutoFillCalculatedColumn } from '../model/tables'
 
 export interface UiState {
   backstage: boolean // File tab open
@@ -39,13 +40,17 @@ export interface UiState {
   groupedSheets: number[] | null
   /** Alt+Down "pick from list": the open dropdown of unique values from the column above/below. */
   pickList: null | { r: number; c: number; x: number; y: number; values: string[] }
+  /** View tab / status bar workbook view buttons. 'pageBreak' overlays blue page borders and "Page
+   *  N" watermarks on the normal grid (see print/PageBreakOverlay.tsx); 'pageLayout' is accepted
+   *  and shown as active but doesn't yet change the canvas - see the final report. */
+  sheetViewMode: 'normal' | 'pageBreak' | 'pageLayout'
 }
 
 let state: UiState = {
   backstage: false, ribbonTab: 'Home', ribbonCollapsed: false, hideFormulaBar: false, dialog: null,
   formatPainter: null, edit: null, noteEditor: null, commentPanel: null, selectedChart: null,
   formulasVisible: false, selectMode: 'none', backstageTab: null, scrollLock: false, endMode: false,
-  groupedSheets: null, pickList: null
+  groupedSheets: null, pickList: null, sheetViewMode: 'normal'
 }
 const listeners = new Set<() => void>()
 
@@ -94,7 +99,13 @@ export function commitEdit(): boolean {
   }
   setUi({ edit: null })
   const raw = store.getRaw(sheet, e.r, e.c)
-  if (raw !== e.text) store.setRaw(sheet, e.r, e.c, e.text)
+  if (raw !== e.text) {
+    store.transact('Typing', () => {
+      store.setRaw(sheet, e.r, e.c, e.text)
+      maybeAutoExpandTable(store, sheet, e.r, e.c, e.text)
+      maybeAutoFillCalculatedColumn(store, sheet, e.r, e.c, e.text)
+    })
+  }
   store.setMode('Ready')
   return true
 }

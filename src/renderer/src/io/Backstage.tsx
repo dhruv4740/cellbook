@@ -11,6 +11,9 @@ import {
   CheckmarkCircle20Regular, ArrowClockwise20Regular, Folder20Regular, DocumentPdf20Regular,
   ArrowExportUp20Regular, ChevronLeft20Regular
 } from '@fluentui/react-icons'
+import { PageSetup, PaperSize, PAPER_SIZES, MARGIN_PRESETS, defaultPageSetup, normRange } from '../model/types'
+import { buildSinglePageDoc, computePrintPlan, printTargets, exportTargetsToPdf, PrintTarget } from '../print'
+import type { PrinterInfo } from '../../../preload'
 import './Backstage.css'
 
 // Installing the global Ctrl+N/O/S/F12/Ctrl+W shortcuts and the Electron close-confirm listener happens once,
@@ -267,74 +270,166 @@ function InfoPane() {
 }
 
 function PrintPane() {
+  useStore()
   const sheet = store.active
-  const used = store.usedRange(sheet)
-  const rows = used ? Math.min(used.r2 + 1, 60) : 0
-  const cols = used ? Math.min(used.c2 + 1, 20) : 0
+  const ps = sheet.layout.pageSetup ?? defaultPageSetup()
+  const [pageIdx, setPageIdx] = useState(0)
+  const [zoom, setZoom] = useState<'fit' | 'full'>('fit')
+  const [copies, setCopies] = useState(1)
+  const [printWhat, setPrintWhat] = useState<'active' | 'workbook' | 'selection'>('active')
+  const [printers, setPrinters] = useState<PrinterInfo[]>([])
+  const [printer, setPrinter] = useState('')
+  const [printing, setPrinting] = useState(false)
+
+  useEffect(() => {
+    void window.api?.getPrinters?.().then((list) => {
+      setPrinters(list)
+      if (list.length && !printer) setPrinter(list.find((p) => p.isDefault)?.name ?? list[0].name)
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const patch = (fn: (p: PageSetup) => void) => store.updateLayout(sheet, 'Page Setup', (l) => {
+    const next = structuredClone(l.pageSetup ?? defaultPageSetup())
+    fn(next)
+    l.pageSetup = next
+  })
+
+  const targets = (): PrintTarget[] =>
+    printWhat === 'workbook' ? store.sheets.map((s) => ({ sheet: s, pageSetup: s.layout.pageSetup ?? defaultPageSetup() })) : [{ sheet, pageSetup: ps }]
+
+  const doc = buildSinglePageDoc(store, sheet, ps, pageIdx, store.fileName)
+  const pageCount = printWhat === 'workbook'
+    ? targets().reduce((n, t) => n + computePrintPlan(store, t.sheet, t.pageSetup).pages.length, 0)
+    : doc.pageCount
+
+  const doPrint = async () => {
+    setPrinting(true)
+    try {
+      await printTargets(store, targets(), store.fileName, {
+        copies, collate: true, deviceName: printer, landscape: ps.orientation === 'landscape',
+        paperWidthPx: doc.widthPx, paperHeightPx: doc.heightPx
+      })
+    } finally {
+      setPrinting(false)
+    }
+  }
+
   return (
     <div className="bs-print-layout">
       <div className="bs-print-settings">
-        <button className="bs-btn" style={{ width: '100%', marginBottom: 20 }} onClick={() => window.print()}>Print</button>
+        <button className="bs-btn" style={{ width: '100%', marginBottom: 20 }} onClick={doPrint} disabled={printing}>
+          {printing ? 'Printing...' : 'Print'}
+        </button>
         <div className="bs-print-label">Copies</div>
-        <input className="bs-select" defaultValue={1} type="number" min={1} />
+        <input className="bs-select" value={copies} type="number" min={1} onChange={(e) => setCopies(Math.max(1, Number(e.target.value) || 1))} />
         <div className="bs-print-label">Printer</div>
-        <select className="bs-select" defaultValue="pdf">
-          <option value="pdf">Microsoft Print to PDF</option>
-          <option value="xps">Microsoft XPS Document Writer</option>
+        <select className="bs-select" value={printer} onChange={(e) => setPrinter(e.target.value)}>
+          {printers.length === 0 && <option value="">Microsoft Print to PDF</option>}
+          {printers.map((p) => <option key={p.name} value={p.name}>{p.displayName}{p.isDefault ? ' (default)' : ''}</option>)}
         </select>
         <div className="bs-print-label">Settings</div>
-        <select className="bs-select" defaultValue="active">
+        <select className="bs-select" value={printWhat} onChange={(e) => setPrintWhat(e.target.value as typeof printWhat)}>
           <option value="active">Print Active Sheets</option>
           <option value="workbook">Print Entire Workbook</option>
           <option value="selection">Print Selection</option>
         </select>
-        <select className="bs-select" defaultValue="portrait">
+        {printWhat === 'selection' && (
+          <button className="bs-btn" style={{ marginTop: 4 }} onClick={() => patch((p) => (p.printArea = sheet.selection.ranges.map(normRange)))}>
+            Use Current Selection as Print Area
+          </button>
+        )}
+        <div className="bs-print-pages-inline">
+          <input className="bs-select" style={{ width: 50 }} placeholder="1" />
+          <span>to</span>
+          <input className="bs-select" style={{ width: 50 }} placeholder={String(pageCount)} />
+          <span className="bs-print-label" style={{ margin: 0 }}>Pages</span>
+        </div>
+
+        <select className="bs-select" value={ps.orientation} onChange={(e) => patch((p) => (p.orientation = e.target.value as 'portrait' | 'landscape'))}>
           <option value="portrait">Portrait Orientation</option>
           <option value="landscape">Landscape Orientation</option>
         </select>
-        <select className="bs-select" defaultValue="letter">
-          <option value="letter">Letter (8.5&quot; x 11&quot;)</option>
-          <option value="a4">A4 (8.27&quot; x 11.69&quot;)</option>
+        <select className="bs-select" value={ps.paperSize} onChange={(e) => patch((p) => (p.paperSize = e.target.value as PaperSize))}>
+          {Object.entries(PAPER_SIZES).map(([k, v]) => <option key={k} value={k}>{v.label} ({v.w}&quot; x {v.h}&quot;)</option>)}
         </select>
-        <select className="bs-select" defaultValue="normal">
+        <select
+          className="bs-select"
+          value={
+            ps.margins.top === MARGIN_PRESETS.normal.top && ps.margins.left === MARGIN_PRESETS.normal.left ? 'normal'
+              : ps.margins.top === MARGIN_PRESETS.wide.top && ps.margins.left === MARGIN_PRESETS.wide.left ? 'wide'
+                : ps.margins.top === MARGIN_PRESETS.narrow.top && ps.margins.left === MARGIN_PRESETS.narrow.left ? 'narrow' : 'custom'
+          }
+          onChange={(e) => { const k = e.target.value; if (k !== 'custom') patch((p) => (p.margins = { ...MARGIN_PRESETS[k as 'normal' | 'wide' | 'narrow'] })) }}
+        >
           <option value="normal">Normal Margins</option>
           <option value="wide">Wide Margins</option>
           <option value="narrow">Narrow Margins</option>
+          <option value="custom">Custom Margins</option>
         </select>
-        <select className="bs-select" defaultValue="noscale">
+        <select
+          className="bs-select"
+          value={!ps.fitToPage ? 'noscale' : ps.fitToWidth === 1 && ps.fitToHeight === 1 ? 'fitsheet' : ps.fitToWidth === 1 && ps.fitToHeight === 0 ? 'fitcols' : ps.fitToHeight === 1 && ps.fitToWidth === 0 ? 'fitrows' : 'noscale'}
+          onChange={(e) => {
+            const v = e.target.value
+            if (v === 'noscale') patch((p) => { p.fitToPage = false; p.scalePercent = 100 })
+            else if (v === 'fitsheet') patch((p) => { p.fitToPage = true; p.fitToWidth = 1; p.fitToHeight = 1 })
+            else if (v === 'fitcols') patch((p) => { p.fitToPage = true; p.fitToWidth = 1; p.fitToHeight = 0 })
+            else if (v === 'fitrows') patch((p) => { p.fitToPage = true; p.fitToWidth = 0; p.fitToHeight = 1 })
+          }}
+        >
           <option value="noscale">No Scaling</option>
           <option value="fitsheet">Fit Sheet on One Page</option>
+          <option value="fitcols">Fit All Columns on One Page</option>
+          <option value="fitrows">Fit All Rows on One Page</option>
         </select>
+        <button className="bs-btn" style={{ width: '100%', marginTop: 12 }} onClick={() => setUi({ dialog: { kind: 'pageSetup', props: { tab: 'Page' } } })}>
+          Page Setup
+        </button>
       </div>
-      <div className="bs-print-preview">
-        <div className="bs-print-page">
-          <table>
-            <tbody>
-              {Array.from({ length: rows }).map((_, r) => (
-                <tr key={r}>
-                  {Array.from({ length: cols }).map((_, c) => (
-                    <td key={c}>{store.getDisplay(sheet, r, c).text}</td>
-                  ))}
-                </tr>
-              ))}
-              {rows === 0 && <tr><td>&nbsp;</td></tr>}
-            </tbody>
-          </table>
+      <div className="bs-print-preview-col">
+        <div className="bs-print-preview">
+          <iframe key={pageIdx + ':' + JSON.stringify(ps)} className={'bs-print-frame' + (zoom === 'fit' ? ' fit' : '')} srcDoc={doc.html} title="Print preview" />
+        </div>
+        <div className="bs-print-preview-bar">
+          <button className="bs-print-nav" disabled={pageIdx <= 0} onClick={() => setPageIdx((i) => Math.max(0, i - 1))}>◀</button>
+          <span>Page {Math.min(pageIdx + 1, pageCount)} of {pageCount}</span>
+          <button className="bs-print-nav" disabled={pageIdx >= pageCount - 1} onClick={() => setPageIdx((i) => Math.min(pageCount - 1, i + 1))}>▶</button>
+          <span className="bs-print-bar-sep" />
+          <button className={'bs-print-nav' + (zoom === 'fit' ? ' active' : '')} onClick={() => setZoom('fit')}>Zoom to Page</button>
+          <button className={'bs-print-nav' + (zoom === 'full' ? ' active' : '')} onClick={() => setZoom('full')}>Show Margins</button>
         </div>
       </div>
     </div>
   )
 }
 
+/** Export > Create PDF: webContents.printToPDF (Electron) via print/printActions.ts, saved through
+ *  a normal browser download; falls back to window.print() ("Save as PDF" in the OS print dialog)
+ *  when there's no Electron bridge (npm run web). */
+async function createPdf(): Promise<void> {
+  const sheet = store.active
+  const ps = sheet.layout.pageSetup ?? defaultPageSetup()
+  const bytes = await exportTargetsToPdf(store, [{ sheet, pageSetup: ps }], store.fileName)
+  if (!bytes) return // browser fallback already invoked window.print()
+  const blob = new Blob([bytes as BlobPart], { type: 'application/pdf' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = store.fileName.replace(/\.xlsx?$/i, '') + '.pdf'
+  a.click()
+  setTimeout(() => URL.revokeObjectURL(url), 2000)
+}
+
 function ExportPane() {
   return (
     <div className="bs-pad">
       <div className="bs-places-title" style={{ padding: 0 }}>Export</div>
-      <div className="bs-export-tile" onClick={() => window.print()}>
+      <div className="bs-export-tile" onClick={() => { void createPdf() }}>
         <div className="bs-tile-icon"><DocumentPdf20Regular fontSize={26} /></div>
         <div>
           <div className="bs-tile-title">Create PDF/XPS Document</div>
-          <div className="bs-tile-desc">Save a copy of the workbook that's fixed-layout and easy to share, using the browser's Print to PDF.</div>
+          <div className="bs-tile-desc">Save a copy of the workbook that's fixed-layout and easy to share (Microsoft Print to PDF).</div>
         </div>
       </div>
       <div className="bs-export-tile" onClick={downloadCsv}>

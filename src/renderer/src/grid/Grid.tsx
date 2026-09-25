@@ -14,12 +14,14 @@ import { Dialog } from '../components/Dialog'
 import * as cmd from './commands'
 import { shiftFormula } from '../engine/shiftFormula'
 import ChartOverlay from '../charts/ChartOverlay'
+import PageBreakOverlay from '../print/PageBreakOverlay'
 import { insertChartFromSelection } from '../charts/insertChart'
 import { COLUMN_BAR_GALLERY } from '../charts/gallery'
 import { AutoFilterMenu } from './AutoFilterMenu'
 import { NoteBox, NoteTooltip, CommentBox, closeNoteEditor, closeCommentPanel } from './Annotations'
 import { evaluateCf } from '../format/conditional'
 import { getValidationForCell, getListItems } from '../data/dataValidation'
+import { tableAt, tableCellPaint, tabAddsRow, displayTotalsFormula } from '../model/tables'
 import {
   Cut20Regular, Copy20Regular, ClipboardPaste20Regular, ClipboardTaskRegular, ClipboardCodeRegular,
   ClipboardLink20Regular, ArrowSwap20Regular, PaintBrush20Regular, Delete20Regular, Eraser20Regular,
@@ -311,9 +313,14 @@ export default function Grid() {
 
     function drawCellContent(r: number, c: number, x: number, y: number, w: number, h: number): void {
       if (w <= 0 || h <= 0) return
+      const t = tableAt(sheet, r, c)
+      const tp = t ? tableCellPaint(t, r, c) : undefined
       const baseStyle = store.getStyle(sheet, r, c)
+      // Table style banding/header/total shading is computed here, never written into sheet.styles,
+      // so direct cell formatting (baseStyle) always wins over it - same as real Excel.
+      const withTable = tp ? { fill: tp.fill, color: tp.color, bold: tp.bold, ...baseStyle } : baseStyle
       const cf = evaluateCf(store, sheet, r, c)
-      const style = cf.style ? { ...baseStyle, ...cf.style } : baseStyle
+      const style = cf.style ? { ...withTable, ...cf.style } : withTable
       const bg = cf.colorScale || style?.fill
       if (bg) { ctx.fillStyle = bg; ctx.fillRect(x, y, w, h) }
 
@@ -340,7 +347,9 @@ export default function Grid() {
 
       const editingHere = ui.edit && ui.edit.r === r && ui.edit.c === c
       if (editingHere) return
-      const disp = ui.formulasVisible ? { text: store.getRaw(sheet, r, c), color: undefined, align: 'left' as const } : store.getDisplay(sheet, r, c)
+      const disp = ui.formulasVisible
+        ? { text: displayTotalsFormula(sheet, r, c) ?? store.getRaw(sheet, r, c), color: undefined, align: 'left' as const }
+        : store.getDisplay(sheet, r, c)
       if (!disp.text) return
       ctx.font = fontString(style, z)
       ctx.fillStyle = style?.color ?? disp.color ?? '#000000'
@@ -475,6 +484,29 @@ export default function Grid() {
       const x1 = cellScreenX(c1), x2 = cellScreenX(Math.min(c2, extent.cols - 1)) + colsAxis.size(c2) * z
       const y1 = cellScreenY(r1), y2 = cellScreenY(Math.min(r2, extent.rows - 1)) + rowsAxis.size(r2) * z
       fn(Math.min(x1, x2), Math.min(y1, y2), Math.abs(x2 - x1), Math.abs(y2 - y1))
+    }
+
+    // ---------- table outlines (border color from the table style; header/total separators) ----------
+    for (const t of sheet.layout.tables ?? []) {
+      const s = tableCellPaint(t, t.range.r1, t.range.c1)
+      const border = s?.borderColor
+      if (!border) continue
+      ctx.save()
+      ctx.beginPath(); ctx.rect(rowHeaderW, headerH, size.w - rowHeaderW, size.h - headerH); ctx.clip()
+      ctx.strokeStyle = border
+      ctx.lineWidth = 1
+      forEachVisibleRectOf(t.range, (x, y, w, h) => ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1))
+      if (t.options.headerRow) {
+        forEachVisibleRectOf({ r1: t.range.r1, c1: t.range.c1, r2: t.range.r1, c2: t.range.c2 }, (x, y, w, h) => {
+          ctx.beginPath(); ctx.moveTo(x, y + h - 0.5); ctx.lineTo(x + w, y + h - 0.5); ctx.stroke()
+        })
+      }
+      if (t.options.totalRow) {
+        forEachVisibleRectOf({ r1: t.range.r2, c1: t.range.c1, r2: t.range.r2, c2: t.range.c2 }, (x, y, w, h) => {
+          ctx.beginPath(); ctx.moveTo(x, y + 0.5); ctx.lineTo(x + w, y + 0.5); ctx.stroke()
+        })
+      }
+      ctx.restore()
     }
 
     ctx.save()
@@ -693,16 +725,20 @@ export default function Grid() {
 
   function moveActive(dr: number, dc: number, extend: boolean, opts?: { jump?: boolean }): void {
     const cur = sheet.selection
-    let { r, c } = cur.active
+    // Shift+arrow moves the far corner of the current range (the one opposite the active cell),
+    // so repeated presses keep growing or shrinking it; a plain arrow moves the active cell.
+    const lastRg = cur.ranges[cur.ranges.length - 1]
+    const from = extend && lastRg
+      ? { r: lastRg.r1 === cur.active.r ? lastRg.r2 : lastRg.r1, c: lastRg.c1 === cur.active.c ? lastRg.c2 : lastRg.c1 }
+      : cur.active
+    let r: number, c: number
     if (opts?.jump) {
-      r = jumpTo(r, c, dr, dc).r
-      c = jumpTo(r0(cur.active), c0(cur.active), dr, dc).c
-      const j = jumpTo(cur.active.r, cur.active.c, dr, dc)
+      const j = jumpTo(from.r, from.c, dr, dc)
       r = j.r; c = j.c
     } else {
-      const m = mergedRangeOf(cur.active.r, cur.active.c)
-      r = dr < 0 ? m.r1 + dr : dr > 0 ? m.r2 + dr : cur.active.r
-      c = dc < 0 ? m.c1 + dc : dc > 0 ? m.c2 + dc : cur.active.c
+      const m = extend ? { r1: from.r, c1: from.c, r2: from.r, c2: from.c } : mergedRangeOf(from.r, from.c)
+      r = dr < 0 ? m.r1 + dr : dr > 0 ? m.r2 + dr : from.r
+      c = dc < 0 ? m.c1 + dc : dc > 0 ? m.c2 + dc : from.c
     }
     r = Math.max(0, Math.min(MAX_ROWS - 1, r))
     c = Math.max(0, Math.min(MAX_COLS - 1, c))
@@ -1184,11 +1220,17 @@ export default function Grid() {
       if (e.key === 'F8' && !e.shiftKey && !mod) { setUi({ selectMode: getUi().selectMode === 'extend' ? 'none' : 'extend' }); e.preventDefault(); return }
       if (e.key === 'F8' && e.shiftKey) { setUi({ selectMode: getUi().selectMode === 'add' ? 'none' : 'add' }); e.preventDefault(); return }
       if (e.key === 'Tab') {
+        if (!e.shiftKey) {
+          const a = sheet.selection.active
+          const grown = tabAddsRow(store, sheet, a.r, a.c)
+          if (grown) { tabAnchorCol.current = null; selectSingle(grown.r, grown.c); ensureVisible(grown.r, grown.c); e.preventDefault(); return }
+        }
         if (tabAnchorCol.current === null) tabAnchorCol.current = sheet.selection.active.c
         moveWithinOrGrid(0, e.shiftKey ? -1 : 1)
         e.preventDefault(); return
       }
       if (e.key === 'Enter') { commitEnterAfterTabAware(e.shiftKey); e.preventDefault(); return }
+      if (mod && !e.shiftKey && e.key.toLowerCase() === 't') { cmd.openCreateTableDialog(); e.preventDefault(); return }
       if (e.key === 'Home') {
         tabAnchorCol.current = null
         const a = sheet.selection.active
@@ -1211,6 +1253,7 @@ export default function Grid() {
       if (mod && e.key === ' ') { const cur = sheet.selection; const rg = cur.ranges[cur.ranges.length - 1]; setSel([{ r1: 0, c1: rg.c1, r2: MAX_ROWS - 1, c2: rg.c2 }], cur.active); e.preventDefault(); return }
       if (e.shiftKey && e.key === ' ') { const cur = sheet.selection; const rg = cur.ranges[cur.ranges.length - 1]; setSel([{ r1: rg.r1, c1: 0, r2: rg.r2, c2: MAX_COLS - 1 }], cur.active); e.preventDefault(); return }
       if (mod && e.shiftKey && e.key.toLowerCase() === 'l') { store.toggleAutoFilter(sheet); e.preventDefault(); return }
+      if (mod && !e.shiftKey && e.key.toLowerCase() === 'l') { cmd.openCreateTableDialog(); e.preventDefault(); return }
       if (mod && e.key.toLowerCase() === 'z') { store.undo(); e.preventDefault(); return }
       if (mod && e.key.toLowerCase() === 'y') { store.redo(); e.preventDefault(); return }
       if (mod && e.key.toLowerCase() === 'c') { cmd.copy(); e.preventDefault(); return }
@@ -1355,8 +1398,13 @@ export default function Grid() {
       return
     }
     if (e.key === 'Tab') {
-      if (tabAnchorCol.current === null) tabAnchorCol.current = getUi().edit!.c
+      const wasR = edit.r, wasC = edit.c
       commitEdit()
+      if (!e.shiftKey) {
+        const grown = tabAddsRow(store, sheet, wasR, wasC)
+        if (grown) { tabAnchorCol.current = null; selectSingle(grown.r, grown.c); ensureVisible(grown.r, grown.c); hostRef.current?.focus(); e.preventDefault(); return }
+      }
+      if (tabAnchorCol.current === null) tabAnchorCol.current = wasC
       moveWithinOrGrid(0, e.shiftKey ? -1 : 1)
       hostRef.current?.focus()
       e.preventDefault()
@@ -1615,6 +1663,9 @@ export default function Grid() {
         sheet={sheet}
         geo={{ colsAxis, rowsAxis, frozen, scroll, z, rowHeaderW, headerH, viewport: size }}
       />
+      {(ui.sheetViewMode === 'pageBreak' || ui.sheetViewMode === 'pageLayout') && (
+        <PageBreakOverlay sheet={sheet} geo={{ colsAxis, rowsAxis, frozen, scroll, z, rowHeaderW, headerH, viewport: size }} />
+      )}
       {edit && edit.source === 'cell' && (
         <textarea
           ref={editorRef}

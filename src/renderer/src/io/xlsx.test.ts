@@ -1,11 +1,34 @@
 import { unzipSync } from 'fflate'
 import { describe, it, expect } from 'vitest'
 import ExcelJS from 'exceljs'
-import { readXlsx, writeXlsx, colWidthToPx, pxToColWidth, ptToPx, pxToPt } from './xlsx'
+import { readXlsx, readXlsxExceljs, writeXlsx, colWidthToPx, pxToColWidth, ptToPx, pxToPt } from './xlsx'
 import { postProcessXlsx, type VbaProject } from './xlsxPostProcess'
 import { BLANK_TOKEN } from '../engine/filter'
 import type { WorkbookData } from '../model/store'
-import type { CommentThread } from '../model/types'
+import type { CfRule, CommentThread, DataValidationRule } from '../model/types'
+
+async function expectEqualReads(bytes: Uint8Array): Promise<WorkbookData> {
+  const [fast, slow] = await Promise.all([readXlsx(bytes), readXlsxExceljs(bytes)])
+  expect(fast).toEqual(slow)
+  return fast
+}
+
+// Both readers mint their own random `id` for each parsed CfRule/DataValidationRule, so comparing
+// them needs those ids normalized away first. Scoped to conditionalFormats/dataValidations only
+// (rather than the whole WorkbookData) so these tests stay about CF/DV and don't couple to other
+// sheet-layout fields (page setup, VBA, ...) owned elsewhere in the codebase.
+function cfDvOnly(data: WorkbookData): { conditionalFormats?: CfRule[]; dataValidations?: DataValidationRule[] }[] {
+  return data.sheets.map((sd) => ({
+    conditionalFormats: sd.layout?.conditionalFormats?.map((r) => ({ ...r, id: '_' })),
+    dataValidations: sd.layout?.dataValidations?.map((r) => ({ ...r, id: '_' }))
+  }))
+}
+
+async function expectEqualCfDvReads(bytes: Uint8Array): Promise<WorkbookData> {
+  const [fast, slow] = await Promise.all([readXlsx(bytes), readXlsxExceljs(bytes)])
+  expect(cfDvOnly(fast)).toEqual(cfDvOnly(slow))
+  return fast
+}
 
 describe('column width / row height conversions', () => {
   it('round-trips reasonably close', () => {
@@ -322,5 +345,272 @@ describe('conditional formatting round trip', () => {
     expect(rules[0].value).toBe('100')
     expect(rules[0].format?.fill?.toUpperCase()).toBe('#FFC7CE')
     expect(rules[0].format?.color?.toUpperCase()).toBe('#9C0006')
+  })
+
+  it('round-trips every rule type through both readers (fastXlsx and exceljs)', async () => {
+    const ranges = [{ r1: 0, c1: 0, r2: 20, c2: 0 }]
+    const rules: Omit<CfRule, 'id'>[] = [
+      { priority: 1, ranges, type: 'cellIs', operator: 'between', value: '10', value2: '20', format: { fill: '#FFC7CE', color: '#9C0006', bold: true } },
+      { priority: 2, ranges, type: 'textContains', text: 'urgent', format: { fill: '#FFEB9C', italic: true } },
+      { priority: 3, ranges, type: 'dateOccurring', date: 'lastWeek', format: { color: '#FF0000' } },
+      { priority: 4, ranges, type: 'duplicateValues', format: { fill: '#00FF00' } },
+      { priority: 5, ranges, type: 'uniqueValues', format: { fill: '#00FFFF' }, stopIfTrue: true },
+      { priority: 6, ranges, type: 'top10', bottom: true, percent: true, rank: 25, format: { fill: '#CCCCCC' } },
+      { priority: 7, ranges, type: 'aboveAverage', above: false, equalOrAbove: true, format: { strike: true } },
+      { priority: 8, ranges, type: 'expression', formula: '=$A1>5', format: { underline: 'single' } },
+      { priority: 9, ranges, type: 'dataBar', dataBar: { color: '#638EC6', min: 0, max: 100, showValue: false } },
+      { priority: 10, ranges, type: 'colorScale', colorScale: { minColor: '#F8696B', midColor: '#FFEB84', maxColor: '#63BE7B' } },
+      { priority: 11, ranges, type: 'iconSet', iconSet: { name: '3Arrows', reverse: true, showValue: false } }
+    ]
+    const data: WorkbookData = {
+      sheets: [
+        {
+          name: 'AllCf',
+          cells: { '0,0': { raw: '15' } },
+          layout: { conditionalFormats: rules.map((r, i) => ({ ...r, id: 'seed' + i })) }
+        }
+      ]
+    }
+
+    const bytes = await writeXlsx(data)
+    const fastBack = await expectEqualCfDvReads(bytes)
+    const cfs = fastBack.sheets[0].layout!.conditionalFormats!
+    expect(cfs.length).toBe(rules.length)
+    const byType = Object.fromEntries(cfs.map((r) => [r.type, r]))
+
+    expect(byType.cellIs.operator).toBe('between')
+    expect(byType.cellIs.value).toBe('10')
+    expect(byType.cellIs.value2).toBe('20')
+    expect(byType.cellIs.format?.bold).toBe(true)
+
+    expect(byType.textContains.text).toBe('urgent')
+    expect(byType.textContains.format?.italic).toBe(true)
+
+    expect(byType.dateOccurring.date).toBe('lastWeek')
+
+    expect(byType.duplicateValues.format?.fill?.toUpperCase()).toBe('#00FF00')
+    expect(byType.uniqueValues.stopIfTrue).toBe(true)
+
+    expect(byType.top10.bottom).toBe(true)
+    expect(byType.top10.percent).toBe(true)
+    expect(byType.top10.rank).toBe(25)
+
+    expect(byType.aboveAverage.above).toBe(false)
+    expect(byType.aboveAverage.equalOrAbove).toBe(true)
+
+    expect(byType.expression.formula).toBe('=$A1>5')
+
+    expect(byType.dataBar.dataBar?.color.toUpperCase()).toBe('#638EC6')
+    expect(byType.dataBar.dataBar?.min).toBe(0)
+    expect(byType.dataBar.dataBar?.max).toBe(100)
+    expect(byType.dataBar.dataBar?.showValue).toBe(false)
+
+    expect(byType.colorScale.colorScale?.minColor.toUpperCase()).toBe('#F8696B')
+    expect(byType.colorScale.colorScale?.midColor?.toUpperCase()).toBe('#FFEB84')
+    expect(byType.colorScale.colorScale?.maxColor.toUpperCase()).toBe('#63BE7B')
+
+    expect(byType.iconSet.iconSet?.name).toBe('3Arrows')
+    expect(byType.iconSet.iconSet?.reverse).toBe(true)
+    expect(byType.iconSet.iconSet?.showValue).toBe(false)
+
+    // Priorities and per-rule ranges/stopIfTrue all survive too.
+    for (const rule of cfs) {
+      expect(rule.ranges).toEqual(ranges)
+    }
+  })
+
+  it('round-trips a Solid Fill data bar via the x14 extLst extension, in both readers', async () => {
+    const ranges = [{ r1: 0, c1: 0, r2: 5, c2: 0 }]
+    const data: WorkbookData = {
+      sheets: [
+        {
+          name: 'Solid',
+          cells: { '0,0': { raw: '10' } },
+          layout: {
+            conditionalFormats: [
+              { id: 'seed', priority: 1, ranges, type: 'dataBar', dataBar: { color: '#0070C0', gradient: false } }
+            ]
+          }
+        }
+      ]
+    }
+
+    const bytes = await writeXlsx(data)
+
+    // The legacy <cfRule> gets an <extLst> pointing (by GUID) at a worksheet-level x14 extLst that
+    // actually carries gradient="0" - assert the raw XML shape the coordinator asked for exactly.
+    const files = unzipSync(bytes)
+    const sheetXml = new TextDecoder().decode(files['xl/worksheets/sheet1.xml'])
+    expect(sheetXml).toContain('uri="{B025F937-C7B1-47D3-B67F-A62EEFF666E3}"')
+    expect(sheetXml).toContain('<x14:id>')
+    expect(sheetXml).toContain('uri="{78C0D931-6437-407d-A8EE-F0AAD7539E65}"')
+    expect(sheetXml).toContain('<x14:conditionalFormattings>')
+    expect(sheetXml).toContain('<x14:cfRule type="dataBar" id="')
+    expect(sheetXml).toMatch(/<x14:dataBar[^>]*gradient="0"/)
+    expect(sheetXml).toContain('<xm:sqref>A1:A6</xm:sqref>')
+    // The x14 extLst must be the worksheet's very last child (after pageMargins/pageSetup etc) -
+    // the *last* <extLst> in the document, since the legacy cfRule has its own earlier one too.
+    expect(sheetXml.lastIndexOf('<extLst>')).toBeGreaterThan(sheetXml.indexOf('<pageMargins'))
+    expect(sheetXml.trim().endsWith('</worksheet>')).toBe(true)
+    expect(sheetXml).toMatch(/<worksheet\b[^>]*xmlns:x14="http:\/\/schemas\.microsoft\.com\/office\/spreadsheetml\/2009\/9\/main"/)
+    expect(sheetXml).toMatch(/<worksheet\b[^>]*mc:Ignorable="[^"]*\bx14\b/)
+    // The GUID referenced by the legacy cfRule's <x14:id> matches the x14:cfRule's own id attribute.
+    const idM = /<x14:id>(\{[0-9A-Fa-f-]+\})<\/x14:id>/.exec(sheetXml)
+    expect(idM).toBeTruthy()
+    expect(sheetXml).toContain(`<x14:cfRule type="dataBar" id="${idM![1]}">`)
+
+    const fastBack = await expectEqualCfDvReads(bytes)
+    const rule = fastBack.sheets[0].layout!.conditionalFormats![0]
+    expect(rule.type).toBe('dataBar')
+    expect(rule.dataBar?.gradient).toBe(false)
+    expect(rule.dataBar?.color.toUpperCase()).toBe('#0070C0')
+
+    // A plain (gradient) data bar - no x14 extension - still reads back as gradient: true.
+    const gradientData: WorkbookData = {
+      sheets: [
+        {
+          name: 'Gradient',
+          cells: {},
+          layout: {
+            conditionalFormats: [{ id: 'g', priority: 1, ranges, type: 'dataBar', dataBar: { color: '#638EC6', gradient: true } }]
+          }
+        }
+      ]
+    }
+    const gradientBytes = await writeXlsx(gradientData)
+    const gradientFiles = unzipSync(gradientBytes)
+    expect(new TextDecoder().decode(gradientFiles['xl/worksheets/sheet1.xml'])).not.toContain('extLst')
+    const gradientBack = await expectEqualCfDvReads(gradientBytes)
+    expect(gradientBack.sheets[0].layout!.conditionalFormats![0].dataBar?.gradient).toBe(true)
+  })
+})
+
+describe('data validation round trip', () => {
+  it('round-trips every allow type, including the showDropDown inversion, through both readers', async () => {
+    const rules: Omit<DataValidationRule, 'id'>[] = [
+      {
+        ranges: [{ r1: 0, c1: 0, r2: 0, c2: 0 }],
+        allow: 'list',
+        formula1: 'Yes,No,Maybe',
+        ignoreBlank: true,
+        inCellDropdown: true
+      },
+      {
+        // "In-cell dropdown" unchecked - OOXML writes showDropDown="1" to HIDE it.
+        ranges: [{ r1: 1, c1: 0, r2: 1, c2: 0 }],
+        allow: 'list',
+        formula1: '=$A$1:$A$3',
+        ignoreBlank: false,
+        inCellDropdown: false
+      },
+      {
+        ranges: [{ r1: 2, c1: 0, r2: 2, c2: 0 }],
+        allow: 'whole',
+        operator: 'between',
+        formula1: '1',
+        formula2: '10',
+        showInputMessage: true,
+        inputTitle: 'Range',
+        inputMessage: 'Enter 1-10',
+        showErrorAlert: true,
+        errorStyle: 'stop',
+        errorTitle: 'Bad value',
+        errorMessage: 'Must be between 1 and 10.'
+      },
+      {
+        ranges: [{ r1: 3, c1: 0, r2: 3, c2: 0 }],
+        allow: 'decimal',
+        operator: 'greaterThanOrEqual',
+        formula1: '0.5',
+        showErrorAlert: true,
+        errorStyle: 'warning'
+      },
+      {
+        ranges: [{ r1: 4, c1: 0, r2: 4, c2: 0 }],
+        allow: 'date',
+        operator: 'lessThan',
+        formula1: '45292'
+      },
+      {
+        ranges: [{ r1: 5, c1: 0, r2: 5, c2: 0 }],
+        allow: 'textLength',
+        operator: 'lessThanOrEqual',
+        formula1: '10'
+      },
+      {
+        ranges: [{ r1: 6, c1: 0, r2: 6, c2: 0 }],
+        allow: 'custom',
+        formula1: '=MOD(A7,2)=0'
+      }
+    ]
+    const data: WorkbookData = {
+      sheets: [
+        {
+          name: 'DV',
+          cells: {},
+          layout: { dataValidations: rules.map((r, i) => ({ ...r, id: 'seed' + i })) }
+        }
+      ]
+    }
+
+    const bytes = await writeXlsx(data)
+    const fastBack = await expectEqualCfDvReads(bytes)
+    const dvs = fastBack.sheets[0].layout!.dataValidations!
+    expect(dvs.length).toBe(rules.length)
+    const byRange = Object.fromEntries(dvs.map((r) => [r.ranges[0].r1, r]))
+
+    expect(byRange[0].allow).toBe('list')
+    expect(byRange[0].formula1).toBe('Yes,No,Maybe')
+    expect(byRange[0].inCellDropdown).toBe(true)
+
+    expect(byRange[1].allow).toBe('list')
+    expect(byRange[1].formula1).toBe('=$A$1:$A$3')
+    expect(byRange[1].ignoreBlank).toBe(false)
+    expect(byRange[1].inCellDropdown).toBe(false) // showDropDown="1" survived and was un-inverted
+
+    expect(byRange[2].allow).toBe('whole')
+    expect(byRange[2].operator).toBe('between')
+    expect(byRange[2].formula1).toBe('1')
+    expect(byRange[2].formula2).toBe('10')
+    expect(byRange[2].inputTitle).toBe('Range')
+    expect(byRange[2].inputMessage).toBe('Enter 1-10')
+    expect(byRange[2].errorTitle).toBe('Bad value')
+    expect(byRange[2].errorMessage).toBe('Must be between 1 and 10.')
+    expect(byRange[2].errorStyle).toBe('stop')
+
+    expect(byRange[3].allow).toBe('decimal')
+    expect(byRange[3].operator).toBe('greaterThanOrEqual')
+    expect(byRange[3].formula1).toBe('0.5')
+    expect(byRange[3].errorStyle).toBe('warning')
+
+    expect(byRange[4].allow).toBe('date')
+    expect(byRange[4].operator).toBe('lessThan')
+    expect(byRange[4].formula1).toBe('45292')
+
+    expect(byRange[5].allow).toBe('textLength')
+    expect(byRange[5].formula1).toBe('10')
+
+    expect(byRange[6].allow).toBe('custom')
+    expect(byRange[6].formula1).toBe('=MOD(A7,2)=0')
+  })
+
+  it('raw XML actually carries showDropDown="1" when the in-cell dropdown is hidden', async () => {
+    const data: WorkbookData = {
+      sheets: [
+        {
+          name: 'S',
+          cells: {},
+          layout: {
+            dataValidations: [
+              { id: 'dv1', ranges: [{ r1: 0, c1: 0, r2: 0, c2: 0 }], allow: 'list', formula1: 'A,B', inCellDropdown: false }
+            ]
+          }
+        }
+      ]
+    }
+    const bytes = await writeXlsx(data)
+    const files = unzipSync(bytes)
+    const sheetXml = new TextDecoder().decode(files['xl/worksheets/sheet1.xml'])
+    expect(sheetXml).toContain('showDropDown="1"')
   })
 })

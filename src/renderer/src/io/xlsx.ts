@@ -2,17 +2,23 @@
 import { shiftFormula } from '../engine/shiftFormula'
 import ExcelJS from 'exceljs'
 import { unzipSync } from 'fflate'
-import type { CellStyle, BorderLineStyle, BorderSide, FilterCriteria, SheetLayout, Range, NoteData, CommentThread, CfRule } from '../model/types'
-import { DEFAULT_ROW_HEIGHT, rangeA1, parseA1 } from '../model/types'
+import type { CellStyle, BorderLineStyle, BorderSide, FilterCriteria, SheetLayout, Range, NoteData, CommentThread } from '../model/types'
+import { DEFAULT_ROW_HEIGHT } from '../model/types'
 import type { WorkbookData } from '../model/store'
 import { DEFAULT_AUTHOR, defaultLayout } from '../model/defaults'
 import {
   THEME_COLORS, BORDER_STYLES, applyTint, ptToPx, pxToPt, colWidthToPx, pxToColWidth,
-  colLetterToIndex, parseRangeStr, parseAutoFilterColumns, threadToLegacyNote, legacyNoteToThread
+  colLetterToIndex, parseRangeStr, parseAutoFilterColumns, threadToLegacyNote, legacyNoteToThread,
+  isCfbMagic
 } from './xlsxShared'
 import { extractSection, parseAttrs, parseRelationships, resolveRelTarget } from './fastXlsxXml'
 import type { VbaProject } from './xlsxPostProcess'
 import { postProcessXlsx } from './xlsxPostProcess'
+import { parseConditionalFormattings, parseDataValidations, parseDxfs } from './xlsxCfDv'
+import {
+  toExceljsPageSetup, toExceljsHeaderFooter, fromExceljsPageSetup, rowBreaksToExceljs
+} from './xlsxPageSetup'
+import { parseColBreaksXml, parseRowBreaksXml } from './xlsxColBreaks'
 
 // Re-exported for existing `from './xlsx'` call sites (the fast reader/worker import these
 // directly from xlsxShared instead, so they don't pull exceljs into their bundle - see fastXlsx.ts).
@@ -170,22 +176,28 @@ function isDateFormat(fmt: string | undefined): boolean {
   return /[ymdhs]/i.test(stripped) && !/^general$/i.test(fmt)
 }
 
-// exceljs's object model doesn't expose a worksheet's raw XML (and has no filterColumn support at
-// all), so for the AutoFilter-criteria read path below we separately unzip the same bytes and map
-// each sheet name to its raw xl/worksheets/sheetN.xml text, the same way fastXlsx.ts does.
-function mapSheetXmlByName(data: Uint8Array): Map<string, string> {
+// exceljs's object model doesn't expose a worksheet's raw XML (and has no filterColumn or full
+// conditional-formatting/data-validation support), so for those read paths below we separately
+// unzip the same bytes and map each sheet name to its raw xl/worksheets/sheetN.xml text (plus the
+// raw xl/styles.xml text, for conditional formatting's <dxfs>), the same way fastXlsx.ts does.
+function mapSheetXmlByName(data: Uint8Array): { sheetXmlByName: Map<string, string>; stylesXml?: string } {
   const map = new Map<string, string>()
   const files = unzipSync(data, {
-    filter: (f) => f.name === 'xl/workbook.xml' || f.name === 'xl/_rels/workbook.xml.rels' || /^xl\/worksheets\/[^/]+\.xml$/.test(f.name)
+    filter: (f) =>
+      f.name === 'xl/workbook.xml' ||
+      f.name === 'xl/_rels/workbook.xml.rels' ||
+      f.name === 'xl/styles.xml' ||
+      /^xl\/worksheets\/[^/]+\.xml$/.test(f.name)
   })
   const dec = new TextDecoder('utf-8')
+  const stylesXml = files['xl/styles.xml'] ? dec.decode(files['xl/styles.xml']) : undefined
   const workbookXml = files['xl/workbook.xml'] ? dec.decode(files['xl/workbook.xml']) : undefined
-  if (!workbookXml) return map
+  if (!workbookXml) return { sheetXmlByName: map, stylesXml }
   const relsXml = files['xl/_rels/workbook.xml.rels'] ? dec.decode(files['xl/_rels/workbook.xml.rels']) : ''
   const relMap = new Map<string, string>()
   for (const r of parseRelationships(relsXml)) relMap.set(r.id, r.target)
   const section = extractSection(workbookXml, 'sheets')
-  if (!section) return map
+  if (!section) return { sheetXmlByName: map, stylesXml }
   const re = /<sheet\b([^>]*)\/?>/g
   let m: RegExpExecArray | null
   while ((m = re.exec(section))) {
@@ -197,7 +209,7 @@ function mapSheetXmlByName(data: Uint8Array): Map<string, string> {
     const xml = files[path]
     if (xml) map.set(a.name, dec.decode(xml))
   }
-  return map
+  return { sheetXmlByName: map, stylesXml }
 }
 
 // ---------- read (exceljs, kept for the differential test against the fast reader) ----------
@@ -205,7 +217,8 @@ export async function readXlsxExceljs(data: Uint8Array): Promise<WorkbookData> {
   const wb = new ExcelJS.Workbook()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await wb.xlsx.load(data as any)
-  const sheetXmlByName = mapSheetXmlByName(data)
+  const { sheetXmlByName, stylesXml } = mapSheetXmlByName(data)
+  const dxfs = parseDxfs(stylesXml)
 
   const sheets: WorkbookData['sheets'] = []
   wb.eachSheet((ws) => {
@@ -348,65 +361,30 @@ export async function readXlsxExceljs(data: Uint8Array): Promise<WorkbookData> {
       if (c) layout.tabColor = c
     }
 
-    const rawCfs = (ws as any).conditionalFormattings || []
-    if (rawCfs.length > 0) {
-      const cfs: CfRule[] = []
-      let pCounter = 1
-      for (const cf of rawCfs) {
-        const refStr = cf.ref || ''
-        const ranges = refStr
-          .split(/\s+/)
-          .map((r: string) => parseA1(r))
-          .filter((r: Range | null): r is Range => r !== null)
-        if (!ranges.length) continue
-
-        for (const rule of cf.rules || []) {
-          const id = 'cf_' + Math.random().toString(36).slice(2, 9)
-          const priority = rule.priority ?? pCounter++
-          const stopIfTrue = Boolean(rule.stopIfTrue)
-          const format: Partial<CellStyle> = {}
-          if (rule.style?.fill?.bgColor) {
-            format.fill = colorToHex(rule.style.fill.bgColor)
-          } else if (rule.style?.fill?.fgColor) {
-            format.fill = colorToHex(rule.style.fill.fgColor)
-          }
-          if (rule.style?.font) {
-            if (rule.style.font.color) format.color = colorToHex(rule.style.font.color)
-            if (rule.style.font.bold) format.bold = true
-            if (rule.style.font.italic) format.italic = true
-          }
-
-          let cfRule: CfRule = {
-            id,
-            priority,
-            ranges,
-            stopIfTrue,
-            type: (rule.type as any) || 'cellIs',
-            format: Object.keys(format).length > 0 ? format : undefined
-          }
-
-          if (rule.type === 'cellIs') {
-            cfRule.operator = rule.operator
-            if (Array.isArray(rule.formulae)) {
-              cfRule.value = String(rule.formulae[0] ?? '')
-              if (rule.formulae[1] !== undefined) cfRule.value2 = String(rule.formulae[1])
-            }
-          } else if (rule.type === 'expression') {
-            cfRule.formula = Array.isArray(rule.formulae) ? rule.formulae[0] : rule.formula
-          } else if (rule.type === 'top10') {
-            cfRule.rank = rule.rank
-            cfRule.percent = rule.percent
-            cfRule.bottom = rule.bottom
-          } else if (rule.type === 'aboveAverage') {
-            cfRule.above = rule.aboveAverage ?? true
-            cfRule.equalOrAbove = rule.equalAverage
-          }
-
-          cfs.push(cfRule)
-        }
-      }
+    // Conditional formatting and data validation both need rule types and attributes (dxfId-based
+    // formats, duplicateValues/uniqueValues/timePeriod, data validation's showDropDown) that
+    // exceljs's own object model doesn't fully expose, so both are parsed from the sheet's raw XML
+    // instead (xlsxCfDv.ts) - the same parser the fast reader uses, so the two stay identical.
+    const sheetXml = sheetXmlByName.get(ws.name)
+    if (sheetXml) {
+      const cfs = parseConditionalFormattings(sheetXml, dxfs)
       if (cfs.length > 0) layout.conditionalFormats = cfs
+      const dvs = parseDataValidations(sheetXml)
+      if (dvs.length > 0) layout.dataValidations = dvs
     }
+
+    // Page Setup / Print: pageSetup and headerFooter round-trip through exceljs's own object model
+    // (including the Print_Area/Print_Titles defined names, which exceljs resolves into
+    // pageSetup.printArea/printTitlesRow/printTitlesColumn on read); column breaks are read from
+    // the raw XML the same way they're written (xlsxColBreaks.ts).
+    const rowBreaks = sheetXml ? parseRowBreaksXml(sheetXml) : []
+    const colBreaks = sheetXml ? parseColBreaksXml(sheetXml) : []
+    layout.pageSetup = fromExceljsPageSetup(
+      ws.pageSetup as unknown as import('./xlsxPageSetup').ExceljsPageSetupLike,
+      ws.headerFooter as unknown as import('./xlsxPageSetup').ExceljsHeaderFooterLike,
+      rowBreaks,
+      colBreaks
+    )
 
     sheets.push({ name: ws.name, cells, layout })
   })
@@ -511,59 +489,11 @@ export async function writeXlsx(data: WorkbookData, vba?: VbaProject): Promise<U
         to: { row: range.r2 + 1, column: range.c2 + 1 }
       }
     }
-    if (layout.conditionalFormats && layout.conditionalFormats.length > 0) {
-      for (const cfRule of layout.conditionalFormats) {
-        const ref = cfRule.ranges.map(rangeA1).join(' ')
-        const style: any = {}
-        if (cfRule.format) {
-          if (cfRule.format.fill) {
-            style.fill = {
-              type: 'pattern',
-              pattern: 'solid',
-              bgColor: { argb: hexToArgb(cfRule.format.fill) }
-            }
-          }
-          if (cfRule.format.color || cfRule.format.bold || cfRule.format.italic) {
-            style.font = {}
-            if (cfRule.format.color) style.font.color = { argb: hexToArgb(cfRule.format.color) }
-            if (cfRule.format.bold) style.font.bold = true
-            if (cfRule.format.italic) style.font.italic = true
-          }
-        }
-        const ruleObj: any = {
-          priority: cfRule.priority,
-          stopIfTrue: cfRule.stopIfTrue
-        }
-        if (cfRule.type === 'cellIs') {
-          ruleObj.type = 'cellIs'
-          ruleObj.operator = cfRule.operator
-          ruleObj.formulae = cfRule.value2 !== undefined ? [cfRule.value, cfRule.value2] : [cfRule.value]
-          ruleObj.style = style
-        } else if (cfRule.type === 'expression') {
-          ruleObj.type = 'expression'
-          ruleObj.formulae = [cfRule.formula?.replace(/^=/, '')]
-          ruleObj.style = style
-        } else if (cfRule.type === 'top10') {
-          ruleObj.type = 'top10'
-          ruleObj.rank = cfRule.rank || 10
-          ruleObj.percent = cfRule.percent
-          ruleObj.bottom = cfRule.bottom
-          ruleObj.style = style
-        } else if (cfRule.type === 'aboveAverage') {
-          ruleObj.type = 'aboveAverage'
-          ruleObj.aboveAverage = cfRule.above ?? true
-          ruleObj.equalAverage = cfRule.equalOrAbove
-          ruleObj.style = style
-        } else {
-          ruleObj.type = cfRule.type
-          ruleObj.style = style
-        }
-        ;(ws as any).addConditionalFormatting({
-          ref,
-          rules: [ruleObj]
-        })
-      }
-    }
+    // Conditional formatting and data validation are both written by post-processing the raw
+    // package after exceljs writes it (postProcessXlsx -> xlsxCfDv.ts's patchCfAndDv): exceljs's
+    // own addConditionalFormatting/dataValidations can't express every rule type we model (notably
+    // duplicateValues/uniqueValues, and data validation's showDropDown), so writing the XML
+    // ourselves keeps both readers and real Excel agreeing on one representation.
 
     const view: Partial<ExcelJS.WorksheetView> = {
       showGridLines: layout.showGridlines,
@@ -579,17 +509,36 @@ export async function writeXlsx(data: WorkbookData, vba?: VbaProject): Promise<U
       })
     }
     ws.views = [view]
+
+    // Page Setup / Print (pageSetup, headerFooter, row page breaks): exceljs round-trips these
+    // natively, including the _xlnm.Print_Area/_xlnm.Print_Titles defined names it generates from
+    // pageSetup.printArea/printTitlesRow/printTitlesColumn. Column breaks aren't in exceljs's model
+    // at all, so those are patched into the raw XML afterwards (xlsxColBreaks.ts via postProcessXlsx).
+    if (layout.pageSetup) {
+      ws.pageSetup = toExceljsPageSetup(layout.pageSetup) as ExcelJS.PageSetup
+      ws.headerFooter = toExceljsHeaderFooter(layout.pageSetup.headerFooter) as ExcelJS.HeaderFooter
+      if (layout.pageSetup.rowBreaks.length) (ws as unknown as { rowBreaks: unknown }).rowBreaks = rowBreaksToExceljs(layout.pageSetup.rowBreaks)
+    }
   })
 
   wb.views = [{ x: 0, y: 0, width: 25000, height: 15000, firstSheet: 0, activeTab: data.activeSheet ?? 0, visibility: 'visible' }]
 
   const buf = new Uint8Array(await wb.xlsx.writeBuffer() as ArrayBuffer)
 
-  // AutoFilter per-column criteria and the VBA project part both need editing the raw package -
-  // exceljs's object model can express neither. Skip the unzip/rezip when there's nothing to add.
+  // AutoFilter per-column criteria, conditional formatting, data validation and the VBA project
+  // part all need editing the raw package - exceljs's object model can't express all of them (or,
+  // for CF/DV, not every rule type/attribute we model). Skip the unzip/rezip when there's nothing
+  // to add.
   const sheetFilters = data.sheets.map((sd) => sd.layout?.autoFilter)
+  const sheetLayouts = data.sheets.map((sd) => sd.layout)
   const hasCriteria = sheetFilters.some((af) => af && Object.keys(af.columns).length)
-  return hasCriteria || vba ? postProcessXlsx(buf, sheetFilters, vba) : buf
+  const hasCfDv = sheetLayouts.some((l) => (l?.conditionalFormats && l.conditionalFormats.length > 0) || (l?.dataValidations && l.dataValidations.length > 0))
+  const hasCharts = data.sheets.some((sd) => sd.layout?.charts && sd.layout.charts.length > 0)
+  const hasColBreaks = sheetLayouts.some((l) => l?.pageSetup?.colBreaks && l.pageSetup.colBreaks.length > 0)
+  const hasTables = sheetLayouts.some((l) => l?.tables && l.tables.length > 0)
+  return hasCriteria || hasCfDv || hasCharts || hasColBreaks || hasTables || vba
+    ? postProcessXlsx(buf, sheetFilters, vba, sheetLayouts, hasCharts ? data.sheets : undefined)
+    : buf
 }
 
 // ---------- read (fast path) ----------
@@ -624,6 +573,10 @@ export async function readXlsx(data: Uint8Array): Promise<WorkbookData & { vbaPr
 }
 
 async function parseXlsxInline(data: Uint8Array): Promise<WorkbookData & { vbaProject?: VbaProject }> {
+  if (isCfbMagic(data)) {
+    const { parseXls } = await import('./xls/biff8')
+    return parseXls(data)
+  }
   const { parseXlsx } = await import('./fastXlsx')
   return parseXlsx(data)
 }

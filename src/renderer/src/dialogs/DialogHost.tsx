@@ -17,6 +17,13 @@ import { RemoveDuplicatesDialog } from './RemoveDuplicatesDialog'
 import { TextToColumnsDialog } from './TextToColumnsDialog'
 import { DataValidationDialog } from './DataValidationDialog'
 import { DataValidationErrorDialog } from './DataValidationErrorDialog'
+import { PageSetupDialog, PageSetupTab } from './PageSetupDialog'
+import { CreateTableDialog } from './CreateTableDialog'
+import { ResizeTableDialog } from './ResizeTableDialog'
+import { RenameTableDialog } from './RenameTableDialog'
+import { Dialog } from '../components/Dialog'
+import { Table, Range } from '../model/types'
+import { convertToRange } from '../model/tables'
 
 export default function DialogHost() {
   const ui = useUi()
@@ -91,6 +98,20 @@ export default function DialogHost() {
       return <TextToColumnsDialog store={store} onClose={close} />
     case 'dataValidation':
       return <DataValidationDialog store={store} onClose={close} />
+    case 'pageSetup':
+      return <PageSetupDialog store={store} sheet={sheet} initialTab={d.props?.tab as PageSetupTab | undefined} onClose={close} />
+    case 'createTable':
+      return <CreateTableDialog store={store} range={d.props?.range as Range} styleName={d.props?.styleName as string | undefined} onClose={close} />
+    case 'resizeTable':
+      return <ResizeTableDialog store={store} table={d.props?.table as Table} onClose={close} />
+    case 'renameTable':
+      return <RenameTableDialog store={store} table={d.props?.table as Table} onClose={close} />
+    case 'convertTableToRange':
+      return (
+        <Dialog title="Microsoft Excel" width={360} onOk={() => { convertToRange(store, sheet, d.props?.table as Table); close() }} onCancel={close} okLabel="Yes" cancelLabel="No">
+          <p style={{ margin: 0, font: '12px var(--ui-font, "Segoe UI", Tahoma, sans-serif)' }}>Do you want to convert the table to a normal range?</p>
+        </Dialog>
+      )
     case 'dataValidationError':
       return (
         <DataValidationErrorDialog

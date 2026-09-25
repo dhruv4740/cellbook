@@ -7,6 +7,7 @@ import { MenuItem } from '../../components/Menu'
 import { Group, GroupSep, BigButton, SplitButton, StackSplit, SmallButton, DialogLauncher, Combo, KeyTipBadge } from './controls'
 import { ChevronDown12Regular } from '@fluentui/react-icons'
 import { ColorMenu } from './ColorMenu'
+import { TableStyleGallery } from '../../tables/TableStyleGallery'
 import * as cmds from '../../grid/commands'
 import { getSpecialRanges } from '../../dialogs/find'
 import { addCfRule, clearCfRules } from '../../format/conditional'
@@ -87,6 +88,7 @@ export default function HomeTab() {
   const ranges = sheet.selection.ranges
   const style: CellStyle = store.getStyle(sheet, active.r, active.c) ?? {}
   const [colorMenu, setColorMenu] = useState<{ x: number; y: number; mode: 'font' | 'fill' } | null>(null)
+  const [tableGallery, setTableGallery] = useState<{ x: number; y: number } | null>(null)
   const [lastFontColor, setLastFontColor] = useState('#FF0000')
   const [lastFill, setLastFill] = useState('#FFFF00')
 
@@ -490,7 +492,7 @@ export default function HomeTab() {
 
       <Group label="Styles" icon={<TableCellsMerge20Regular />}>
         <BigButton wide icon={<TableCellsMerge20Regular fontSize={28} />} label="Conditional Formatting" tip={{ title: 'Conditional Formatting' }} menu={cfMenu} onClick={() => {}} keytip="L" />
-        <BigButton wide icon={<TableSimple20Regular fontSize={28} />} label="Format as Table" tip={{ title: 'Format as Table' }} menu={[{ label: 'New Table Style...', onClick: () => {} }]} onClick={() => {}} keytip="T" />
+        <FormatAsTableButton onOpen={(x, y) => setTableGallery({ x, y })} />
         <BigButton
           wide
           icon={<TableInsertRow20Regular fontSize={28} />}
@@ -531,6 +533,14 @@ export default function HomeTab() {
         <BigButton icon={<DataHistogram20Regular fontSize={28} />} label="Analyze Data" tip={{ title: 'Analyze Data' }} onClick={() => {}} />
       </Group>
 
+      {tableGallery && (
+        <TableStyleGallery
+          x={tableGallery.x}
+          y={tableGallery.y}
+          onClose={() => setTableGallery(null)}
+          onPick={(styleName) => { setTableGallery(null); cmds.openCreateTableDialog(styleName) }}
+        />
+      )}
       {colorMenu && (
         <ColorMenu
           x={colorMenu.x || 300}
@@ -544,6 +554,24 @@ export default function HomeTab() {
         />
       )}
     </>
+  )
+}
+
+/** Home > Styles > Format as Table: opens the Table Styles gallery positioned under the button. */
+function FormatAsTableButton({ onOpen }: { onOpen: (x: number, y: number) => void }) {
+  const ref = useRef<HTMLButtonElement>(null)
+  return (
+    <button
+      ref={ref}
+      className="xl-big-btn wide"
+      onClick={() => { const r = ref.current!.getBoundingClientRect(); onOpen(r.left, r.bottom) }}
+    >
+      <span className="xl-big-icon" style={{ position: 'relative' }}>
+        <TableSimple20Regular fontSize={28} />
+        <KeyTipBadge code="T" />
+      </span>
+      <span className="xl-big-label">Format as Table<ChevronDown12Regular className="xl-drop-caret" /></span>
+    </button>
   )
 }
 
