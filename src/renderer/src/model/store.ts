@@ -382,6 +382,9 @@ export class WorkbookStore {
     if (isTopTransact) this.transactOps = []
     try {
       fn() // not batched: fn may read cells between its commits
+    } catch (e) {
+      if (isTopTransact) this.transactOps = null // don't swallow every later broadcast
+      throw e
     } finally {
       this.group = null
     }
