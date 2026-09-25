@@ -282,8 +282,22 @@ export function ViewTab() {
     ] },
     { label: 'Window', rows: [
       [
-        { label: 'New Window', icon: <AppsListDetail20Regular />, onClick: () => void window.api?.newWindow() },
-        { label: 'Arrange All', icon: <AppsListDetail20Regular />, onClick: () => void window.api?.arrangeWindowsPrompt() },
+        {
+          label: 'New Window',
+          icon: <AppsListDetail20Regular />,
+          onClick: () => {
+            void window.api?.newViewWindow?.({
+              data: store.toData(),
+              fileName: store.fileName,
+              filePath: store.filePath
+            })
+          }
+        },
+        {
+          label: 'Arrange All',
+          icon: <AppsListDetail20Regular />,
+          onClick: () => setUi({ dialog: { kind: 'arrangeWindows' } })
+        },
         { label: 'Freeze Panes', icon: <TableFreezeRow20Regular />, menu: [
           { label: 'Freeze Panes', onClick: () => cmds.freezePanes('panes') },
           { label: 'Freeze Top Row', onClick: () => cmds.freezePanes('topRow') },

@@ -17,6 +17,7 @@ import { RemoveDuplicatesDialog } from './RemoveDuplicatesDialog'
 import { TextToColumnsDialog } from './TextToColumnsDialog'
 import { DataValidationDialog } from './DataValidationDialog'
 import { DataValidationErrorDialog } from './DataValidationErrorDialog'
+import { ArrangeWindowsDialog } from './ArrangeWindowsDialog'
 
 export default function DialogHost() {
   const ui = useUi()
@@ -102,6 +103,8 @@ export default function DialogHost() {
           onContinue={((d.props?.onContinue as () => void) || close)}
         />
       )
+    case 'arrangeWindows':
+      return <ArrangeWindowsDialog onClose={close} />
     default:
       return null
   }
