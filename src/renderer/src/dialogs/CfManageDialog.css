@@ -1,0 +1,160 @@
+/* CfManageDialog styles - Excel M365 light theme */
+
+.xl-cf-manage-body {
+  font: 12px var(--ui-font, 'Segoe UI', Tahoma, sans-serif);
+  color: #242424;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  user-select: none;
+}
+
+.xl-cf-manage-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.xl-cf-manage-scope {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.xl-cf-manage-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.xl-cf-priority-btns {
+  display: flex;
+  gap: 2px;
+  margin-left: 4px;
+}
+
+.xl-cf-btn {
+  height: 24px;
+  font: 12px var(--ui-font, 'Segoe UI', Tahoma, sans-serif);
+  background: #fdfdfd;
+  border: 1px solid #adadad;
+  border-radius: 2px;
+  padding: 0 10px;
+  cursor: pointer;
+}
+
+.xl-cf-btn:hover:not(:disabled) {
+  background: #e5f1fb;
+  border-color: #0078d7;
+}
+
+.xl-cf-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.xl-cf-icon-btn {
+  padding: 0 6px;
+  font-size: 10px;
+}
+
+.xl-cf-table-container {
+  border: 1px solid #adadad;
+  background: #fff;
+  height: 220px;
+  overflow-y: auto;
+}
+
+.xl-cf-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.xl-cf-table th {
+  background: #f3f3f3;
+  border-bottom: 1px solid #d4d4d4;
+  padding: 4px 8px;
+  text-align: left;
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.xl-cf-table td {
+  padding: 4px 8px;
+  border-bottom: 1px solid #eee;
+  vertical-align: middle;
+}
+
+.xl-cf-table tr:hover td {
+  background: #f0f7fc;
+}
+
+.xl-cf-table tr.selected td {
+  background: #cde4f7;
+}
+
+.xl-cf-cell-desc {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.xl-cf-cell-format {
+  text-align: center;
+}
+
+.xl-cf-preview-chip {
+  padding: 2px 6px;
+  border-radius: 2px;
+  font-size: 11px;
+  display: inline-block;
+  min-width: 60px;
+}
+
+.xl-cf-preview-scale,
+.xl-cf-preview-bar {
+  height: 16px;
+  width: 70px;
+  display: inline-block;
+  border: 1px solid #ccc;
+}
+
+.xl-cf-preview-icons {
+  letter-spacing: 2px;
+  font-size: 10px;
+  color: #555;
+}
+
+.xl-cf-range-input {
+  width: 95%;
+  height: 22px;
+  font: 11px var(--ui-font, 'Segoe UI', Tahoma, sans-serif);
+  border: 1px solid transparent;
+  background: transparent;
+  padding: 0 4px;
+}
+
+.xl-cf-table tr.selected .xl-cf-range-input {
+  background: #fff;
+  border-color: #adadad;
+}
+
+.xl-cf-cell-stop {
+  text-align: center;
+}
+
+.xl-cf-empty-msg {
+  text-align: center;
+  color: #777;
+  padding: 40px !important;
+}
+
+.xl-cf-manage-bottom {
+  display: flex;
+  justify-content: flex-end;
+}

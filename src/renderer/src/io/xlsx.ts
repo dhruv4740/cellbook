@@ -2,8 +2,8 @@
 import { shiftFormula } from '../engine/shiftFormula'
 import ExcelJS from 'exceljs'
 import { unzipSync } from 'fflate'
-import type { CellStyle, BorderLineStyle, BorderSide, FilterCriteria, SheetLayout, Range, NoteData, CommentThread } from '../model/types'
-import { DEFAULT_ROW_HEIGHT } from '../model/types'
+import type { CellStyle, BorderLineStyle, BorderSide, FilterCriteria, SheetLayout, Range, NoteData, CommentThread, CfRule } from '../model/types'
+import { DEFAULT_ROW_HEIGHT, rangeA1, parseA1 } from '../model/types'
 import type { WorkbookData } from '../model/store'
 import { DEFAULT_AUTHOR, defaultLayout } from '../model/defaults'
 import {
@@ -348,6 +348,66 @@ export async function readXlsxExceljs(data: Uint8Array): Promise<WorkbookData> {
       if (c) layout.tabColor = c
     }
 
+    const rawCfs = (ws as any).conditionalFormattings || []
+    if (rawCfs.length > 0) {
+      const cfs: CfRule[] = []
+      let pCounter = 1
+      for (const cf of rawCfs) {
+        const refStr = cf.ref || ''
+        const ranges = refStr
+          .split(/\s+/)
+          .map((r: string) => parseA1(r))
+          .filter((r: Range | null): r is Range => r !== null)
+        if (!ranges.length) continue
+
+        for (const rule of cf.rules || []) {
+          const id = 'cf_' + Math.random().toString(36).slice(2, 9)
+          const priority = rule.priority ?? pCounter++
+          const stopIfTrue = Boolean(rule.stopIfTrue)
+          const format: Partial<CellStyle> = {}
+          if (rule.style?.fill?.bgColor) {
+            format.fill = colorToHex(rule.style.fill.bgColor)
+          } else if (rule.style?.fill?.fgColor) {
+            format.fill = colorToHex(rule.style.fill.fgColor)
+          }
+          if (rule.style?.font) {
+            if (rule.style.font.color) format.color = colorToHex(rule.style.font.color)
+            if (rule.style.font.bold) format.bold = true
+            if (rule.style.font.italic) format.italic = true
+          }
+
+          let cfRule: CfRule = {
+            id,
+            priority,
+            ranges,
+            stopIfTrue,
+            type: (rule.type as any) || 'cellIs',
+            format: Object.keys(format).length > 0 ? format : undefined
+          }
+
+          if (rule.type === 'cellIs') {
+            cfRule.operator = rule.operator
+            if (Array.isArray(rule.formulae)) {
+              cfRule.value = String(rule.formulae[0] ?? '')
+              if (rule.formulae[1] !== undefined) cfRule.value2 = String(rule.formulae[1])
+            }
+          } else if (rule.type === 'expression') {
+            cfRule.formula = Array.isArray(rule.formulae) ? rule.formulae[0] : rule.formula
+          } else if (rule.type === 'top10') {
+            cfRule.rank = rule.rank
+            cfRule.percent = rule.percent
+            cfRule.bottom = rule.bottom
+          } else if (rule.type === 'aboveAverage') {
+            cfRule.above = rule.aboveAverage ?? true
+            cfRule.equalOrAbove = rule.equalAverage
+          }
+
+          cfs.push(cfRule)
+        }
+      }
+      if (cfs.length > 0) layout.conditionalFormats = cfs
+    }
+
     sheets.push({ name: ws.name, cells, layout })
   })
 
@@ -449,6 +509,59 @@ export async function writeXlsx(data: WorkbookData, vba?: VbaProject): Promise<U
       ws.autoFilter = {
         from: { row: range.r1 + 1, column: range.c1 + 1 },
         to: { row: range.r2 + 1, column: range.c2 + 1 }
+      }
+    }
+    if (layout.conditionalFormats && layout.conditionalFormats.length > 0) {
+      for (const cfRule of layout.conditionalFormats) {
+        const ref = cfRule.ranges.map(rangeA1).join(' ')
+        const style: any = {}
+        if (cfRule.format) {
+          if (cfRule.format.fill) {
+            style.fill = {
+              type: 'pattern',
+              pattern: 'solid',
+              bgColor: { argb: hexToArgb(cfRule.format.fill) }
+            }
+          }
+          if (cfRule.format.color || cfRule.format.bold || cfRule.format.italic) {
+            style.font = {}
+            if (cfRule.format.color) style.font.color = { argb: hexToArgb(cfRule.format.color) }
+            if (cfRule.format.bold) style.font.bold = true
+            if (cfRule.format.italic) style.font.italic = true
+          }
+        }
+        const ruleObj: any = {
+          priority: cfRule.priority,
+          stopIfTrue: cfRule.stopIfTrue
+        }
+        if (cfRule.type === 'cellIs') {
+          ruleObj.type = 'cellIs'
+          ruleObj.operator = cfRule.operator
+          ruleObj.formulae = cfRule.value2 !== undefined ? [cfRule.value, cfRule.value2] : [cfRule.value]
+          ruleObj.style = style
+        } else if (cfRule.type === 'expression') {
+          ruleObj.type = 'expression'
+          ruleObj.formulae = [cfRule.formula?.replace(/^=/, '')]
+          ruleObj.style = style
+        } else if (cfRule.type === 'top10') {
+          ruleObj.type = 'top10'
+          ruleObj.rank = cfRule.rank || 10
+          ruleObj.percent = cfRule.percent
+          ruleObj.bottom = cfRule.bottom
+          ruleObj.style = style
+        } else if (cfRule.type === 'aboveAverage') {
+          ruleObj.type = 'aboveAverage'
+          ruleObj.aboveAverage = cfRule.above ?? true
+          ruleObj.equalAverage = cfRule.equalOrAbove
+          ruleObj.style = style
+        } else {
+          ruleObj.type = cfRule.type
+          ruleObj.style = style
+        }
+        ;(ws as any).addConditionalFormatting({
+          ref,
+          rules: [ruleObj]
+        })
       }
     }
 
