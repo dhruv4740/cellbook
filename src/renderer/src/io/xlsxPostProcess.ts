@@ -130,6 +130,31 @@ export function buildDataValidationsXml(rules: DataValidationRule[]): string {
 
 }
 
+/** ExcelJS puts <legacyDrawing> (notes) after a data bar's worksheet <extLst>; Excel requires
+ *  extLst last and refuses to open the file otherwise. Moves it back; returns the input if nothing moved. */
+export function fixLegacyDrawingOrder(zipBytes: Uint8Array): Uint8Array {
+  const files = unzipSync(zipBytes)
+  let changed = false
+  for (const name of Object.keys(files)) {
+    if (!/^xl\/worksheets\/sheet\d+\.xml$/.test(name)) continue
+    const xml = new TextDecoder().decode(files[name])
+    const ext = execTopLevel(/<extLst>/g, xml)
+    const legacy = /<legacyDrawing\b[^>]*\/>/.exec(xml)
+    if (!ext || !legacy || legacy.index < ext.index) continue
+    const without = xml.slice(0, legacy.index) + xml.slice(legacy.index + legacy[0].length)
+    files[name] = new TextEncoder().encode(without.slice(0, ext.index) + legacy[0] + without.slice(ext.index))
+    changed = true
+  }
+  return changed ? zipSync(files, { level: 6 }) : zipBytes
+}
+
+/** Finds a worksheet-level element (global regex) past sheetData/conditionalFormatting, so an
+ *  <extLst> nested inside a data-bar cfRule is never mistaken for the sheet's own extLst. */
+function execTopLevel(re: RegExp, xml: string): RegExpExecArray | null {
+  re.lastIndex = Math.max(0, xml.lastIndexOf('</sheetData>'), xml.lastIndexOf('</conditionalFormatting>'))
+  return re.exec(xml)
+}
+
 function addContentTypeOverride(ctXml: string, partName: string, contentType: string): string {
   if (ctXml.includes(`PartName="${partName}"`)) return ctXml
   const override = `<Override PartName="${partName}" ContentType="${contentType}"/>`
@@ -215,8 +240,8 @@ function injectCharts(
       files[sheetRelsPath] = enc.encode(sheetRelsXml)
 
       const drawingXmlTag = `<drawing r:id="${drawingRId}"/>`
-      const insertBeforeRegex = /<(?:legacyDrawing|legacyDrawingHF|picture|oleObjects|controls|webPublishItems|tableParts|extLst)[\s\/>]|<\/worksheet>/
-      const m = insertBeforeRegex.exec(sheetXml)
+      const insertBeforeRegex = /<(?:legacyDrawing|legacyDrawingHF|picture|oleObjects|controls|webPublishItems|tableParts|extLst)[\s\/>]|<\/worksheet>/g
+      const m = execTopLevel(insertBeforeRegex, sheetXml)
       if (m) {
         sheetXml = sheetXml.slice(0, m.index) + drawingXmlTag + sheetXml.slice(m.index)
       } else {
@@ -362,8 +387,8 @@ export function postProcessXlsx(
         if (text.includes('<dataValidations')) {
           text = text.replace(/<dataValidations[\s\S]*?<\/dataValidations>/, dvXml)
         } else {
-          const insertBeforeRegex = /<(?:hyperlinks|printOptions|pageMargins|pageSetup|headerFooter|rowBreaks|colBreaks|customProperties|cellWatches|ignoredErrors|smartTags|drawing|drawingHF|picture|oleObjects|controls|webPublishItems|tableParts|extLst)[\s\/>]|<\/worksheet>/
-          const m = insertBeforeRegex.exec(text)
+          const insertBeforeRegex = /<(?:hyperlinks|printOptions|pageMargins|pageSetup|headerFooter|rowBreaks|colBreaks|customProperties|cellWatches|ignoredErrors|smartTags|drawing|drawingHF|picture|oleObjects|controls|webPublishItems|tableParts|extLst)[\s\/>]|<\/worksheet>/g
+          const m = execTopLevel(insertBeforeRegex, text)
           if (m) {
             text = text.slice(0, m.index) + dvXml + text.slice(m.index)
           } else {
@@ -451,7 +476,7 @@ export function injectHyperlinks(zipBytes: Uint8Array, sheetLinks: (Record<strin
     }
     const block = `<hyperlinks>${items.join('')}</hyperlinks>`
     // Schema order: hyperlinks come after dataValidations and before printOptions/pageMargins.
-    const m = /<(?:printOptions|pageMargins|pageSetup|headerFooter|rowBreaks|colBreaks|customProperties|cellWatches|ignoredErrors|smartTags|drawing|legacyDrawing|legacyDrawingHF|picture|oleObjects|controls|webPublishItems|tableParts|extLst)[\s/>]|<\/worksheet>/.exec(xml)
+    const m = execTopLevel(/<(?:printOptions|pageMargins|pageSetup|headerFooter|rowBreaks|colBreaks|customProperties|cellWatches|ignoredErrors|smartTags|drawing|legacyDrawing|legacyDrawingHF|picture|oleObjects|controls|webPublishItems|tableParts|extLst)[\s/>]|<\/worksheet>/g, xml)
     xml = m ? xml.slice(0, m.index) + block + xml.slice(m.index) : xml
     if (!/xmlns:r=/.test(xml.slice(0, 600))) xml = xml.replace('<worksheet ', '<worksheet xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" ')
     files[path] = enc.encode(xml)

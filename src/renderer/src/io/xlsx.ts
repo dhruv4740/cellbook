@@ -13,8 +13,10 @@ import {
 } from './xlsxShared'
 import { extractSection, parseAttrs, parseRelationships, resolveRelTarget } from './fastXlsxXml'
 import type { VbaProject } from './xlsxPostProcess'
-import { injectDefinedNames, injectHyperlinks, postProcessXlsx } from './xlsxPostProcess'
+import { fixLegacyDrawingOrder, injectDefinedNames, injectHyperlinks, postProcessXlsx } from './xlsxPostProcess'
 import { parseDataValidations } from './fastXlsx'
+
+const EXCEL_ERRORS = new Set(['#NULL!', '#DIV/0!', '#VALUE!', '#REF!', '#NAME?', '#NUM!', '#N/A', '#GETTING_DATA', '#SPILL!', '#CALC!'])
 
 // Re-exported for existing `from './xlsx'` call sites (the fast reader/worker import these
 // directly from xlsxShared instead, so they don't pull exceljs into their bundle - see fastXlsx.ts).
@@ -470,7 +472,9 @@ export async function writeXlsx(data: WorkbookData, vba?: VbaProject): Promise<U
           // Store the computed result too, as Excel does: Protected View, previews and other tools
           // read it without recalculating.
           const v = cell.value
-          const result = v === null || v === undefined ? undefined : typeof v === 'object' ? { error: (v as { error: string }).error } : v
+          // Only Excel's own error codes may be cached; e.g. HyperFormula's "#ERROR!" makes Excel refuse the file.
+          const err = v && typeof v === 'object' ? (v as { error: string }).error : undefined
+          const result = v === null || v === undefined || (err !== undefined && !EXCEL_ERRORS.has(err)) ? undefined : err !== undefined ? { error: err } : v
           const formula = addFuturePrefixes(cell.raw.slice(1))
           target.value = (result === undefined ? { formula } : { formula, result }) as ExcelJS.CellValue
         } else if (cell.style?.numFmt && isDateFormat(cell.style.numFmt) && /^-?\d+(\.\d+)?$/.test(cell.raw)) {
@@ -634,7 +638,7 @@ export async function writeXlsx(data: WorkbookData, vba?: VbaProject): Promise<U
   const processed = hasCriteria || hasValidations || hasCharts || vba
     ? postProcessXlsx(buf, sheetFilters, vba, sheetValidations, sheetCharts, sheetNames, sheetCells, sheetLayouts)
     : buf
-  const linked = injectHyperlinks(processed, data.sheets.map((sd) => sd.layout?.hyperlinks))
+  const linked = fixLegacyDrawingOrder(injectHyperlinks(processed, data.sheets.map((sd) => sd.layout?.hyperlinks)))
   return data.names?.length ? injectDefinedNames(linked, data.names) : linked
 }
 
