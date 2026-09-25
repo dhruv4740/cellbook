@@ -1,4 +1,4 @@
-import { moveRefs } from '../engine/moveRefs'
+﻿import { moveRefs } from '../engine/moveRefs'
 // Commands that act on the active sheet's current selection. Called from the grid (keyboard,
 // right-click menus) and from the ribbon, so both stay consistent.
 import { store, SheetState } from '../model/store'
@@ -60,7 +60,11 @@ function toTSV(rg: Range): string {
   for (let r = n.r1; r <= n.r2; r++) {
     if (skip.has(r)) continue
     const cells: string[] = []
-    for (let c = n.c1; c <= n.c2; c++) cells.push(store.getDisplay(store.active, r, c).text)
+    for (let c = n.c1; c <= n.c2; c++) {
+      const t = store.getDisplay(store.active, r, c).text
+      // Like Excel: a cell holding a tab, line break or quote is wrapped in quotes so it stays one cell.
+      cells.push(/[\t\n"]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t)
+    }
     rows.push(cells.join('\t'))
   }
   return rows.join('\n')
@@ -82,7 +86,12 @@ function toHTML(rg: Range): string {
       if (style?.italic) css.push('font-style:italic')
       if (style?.color) css.push('color:' + style.color)
       if (style?.fill) css.push('background-color:' + style.fill)
-      html += `<td style="${css.join(';')}">${disp.text.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</td>`
+      // Excel's own markers: text stays text (keeps "00012"), line breaks stay inside the cell.
+      // (only on text Excel would otherwise read as a number or date, so other cells keep General).
+      const v = store.getValue(store.active, r, c)
+      if (typeof v === 'string' && /\d/.test(v) && /^[-+\d\s.,/:%₹$()E]+$/i.test(v)) css.push('mso-number-format:"\\@"')
+      const body = disp.text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\n/g, '<br style="mso-data-placement:same-cell;"/>')
+      html += `<td style='${css.join(';')}'>${body}</td>`
     }
     html += '</tr>'
   }
@@ -107,7 +116,7 @@ async function writeSystemClipboard(rg: Range): Promise<void> {
       await navigator.clipboard.writeText(tsv)
     }
   } catch {
-    // Clipboard API unavailable (no permission / non-secure context) — internal clipboard still works.
+    // Clipboard API unavailable (no permission / non-secure context) â€” internal clipboard still works.
   }
 }
 
@@ -238,6 +247,13 @@ export async function paste(kind: PasteKind = 'all'): Promise<void> {
   if (!sysText) return
   const raws = parseTsv(sysText)
   if (!raws.length) return
+  // Excel's HTML says which cells are Text-formatted; the plain text alone would turn "00012" into 12.
+  const textCells = excelTextCells((await window.api?.clipboardReadHTML?.().catch(() => '')) ?? '')
+  if (textCells && textCells.length === raws.length) {
+    raws.forEach((row, i) => row.forEach((raw, j) => {
+      if (textCells[i]?.[j] && raw !== '' && !raw.startsWith("'")) row[j] = "'" + raw
+    }))
+  }
   const width = Math.max(...raws.map((r) => r.length))
   const targets = tileTargets(dest, raws.length, width, false)
   store.transact('Paste', () => {
@@ -256,6 +272,28 @@ function selectPasted(dest: Range, targets: Range[]): void {
 
 function norm(t: string): string {
   return t.replace(/\r/g, '').replace(/\n+$/, '')
+}
+
+/** From Excel's clipboard HTML, which cells are Text-formatted (mso-number-format:"\@" inline or via a
+ *  class in its <style>). Null when there is no simple table (merged cells etc.). */
+export function excelTextCells(html: string): boolean[][] | null {
+  if (!html || !/<td/i.test(html)) return null
+  const isText = (css: string): boolean => /mso-number-format:\s*"?\\?\\@"?/i.test(css)
+  const textClasses = new Set<string>()
+  for (const m of html.matchAll(/\.([\w-]+)\s*\{([^}]*)\}/g)) if (isText(m[2])) textClasses.add(m[1])
+  const rows: boolean[][] = []
+  for (const tr of html.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)) {
+    const row: boolean[] = []
+    for (const td of tr[1].matchAll(/<td\b([^>]*)>/gi)) {
+      const attrs = td[1]
+      if (/\b(?:col|row)span\s*=\s*["']?(?:[2-9]|\d\d)/i.test(attrs)) return null
+      const cls = /\bclass\s*=\s*["']?([\w-]+)/i.exec(attrs)?.[1]
+      const style = /\bstyle\s*=\s*(?:'([^']*)'|"([^"]*)")/i.exec(attrs)
+      row.push((cls !== undefined && textClasses.has(cls)) || isText(style?.[1] ?? style?.[2] ?? ''))
+    }
+    rows.push(row)
+  }
+  return rows.length ? rows : null
 }
 
 /** Excel's clipboard text: tab/newline separated, fields holding tabs/newlines/quotes wrapped in "..." with "" escapes. */

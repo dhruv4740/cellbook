@@ -525,6 +525,16 @@ ipcMain.handle('file:saveAs', async (e, defaultName: string) => {
 
 // System clipboard through main: navigator.clipboard in the renderer can stall on permission checks.
 ipcMain.handle('clipboard:readText', () => clipboard.readText())
+ipcMain.handle('clipboard:readHTML', async () => {
+  try {
+    for (const item of await clipboard.read()) {
+      if (item.types.includes('text/html')) return await ((await item.getType('text/html')) as Blob).text()
+    }
+  } catch {
+    // no HTML on the clipboard
+  }
+  return ''
+})
 ipcMain.handle('clipboard:write', (_e, data: { text: string; html?: string }) =>
   clipboard.write([new ClipboardItem(data.html ? { 'text/plain': data.text, 'text/html': data.html } : { 'text/plain': data.text })])
 )
