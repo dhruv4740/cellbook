@@ -38,3 +38,34 @@ Needs `npm i --no-save playwright-core` (not in package.json). On this machine `
 - The `_xlfn.*` entries Excel lists in `Workbook.Names` for file 2 are Excel's own hidden placeholders; they are not in the file.
 - Cosmetic diffs after an Excel re-save: Excel escapes `-` in number formats (`dd-mm-yyyy` → `dd\-mm\-yyyy`, same display) and adds a trailing `/` to `https://example.com`. Not real differences.
 - Not done: opening visibly with DisplayAlerts on. Repair detection relied on the repair log in `%TEMP%` and the `[Repaired]` caption; neither appeared.
+
+## 3. Files saved by Excel, opened in Cellbook
+
+Method: `python scripts/excel-oracle/make_excel_workbook.py` builds `out/excel-built.xlsx` inside Excel over COM (committed copy: `samples/excel-made-features.xlsx`) with XLOOKUP, IFS, FILTER, UNIQUE, LET, a workbook name (`Rate`) and a sheet name (`Dispatch!LocalQty`), a table `Orders` with `=SUM(Orders[Qty])`, a note and a threaded comment, a list validation, a cell-rule CF, a 3-color scale, a data bar, a chart, merged M1:N2, frozen B2, hidden column J and row 9, the table filter Status = Open, dates `dd-mm-yyyy`, `#,##,##0.00`, Hindi text and leading-zero codes. Then `roundtrip.mjs` (open in the app, Ctrl+S), `compare_workbooks.py` and `excel_check.py`.
+
+**Before the fixes this was the worst result of the whole check:** Cellbook could not save the file at all (Ctrl+S threw inside ExcelJS on the data bar, and nothing told the user), and once that was fixed, **Excel refused to open Cellbook's save** ("Open method of Workbooks class failed", even with repair). Found by bisecting the saved package in Excel. All fixed, each with a test:
+
+| # | Bug | Effect | Fix |
+|---|---|---|---|
+| 1 | Data bars / color scales / icon sets written without thresholds | Ctrl+S failed on any sheet with one (including ones made in Cellbook) | `io/xlsx.ts` writes `cfvo`/colors; `io/fastXlsx.ts` now reads bar/scale colors and icon set names |
+| 2 | Data validations and the chart `<drawing>` inserted *inside* the data-bar rule (they searched for the first `<extLst>`, which ExcelJS nests in the rule) | Excel refuses the file | `xlsxPostProcess.ts` `execTopLevel` |
+| 3 | `<legacyDrawing>` (notes) written after the sheet `<extLst>` | Excel refuses the file | `fixLegacyDrawingOrder` |
+| 4 | LET parameters saved without `_xlpm.` | Excel refuses the file | `engine/xlfn.ts` `addParamPrefixes` |
+| 5 | `SUM(Orders[Qty])`: tables aren't modelled, the table was dropped but the reference kept | `#ERROR!` in Cellbook; Excel refuses the saved file | `engine/structuredRefs.ts`: structured refs become ranges on load (`SUM($C$2:$C$6)` = 80, as Excel) |
+| 6 | Cellbook's `#ERROR!` cached as a cell error | Excel refuses the file | only Excel error codes are cached |
+| 7 | A new function nested directly in a call (`ROWS(UNIQUE(..))`) saved without `_xlfn.` | `#NAME?` risk in Excel | `addFuturePrefixes` uses a look-behind |
+| 8 | Excel's cached FILTER results (H9:H10) read as typed values | FILTER showed `#SPILL!` in Cellbook | reader drops values inside an array formula's `ref` |
+| 9 | Spilled results saved as plain values, formula not flagged as a dynamic array | In Excel the FILTER no longer spilled; H9/H10 froze as `56`, `90` (leading zeros lost) | `store.toData` skips spill cells and records the spill range; writer emits `t="array" ref=…` + `cm="1"` + `xl/metadata.xml` like Excel |
+| 10 | Frozen panes saved as `state="frozenSplit"` not recognised | Freeze lost | reader accepts `frozenSplit` |
+| 11 | Table filter (lives in the table part) ignored | Rows 3 and 5 stayed hidden with no filter button | table's AutoFilter becomes the sheet AutoFilter |
+| 12 | Threaded-comment fallback text uses `\r\n` in real Excel files | Comment text came back empty | `legacyNoteToThread` normalises line endings |
+
+After the fixes: Excel opens Cellbook's save with no repair, no `#NAME?`/`#REF!`, every formula's Excel result equals Cellbook's cached value except LET (below), FILTER spills in Excel (`00012`, `00056`, `00090`, `HasSpill=True`), the comment text, the note, the filter, freeze, merges, hidden row/col, CF (3 rules) and the chart all survive. Cellbook shows `12,34,567.89` and `03-09-2026` like Excel.
+
+Still open (not fixed):
+- **LET is not implemented** in Cellbook's engine: `=LET(x,SUM(C2:C6),x*Rate)` shows `#NAME?` (Excel: 14.4). The formula now saves correctly, so Excel recalculates it to 14.4 on open, but the value cached in the file is `#NAME?` (Protected View would show that).
+- **Tables are converted to plain ranges**: the ListObject (banding, header buttons, the name `Orders`) is not saved back. Formulas keep working because they are rewritten to `$C$2:$C$6`, but a row added below the old table is not included the way Excel would include it.
+- Threaded comments come back as Cellbook comments with the author `tc={GUID}` (Excel keeps real authors in `xl/threadedComments`/`xl/persons`, which Cellbook doesn't read) and are saved as legacy notes.
+- Hidden column J: Excel wrote width 0, Cellbook writes 13 with `hidden="1"`. Still hidden in Excel.
+- Spilled cells (H9:H10) have no cached value in Cellbook's file; Excel fills them on open (the file has `fullCalcOnLoad`), but Protected View shows them blank.
+- Not done: "any real .xlsx files the user points you to": none were provided.
