@@ -71,7 +71,7 @@ export class WorkbookStore {
   dirty = false
   version = 0
   /** Cells shown with marching ants after Copy/Cut; null when nothing is on the clipboard. */
-  clipboard: { sheetUid: number; range: Range; cut: boolean } | null = null
+  clipboard: { sheetUid: number; range: Range; cut: boolean; text?: string } | null = null
   /** Transient UI state any component may read (e.g. edit mode for the status bar). */
   mode: 'Ready' | 'Enter' | 'Edit' | 'Point' = 'Ready'
 

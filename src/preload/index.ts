@@ -55,6 +55,8 @@ const api = {
   },
 
   // ---- files ----
+  clipboardReadText: (): Promise<string> => ipcRenderer.invoke('clipboard:readText'),
+  clipboardWrite: (data: { text: string; html?: string }): Promise<void> => ipcRenderer.invoke('clipboard:write', data),
   pickAndOpen: (): Promise<boolean> => ipcRenderer.invoke('file:pickAndOpen'),
   openPathRequest: (path: string): Promise<boolean> => ipcRenderer.invoke('file:openPathRequest', path),
   onOpenPath: (cb: (payload: OpenPathPayload) => void) => ipcRenderer.on('file:openPath', (_e, payload) => cb(payload)),

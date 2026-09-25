@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, screen } from 'electron'
+import { app, BrowserWindow, clipboard, ClipboardItem, dialog, ipcMain, screen } from 'electron'
 import { join, basename } from 'path'
 import { promises as fs, existsSync } from 'fs'
 
@@ -518,6 +518,11 @@ ipcMain.handle('file:saveAs', async (e, defaultName: string) => {
   return r.canceled ? null : r.filePath
 })
 
+// System clipboard through main: navigator.clipboard in the renderer can stall on permission checks.
+ipcMain.handle('clipboard:readText', () => clipboard.readText())
+ipcMain.handle('clipboard:write', (_e, data: { text: string; html?: string }) =>
+  clipboard.write([new ClipboardItem(data.html ? { 'text/plain': data.text, 'text/html': data.html } : { 'text/plain': data.text })])
+)
 ipcMain.handle('file:read', async (_e, path: string) => new Uint8Array(await fs.readFile(path)))
 
 ipcMain.handle('file:write', async (_e, path: string, data: Uint8Array) => {
