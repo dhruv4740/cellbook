@@ -7,6 +7,10 @@ import { FormatCellsDialog } from './FormatCellsDialog'
 import { FindReplaceDialog } from './FindReplaceDialog'
 import { GoToDialog } from './GoToDialog'
 import { GoToSpecialDialog } from './GoToSpecialDialog'
+import { CfQuickDialog, CfQuickKind } from './CfQuickDialog'
+import { CfNewRuleDialog } from './CfNewRuleDialog'
+import { CfManageDialog } from './CfManageDialog'
+import { CfRule } from '../model/types'
 
 export default function DialogHost() {
   const ui = useUi()
@@ -50,6 +54,19 @@ export default function DialogHost() {
       return <GoToDialog onOpenSpecial={() => setUi({ dialog: { kind: 'gotoSpecial' } })} onClose={close} />
     case 'gotoSpecial':
       return <GoToSpecialDialog store={store} initialType={(d.props?.type as never) || 'formulas'} onClose={close} />
+    case 'cfQuick':
+      return <CfQuickDialog kind={(d.props?.kind as CfQuickKind) || 'greaterThan'} store={store} onClose={close} />
+    case 'cfNewRule':
+      return <CfNewRuleDialog store={store} editRule={d.props?.rule as CfRule | undefined} onClose={close} />
+    case 'cfManage':
+      return (
+        <CfManageDialog
+          store={store}
+          onClose={close}
+          onNewRule={() => setUi({ dialog: { kind: 'cfNewRule' } })}
+          onEditRule={(rule) => setUi({ dialog: { kind: 'cfNewRule', props: { rule } } })}
+        />
+      )
     default:
       return null
   }

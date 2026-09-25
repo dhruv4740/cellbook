@@ -98,6 +98,7 @@ export interface SheetLayout {
   comments: Record<string, CommentThread> // key 'r,c'
   /** Floating chart objects on this sheet. Optional so existing layouts still typecheck. */
   charts?: ChartSpec[]
+  conditionalFormats?: CfRule[]
 }
 
 // ---------- Charts ----------
@@ -231,4 +232,77 @@ export function normRange(rg: Range): Range {
 export function inRange(rg: Range, r: number, c: number): boolean {
   const n = normRange(rg)
   return r >= n.r1 && r <= n.r2 && c >= n.c1 && c <= n.c2
+}
+
+// ---------- Conditional formatting ----------
+export type CfRuleType =
+  | 'cellIs'
+  | 'textContains'
+  | 'dateOccurring'
+  | 'duplicateValues'
+  | 'uniqueValues'
+  | 'top10'
+  | 'aboveAverage'
+  | 'expression'
+  | 'dataBar'
+  | 'colorScale'
+  | 'iconSet'
+
+export type CfOperator =
+  | 'greaterThan'
+  | 'lessThan'
+  | 'between'
+  | 'notBetween'
+  | 'equal'
+  | 'notEqual'
+  | 'greaterThanOrEqual'
+  | 'lessThanOrEqual'
+
+export type CfDateOccurring =
+  | 'yesterday'
+  | 'today'
+  | 'tomorrow'
+  | 'inTheLast7Days'
+  | 'lastWeek'
+  | 'thisWeek'
+  | 'nextWeek'
+  | 'lastMonth'
+  | 'thisMonth'
+  | 'nextMonth'
+
+export interface CfRule {
+  id: string
+  ranges: Range[]
+  priority: number
+  stopIfTrue?: boolean
+  type: CfRuleType
+  operator?: CfOperator
+  value?: string
+  value2?: string
+  text?: string
+  date?: CfDateOccurring
+  percent?: boolean
+  bottom?: boolean
+  rank?: number
+  above?: boolean
+  equalOrAbove?: boolean
+  formula?: string
+  format?: Partial<CellStyle>
+  dataBar?: {
+    color: string
+    min?: number
+    max?: number
+    gradient?: boolean
+    showValue?: boolean
+  }
+  colorScale?: {
+    minColor: string
+    midColor?: string
+    maxColor: string
+  }
+  iconSet?: {
+    name: string
+    reverse?: boolean
+    showValue?: boolean
+  }
 }
