@@ -15,6 +15,7 @@ export interface GBtn {
   menu?: MenuItem[]
   onClick?: () => void
   active?: boolean
+  disabled?: boolean
   wide?: boolean
   /** With both menu and onClick, the button is a split button unless this is set (menu only). */
   menuOnly?: boolean
@@ -38,14 +39,14 @@ export function GenericTab({ groups }: { groups: GGroup[] }) {
             {g.big?.map((b, i) => b.menu && b.onClick && !b.menuOnly ? (
               <SplitButton key={i} icon={b.icon} label={b.label} menu={b.menu} onClick={b.onClick} active={b.active} tip={{ title: b.label, desc: b.desc, shortcut: b.shortcut }} keytip={b.keytip} />
             ) : (
-              <BigButton key={i} icon={b.icon} label={b.label} menu={b.menu} onClick={b.onClick ?? (() => notAvailable(b.label))} active={b.active} wide={b.wide ?? b.label.length > 7} tip={{ title: b.label, desc: b.desc, shortcut: b.shortcut }} keytip={b.keytip} />
+              <BigButton key={i} icon={b.icon} label={b.label} disabled={b.disabled} menu={b.menu} onClick={b.onClick ?? (() => notAvailable(b.label))} active={b.active} wide={b.wide ?? b.label.length > 7} tip={{ title: b.label, desc: b.desc, shortcut: b.shortcut }} keytip={b.keytip} />
             ))}
             {g.rows && (
               <div className="xl-col xl-stack">
                 {g.rows.map((row, ri) => (
                   <div className="xl-row" key={ri}>
                     {row.map((b, bi) => (
-                      <SmallButton key={bi} icon={b.icon} label={b.label} menu={b.menu} split={!!(b.menu && b.onClick && !b.menuOnly)} onClick={b.onClick ?? (() => notAvailable(b.label))} active={b.active} tip={{ title: b.label, desc: b.desc, shortcut: b.shortcut }} keytip={b.keytip} />
+                      <SmallButton key={bi} icon={b.icon} label={b.label} disabled={b.disabled} menu={b.menu} split={!!(b.menu && b.onClick && !b.menuOnly)} onClick={b.onClick ?? (() => notAvailable(b.label))} active={b.active} tip={{ title: b.label, desc: b.desc, shortcut: b.shortcut }} keytip={b.keytip} />
                     ))}
                   </div>
                 ))}

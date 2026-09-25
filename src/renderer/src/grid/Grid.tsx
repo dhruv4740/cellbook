@@ -1779,6 +1779,12 @@ export default function Grid() {
           }))}
         />
       )}
+      {!ui.noteEditor && Object.entries(sheet.layout.notes).filter(([k, n]) => n.visible && !(hoverCell && k === hoverCell.r + ',' + hoverCell.c)).slice(0, 200).map(([k]) => {
+        const [nr, nc] = k.split(',').map(Number)
+        const rc = cellRect(nr, nc)
+        if (rc.x + rc.w < 0 || rc.y + rc.h < 0 || rc.x > size.w || rc.y > size.h) return null
+        return <NoteTooltip key={'n' + k} sheet={sheet} r={nr} c={nc} rect={rc} />
+      })}
       {hoverCell && !ui.edit && !ui.noteEditor && !filterMenu &&
         sheet.layout.notes[hoverCell.r + ',' + hoverCell.c] && (
           <NoteTooltip sheet={sheet} r={hoverCell.r} c={hoverCell.c} rect={cellRect(hoverCell.r, hoverCell.c)} />

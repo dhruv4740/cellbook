@@ -258,14 +258,16 @@ export function ReviewTab() {
   const key = active.r + ',' + active.c
   const hasComment = !!store.active.layout.comments[key]
   const hasNote = !!store.active.layout.notes[key]
+  const noteList = Object.values(store.active.layout.notes)
+  const allNotesShown = noteList.length > 0 && noteList.every((n) => n.visible)
   const notesMenu: MenuItem[] = [
     { label: 'New Note', onClick: () => setUi({ noteEditor: { r: active.r, c: active.c } }) },
     { label: 'Edit Note', disabled: !hasNote, onClick: () => setUi({ noteEditor: { r: active.r, c: active.c } }) },
     'separator',
-    { label: 'Previous Note', onClick: () => cmds.previousNote() },
-    { label: 'Next Note', onClick: () => cmds.nextNote() },
-    { label: 'Show/Hide Note', disabled: !hasNote, onClick: () => setUi({ noteEditor: { r: active.r, c: active.c } }) },
-    { label: 'Show All Notes', disabled: !Object.keys(store.active.layout.notes).length, onClick: () => cmds.nextNote() },
+    { label: 'Previous Note', disabled: !noteList.length, onClick: () => cmds.previousNote() },
+    { label: 'Next Note', disabled: !noteList.length, onClick: () => cmds.nextNote() },
+    { label: 'Show/Hide Note', disabled: !hasNote, checked: !!store.active.layout.notes[key]?.visible, onClick: () => store.updateLayout(store.active, 'Show/Hide Note', (l) => { const n = l.notes[key]; if (n) l.notes[key] = { ...n, visible: !n.visible } }) },
+    { label: 'Show All Notes', disabled: !Object.keys(store.active.layout.notes).length, checked: allNotesShown, onClick: () => store.updateLayout(store.active, 'Show All Notes', (l) => { for (const k in l.notes) l.notes[k] = { ...l.notes[k], visible: !allNotesShown } }) },
     'separator',
     { label: 'Convert to Comments', disabled: !Object.keys(store.active.layout.notes).length, onClick: () => store.convertNotesToComments() }
   ]
@@ -280,9 +282,9 @@ export function ReviewTab() {
     { label: 'Language', big: [{ label: 'Translate', icon: <TranslateAuto20Regular fontSize={28} /> }] },
     { label: 'Comments', big: [
       { label: 'New Comment', icon: <CommentAdd20Regular fontSize={28} />, onClick: () => setUi({ commentPanel: { r: active.r, c: active.c } }) },
-      { label: 'Delete', icon: <CommentMultiple20Regular fontSize={28} />, onClick: () => { if (hasComment) store.deleteComment(store.active, active.r, active.c) } },
-      { label: 'Previous', icon: <CommentMultiple20Regular fontSize={28} />, onClick: () => cmds.previousComment() },
-      { label: 'Next', icon: <CommentMultiple20Regular fontSize={28} />, onClick: () => cmds.nextComment() },
+      { label: 'Delete', icon: <CommentMultiple20Regular fontSize={28} />, disabled: !hasComment, onClick: () => { if (hasComment) store.deleteComment(store.active, active.r, active.c) } },
+      { label: 'Previous', icon: <CommentMultiple20Regular fontSize={28} />, disabled: !Object.keys(store.active.layout.comments).length, onClick: () => cmds.previousComment() },
+      { label: 'Next', icon: <CommentMultiple20Regular fontSize={28} />, disabled: !Object.keys(store.active.layout.comments).length, onClick: () => cmds.nextComment() },
       { label: 'Show Comments', icon: <CommentMultiple20Regular fontSize={28} />, onClick: () => setUi({ commentPanel: { r: active.r, c: active.c } }) }
     ] },
     { label: 'Notes', big: [{ label: 'Notes', icon: <Note20Regular fontSize={28} />, menu: notesMenu }] },

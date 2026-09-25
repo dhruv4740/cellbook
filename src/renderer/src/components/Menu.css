@@ -5,6 +5,7 @@
 .xl-menu {
   background: #fff; border: 1px solid #c8c6c4; box-shadow: 0 3px 8px rgba(0,0,0,.18);
   padding: 4px 0; min-width: 200px; font: 12px var(--ui-font); color: #242424;
+  max-height: calc(100vh - 8px); overflow-y: auto; /* long lists (e.g. Math & Trig) scroll instead of running off screen */
 }
 .xl-menu-item { display: flex; align-items: center; height: 26px; padding: 0 8px 0 4px; cursor: default; white-space: nowrap; }
 .xl-menu-item:hover:not(.disabled), .xl-menu-item.open { background: #e6e6e6; }
