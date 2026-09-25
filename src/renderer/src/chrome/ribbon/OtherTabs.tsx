@@ -171,7 +171,7 @@ export function DataTab() {
     ] },
     { label: 'Data Types', big: [{ label: 'Stocks', icon: <DataHistogram20Regular fontSize={28} /> }, { label: 'Geography', icon: <DataArea20Regular fontSize={28} /> }] },
     { label: 'Sort & Filter', rows: [
-      [{ label: 'A→Z', icon: <ArrowSort20Regular />, onClick: () => cmds.sortSelection('asc'), keytip: 'SA' }, { label: 'Z→A', icon: <ArrowSort20Regular />, onClick: () => cmds.sortSelection('desc'), keytip: 'SD' }, { label: 'Sort', icon: <ArrowSort20Regular />, keytip: 'S' }],
+      [{ label: 'A→Z', icon: <ArrowSort20Regular />, onClick: () => cmds.sortSelection('asc'), keytip: 'SA' }, { label: 'Z→A', icon: <ArrowSort20Regular />, onClick: () => cmds.sortSelection('desc'), keytip: 'SD' }, { label: 'Sort', icon: <ArrowSort20Regular />, onClick: () => cmds.openSortDialog(), keytip: 'S' }],
       [
         { label: 'Filter', icon: <Filter20Regular />, active: filtered, onClick: () => store.toggleAutoFilter(), keytip: 'T' },
         { label: 'Clear', icon: <ArrowRepeatAllOff20Regular />, onClick: () => store.clearAllFilters(), keytip: 'FC' },
@@ -180,10 +180,10 @@ export function DataTab() {
       ]
     ] },
     { label: 'Data Tools', big: [
-      { label: 'Text to Columns', icon: <ColumnTriple20Regular fontSize={28} /> },
+      { label: 'Text to Columns', icon: <ColumnTriple20Regular fontSize={28} />, onClick: () => setUi({ dialog: { kind: 'textToColumns' } }) },
       { label: 'Flash Fill', icon: <Sparkle20Regular fontSize={28} /> },
-      { label: 'Remove Duplicates', icon: <TableSimple20Regular fontSize={28} /> },
-      { label: 'Data Validation', icon: <ShieldTask20Regular fontSize={28} /> },
+      { label: 'Remove Duplicates', icon: <TableSimple20Regular fontSize={28} />, onClick: () => setUi({ dialog: { kind: 'removeDuplicates' } }) },
+      { label: 'Data Validation', icon: <ShieldTask20Regular fontSize={28} />, onClick: () => setUi({ dialog: { kind: 'dataValidation' } }) },
       { label: 'Consolidate', icon: <DataArea20Regular fontSize={28} /> },
       { label: 'Relationships', icon: <FlowchartCircle20Regular fontSize={28} /> }
     ] },

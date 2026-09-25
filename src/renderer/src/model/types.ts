@@ -99,6 +99,7 @@ export interface SheetLayout {
   /** Floating chart objects on this sheet. Optional so existing layouts still typecheck. */
   charts?: ChartSpec[]
   conditionalFormats?: CfRule[]
+  dataValidations?: DataValidationRule[]
 }
 
 // ---------- Charts ----------
@@ -305,4 +306,45 @@ export interface CfRule {
     reverse?: boolean
     showValue?: boolean
   }
+}
+
+// ---------- Data validation ----------
+export type DvAllowType =
+  | 'any'
+  | 'whole'
+  | 'decimal'
+  | 'list'
+  | 'date'
+  | 'time'
+  | 'textLength'
+  | 'custom'
+
+export type DvOperator =
+  | 'between'
+  | 'notBetween'
+  | 'equal'
+  | 'notEqual'
+  | 'greaterThan'
+  | 'lessThan'
+  | 'greaterThanOrEqual'
+  | 'lessThanOrEqual'
+
+export type DvErrorStyle = 'stop' | 'warning' | 'information'
+
+export interface DataValidationRule {
+  id: string
+  ranges: Range[]
+  allow: DvAllowType
+  operator?: DvOperator
+  formula1?: string
+  formula2?: string
+  ignoreBlank?: boolean
+  inCellDropdown?: boolean
+  showInputMessage?: boolean
+  inputTitle?: string
+  inputMessage?: string
+  showErrorAlert?: boolean
+  errorStyle?: DvErrorStyle
+  errorTitle?: string
+  errorMessage?: string
 }

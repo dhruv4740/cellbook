@@ -19,6 +19,7 @@ import { COLUMN_BAR_GALLERY } from '../charts/gallery'
 import { AutoFilterMenu } from './AutoFilterMenu'
 import { NoteBox, NoteTooltip, CommentBox, closeNoteEditor, closeCommentPanel } from './Annotations'
 import { evaluateCf } from '../format/conditional'
+import { getValidationForCell, getListItems } from '../data/dataValidation'
 import {
   Cut20Regular, Copy20Regular, ClipboardPaste20Regular, ClipboardTaskRegular, ClipboardCodeRegular,
   ClipboardLink20Regular, ArrowSwap20Regular, PaintBrush20Regular, Delete20Regular, Eraser20Regular,
@@ -94,6 +95,27 @@ function drawCfIcon(ctx: CanvasRenderingContext2D, set: string, index: number, x
   ctx.restore()
 }
 
+/** Computes the layout rectangle of a cell relative to the grid viewport. */
+export function getCellRect(
+  storeInstance: typeof store,
+  sheet: SheetState,
+  r: number,
+  c: number
+): { x: number; y: number; w: number; h: number } | null {
+  const z = sheet.layout.zoom / 100
+  const showHead = sheet.layout.showHeadings
+  const rowHeaderW = showHead ? 46 * z : 0
+  const headerH = showHead ? HEADER_H * z : 0
+  const colsAxis = buildAxis(sheet.layout.colWidths, sheet.layout.hiddenCols, DEFAULT_COL_WIDTH, MAX_COLS)
+  const rowsAxis = buildAxis(sheet.layout.rowHeights, sheet.layout.hiddenRows, DEFAULT_ROW_HEIGHT, MAX_ROWS)
+  const m = storeInstance.mergeAt(sheet, r, c) ?? { r1: r, c1: c, r2: r, c2: c }
+  const x = rowHeaderW + colsAxis.offset(m.c1) * z
+  const y = headerH + rowsAxis.offset(m.r1) * z
+  const w = colsAxis.totalSize(m.c2 + 1) * z - colsAxis.totalSize(m.c1) * z
+  const h = rowsAxis.totalSize(m.r2 + 1) * z - rowsAxis.totalSize(m.r1) * z
+  return { x, y, w, h }
+}
+
 export default function Grid() {
   useStore()
   const ui = useUi()
@@ -113,6 +135,7 @@ export default function Grid() {
   const [resizeTip, setResizeTip] = useState<{ x: number; y: number; text: string } | null>(null)
   const [filterMenu, setFilterMenu] = useState<{ col: number; x: number; y: number } | null>(null)
   const [hoverCell, setHoverCell] = useState<CellRef | null>(null)
+  const [listMenuPos, setListMenuPos] = useState<{ x: number; y: number } | null>(null)
   // Excel's Enter-after-Tab: while chaining Tab across cells in a single-cell selection, Enter
   // commits and moves down to the row below, but back to the column where the Tab-run started.
   const tabAnchorCol = useRef<number | null>(null)
@@ -1118,6 +1141,15 @@ export default function Grid() {
       if (e.key === 'End' && !mod) { setUi({ endMode: !getUi().endMode }); e.preventDefault(); return }
       // ---- Alt+Down: pick-from-list ----
       if (e.key === 'ArrowDown' && e.altKey && !mod) {
+        // A cell with a List data validation opens its own dropdown instead, as in Excel.
+        const a0 = sheet.selection.active
+        const dv = getValidationForCell(sheet, a0.r, a0.c)
+        if (dv && dv.allow === 'list' && dv.inCellDropdown !== false) {
+          const rect = cellRect(a0.r, a0.c)
+          const hostR = hostRef.current!.getBoundingClientRect()
+          setListMenuPos({ x: hostR.left + rect.x, y: hostR.top + rect.y + rect.h })
+          e.preventDefault(); return
+        }
         const values = cmd.pickListValues()
         if (values.length) {
           const a = sheet.selection.active
@@ -1548,6 +1580,20 @@ export default function Grid() {
 
   const edit = ui.edit
 
+  const activeCell = sheet.selection.active
+  const dvRule = getValidationForCell(sheet, activeCell.r, activeCell.c)
+  const isListValidation = dvRule?.allow === 'list' && dvRule.inCellDropdown !== false
+  const listItems = isListValidation && dvRule ? getListItems(store, sheet, dvRule) : []
+  const activeRc = isListValidation ? cellRect(activeCell.r, activeCell.c) : null
+  const showDropdownBtn =
+    isListValidation &&
+    !ui.edit &&
+    activeRc !== null &&
+    activeRc.x + activeRc.w > rowHeaderW &&
+    activeRc.y + activeRc.h > headerH &&
+    activeRc.x < size.w &&
+    activeRc.y < size.h
+
   return (
     <div
       className="grid-host"
@@ -1579,6 +1625,44 @@ export default function Grid() {
           onChange={onEditorChange}
           onKeyDown={onEditorKeyDown}
           onBlur={() => { if (getUi().edit) commitEdit() }}
+        />
+      )}
+      {showDropdownBtn && activeRc && (
+        <button
+          type="button"
+          className="xl-dv-dropdown-btn"
+          style={{
+            position: 'absolute',
+            left: Math.round(activeRc.x + activeRc.w - 18),
+            top: Math.round(activeRc.y),
+            width: 18,
+            height: Math.round(activeRc.h),
+            zIndex: 4
+          }}
+          title="List options"
+          onMouseDown={(e) => {
+            e.stopPropagation()
+            const rect = hostRef.current?.getBoundingClientRect()
+            const clientX = (rect?.left || 0) + activeRc.x
+            const clientY = (rect?.top || 0) + activeRc.y + activeRc.h
+            setListMenuPos(listMenuPos ? null : { x: clientX, y: clientY })
+          }}
+        >
+          ▾
+        </button>
+      )}
+      {listMenuPos && (
+        <Menu
+          x={listMenuPos.x}
+          y={listMenuPos.y}
+          onClose={() => setListMenuPos(null)}
+          items={listItems.map((item) => ({
+            label: item,
+            onClick: () => {
+              store.setRaw(sheet, activeCell.r, activeCell.c, item)
+              setListMenuPos(null)
+            }
+          }))}
         />
       )}
       {resizeTip && <div className="xl-resize-tip" style={{ left: resizeTip.x, top: resizeTip.y }}>{resizeTip.text}</div>}

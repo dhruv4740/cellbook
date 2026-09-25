@@ -1,0 +1,168 @@
+/* SortDialog styles - Excel M365 light theme */
+
+.xl-sort-body {
+  font: 12px var(--ui-font, 'Segoe UI', Tahoma, sans-serif);
+  color: #242424;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  user-select: none;
+}
+
+.xl-sort-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.xl-sort-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.xl-sort-btn {
+  height: 24px;
+  font: 12px var(--ui-font, 'Segoe UI', Tahoma, sans-serif);
+  background: #fdfdfd;
+  border: 1px solid #adadad;
+  border-radius: 2px;
+  padding: 0 8px;
+  cursor: pointer;
+}
+
+.xl-sort-btn:hover:not(:disabled) {
+  background: #e5f1fb;
+  border-color: #0078d7;
+}
+
+.xl-sort-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.xl-sort-icon-btn {
+  padding: 0 6px;
+  font-size: 10px;
+}
+
+.xl-sort-headers-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+
+.xl-sort-table-wrapper {
+  border: 1px solid #adadad;
+  background: #fff;
+  height: 180px;
+  overflow-y: auto;
+}
+
+.xl-sort-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.xl-sort-table th {
+  background: #f3f3f3;
+  border-bottom: 1px solid #d4d4d4;
+  padding: 4px 8px;
+  text-align: left;
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.xl-sort-table td {
+  padding: 4px 8px;
+  border-bottom: 1px solid #eee;
+  vertical-align: middle;
+}
+
+.xl-sort-table tr:hover td {
+  background: #f0f7fc;
+}
+
+.xl-sort-table tr.selected td {
+  background: #cde4f7;
+}
+
+.xl-sort-row-prefix {
+  display: inline-block;
+  width: 55px;
+  color: #555;
+  font-size: 11px;
+}
+
+.xl-sort-select {
+  height: 24px;
+  font: 12px var(--ui-font, 'Segoe UI', Tahoma, sans-serif);
+  border: 1px solid #adadad;
+  border-radius: 2px;
+  padding: 0 4px;
+  background: #fff;
+  max-width: 160px;
+}
+
+.xl-sort-warning-body {
+  font: 12px var(--ui-font, 'Segoe UI', Tahoma, sans-serif);
+  color: #242424;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.xl-sort-warning-text {
+  margin: 0;
+  line-height: 1.4;
+}
+
+.xl-sort-warning-prompt {
+  margin: 0;
+  font-weight: 600;
+}
+
+.xl-sort-warning-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-left: 8px;
+}
+
+.xl-sort-radio-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.xl-sort-options-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  font: 12px var(--ui-font, 'Segoe UI', Tahoma, sans-serif);
+}
+
+.xl-sort-orient-group {
+  border: 1px solid #d4d4d4;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  position: relative;
+}
+
+.xl-sort-orient-title {
+  position: absolute;
+  top: -8px;
+  left: 10px;
+  background: #fff;
+  padding: 0 4px;
+  font-size: 11px;
+  color: #666;
+}
