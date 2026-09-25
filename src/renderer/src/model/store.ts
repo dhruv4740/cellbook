@@ -7,7 +7,7 @@ import {
   CellStyle, CellValue, Range, Selection, SheetLayout, cellKey, normRange,
   DEFAULT_COL_WIDTH, DEFAULT_ROW_HEIGHT, MAX_ROWS, MAX_COLS, FilterCriteria, NoteData, CommentThread, rangeA1
 } from './types'
-import { formatValue, detectInputFormat, FormattedValue } from '../format/numfmt'
+import { formatValue, detectInputFormat, numericInput, FormattedValue } from '../format/numfmt'
 import { computeFilteredRows } from '../engine/filter'
 import { shiftFormula } from '../engine/shiftFormula'
 import { DEFAULT_AUTHOR, defaultLayout } from './defaults'
@@ -524,7 +524,7 @@ export class WorkbookStore {
         let style = oldStyle
         const fmt = detectInputFormat(raw)
         if (fmt && (!oldStyle?.numFmt || oldStyle.numFmt === 'General')) style = { ...oldStyle, numFmt: fmt }
-        after.push({ r: rr, c: cc, raw, style })
+        after.push({ r: rr, c: cc, raw: numericInput(raw) ?? raw, style })
       })
     )
     const put = (list: typeof before) =>

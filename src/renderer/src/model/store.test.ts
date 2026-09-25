@@ -36,6 +36,13 @@ describe('input parsing', () => {
     s.setRaw(s.active, 0, 0, '1/31/2025')
     expect(s.getValue(s.active, 0, 0)).toBe(45688)
   })
+  it('stores a typed "1,234.50" as the number 1234.5 (it was text that SUM skipped)', () => {
+    const s = new WorkbookStore()
+    s.setRaw(s.active, 0, 0, '1,234.50')
+    s.setRaw(s.active, 1, 0, '=SUM(A1)')
+    expect(s.getValue(s.active, 0, 0)).toBe(1234.5)
+    expect(s.getValue(s.active, 1, 0)).toBe(1234.5)
+  })
   it('does not save a spilled result as data (it froze FILTER output and dropped leading zeros)', () => {
     const s = new WorkbookStore()
     s.setRaw(s.active, 0, 0, "'00012")
