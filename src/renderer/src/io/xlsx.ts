@@ -1,3 +1,4 @@
+import { addFuturePrefixes } from '../engine/xlfn'
 // XLSX read/write via exceljs, mapping to/from the app's WorkbookData model.
 import { shiftFormula } from '../engine/shiftFormula'
 import ExcelJS from 'exceljs'
@@ -12,7 +13,7 @@ import {
 } from './xlsxShared'
 import { extractSection, parseAttrs, parseRelationships, resolveRelTarget } from './fastXlsxXml'
 import type { VbaProject } from './xlsxPostProcess'
-import { postProcessXlsx } from './xlsxPostProcess'
+import { injectDefinedNames, injectHyperlinks, postProcessXlsx } from './xlsxPostProcess'
 import { parseDataValidations } from './fastXlsx'
 
 // Re-exported for existing `from './xlsx'` call sites (the fast reader/worker import these
@@ -267,7 +268,7 @@ export async function readXlsxExceljs(data: Uint8Array): Promise<WorkbookData> {
     for (let i = 1; i <= colCount; i++) {
       const col = ws.getColumn(i)
       if (col.hidden) hiddenCols[i - 1] = true
-      if (col.width !== undefined && col.isCustomWidth) colWidths[i - 1] = colWidthToPx(col.width)
+      if (col.width !== undefined) colWidths[i - 1] = colWidthToPx(col.width)
     }
     layout.colWidths = colWidths
     layout.hiddenCols = hiddenCols
@@ -466,7 +467,12 @@ export async function writeXlsx(data: WorkbookData, vba?: VbaProject): Promise<U
         if (cell.raw.startsWith("'")) {
           target.value = cell.raw.slice(1) // quote-prefixed text
         } else if (cell.raw.startsWith('=')) {
-          target.value = { formula: cell.raw.slice(1) }
+          // Store the computed result too, as Excel does: Protected View, previews and other tools
+          // read it without recalculating.
+          const v = cell.value
+          const result = v === null || v === undefined ? undefined : typeof v === 'object' ? { error: (v as { error: string }).error } : v
+          const formula = addFuturePrefixes(cell.raw.slice(1))
+          target.value = (result === undefined ? { formula } : { formula, result }) as ExcelJS.CellValue
         } else if (cell.style?.numFmt && isDateFormat(cell.style.numFmt) && /^-?\d+(\.\d+)?$/.test(cell.raw)) {
           target.value = serialToDate(Number(cell.raw))
         } else if (cell.raw === 'TRUE' || cell.raw === 'FALSE') {
@@ -607,9 +613,11 @@ export async function writeXlsx(data: WorkbookData, vba?: VbaProject): Promise<U
   const hasValidations = sheetValidations.some((dv) => dv && dv.length > 0)
   const hasCharts = sheetCharts.some((c) => c && c.length > 0)
 
-  return hasCriteria || hasValidations || hasCharts || vba
+  const processed = hasCriteria || hasValidations || hasCharts || vba
     ? postProcessXlsx(buf, sheetFilters, vba, sheetValidations, sheetCharts, sheetNames, sheetCells, sheetLayouts)
     : buf
+  const linked = injectHyperlinks(processed, data.sheets.map((sd) => sd.layout?.hyperlinks))
+  return data.names?.length ? injectDefinedNames(linked, data.names) : linked
 }
 
 // ---------- read (fast path) ----------

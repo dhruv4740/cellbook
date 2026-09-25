@@ -5,8 +5,9 @@
 // against readXlsxExceljs).
 import { unzipSync } from 'fflate'
 import { shiftFormula } from '../engine/shiftFormula'
-import type { BorderSide, CellStyle, CfRule, CommentThread, DataValidationRule, DvAllowType, DvErrorStyle, DvOperator, FilterCriteria, NoteData, Range, SheetLayout } from '../model/types'
-import type { WorkbookData } from '../model/store'
+import { stripFuturePrefixes } from '../engine/xlfn'
+import type { BorderSide, CellStyle, CfRule, HyperlinkData, CommentThread, DataValidationRule, DvAllowType, DvErrorStyle, DvOperator, FilterCriteria, NoteData, Range, SheetLayout } from '../model/types'
+import type { WorkbookData, DefinedNameData } from '../model/store'
 import { DEFAULT_AUTHOR, defaultLayout } from '../model/defaults'
 import {
   THEME_COLORS, BORDER_STYLES, applyTint, ptToPx, colWidthToPx, colLetterToIndex, parseRangeStr,
@@ -70,7 +71,8 @@ function unzipTextFilter(name: string): boolean {
     /^xl\/drawings\/[^/]+\.xml$/.test(name) ||
     /^xl\/drawings\/_rels\/[^/]+\.xml\.rels$/.test(name) ||
     /^xl\/charts\/[^/]+\.xml$/.test(name) ||
-    /^xl\/comments\d*\.xml$/.test(name) ||
+    // Notes: Excel writes xl/comments1.xml, other producers xl/comments/comment1.xml (found via rels).
+    /^xl\/(?:[^/]+\/)?comments?\d*\.xml$/.test(name) ||
     // Raw (non-text) parts, kept only for a .xlsm workbook's VBA project - see parseXlsx below.
     name === 'xl/vbaProject.bin' ||
     name === 'xl/vbaProjectSignature.bin' ||
@@ -132,6 +134,8 @@ export function parseXlsx(bytes: Uint8Array): WorkbookData & { vbaProject?: VbaP
 
     // Notes vs. threaded comments: a legacy note whose text is Excel's own threaded-comment
     // fallback format (see xlsxShared.ts) came from a `comments` thread on save, not a plain note.
+    const links = parseHyperlinks(xml, files, dec, path)
+    if (Object.keys(links).length) layout.hyperlinks = links
     const notes = parseNotesForSheet(files, dec, path)
     const comments: Record<string, CommentThread> = {}
     for (const [key, note] of Object.entries(notes)) {
@@ -179,7 +183,8 @@ export function parseXlsx(bytes: Uint8Array): WorkbookData & { vbaProject?: VbaP
   }
 
   const activeSheet = Math.max(0, Math.min(activeTab, sheets.length - 1))
-  return { sheets, activeSheet, vbaProject: parseVbaProject(files, relsXml, dec) }
+  const names = parseDefinedNames(workbookXml)
+  return { sheets, activeSheet, names: names.length ? names : undefined, vbaProject: parseVbaProject(files, relsXml, dec) }
 }
 
 // ---------- .xlsm VBA project (kept as opaque bytes so it survives a save back to .xlsm) ----------
@@ -207,6 +212,23 @@ function parseVbaProject(files: Record<string, Uint8Array>, workbookRelsXml: str
 }
 
 // ---------- workbook.xml ----------
+function parseDefinedNames(xml: string): DefinedNameData[] {
+  const section = extractSection(xml, 'definedNames')
+  if (!section) return []
+  const out: DefinedNameData[] = []
+  const re = /<definedName\b([^>]*)>([\s\S]*?)<\/definedName>/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(section))) {
+    const a = parseAttrs(m[1], 0, m[1].length)
+    if (!a.name) continue
+    const n: DefinedNameData = { name: a.name, ref: decodeXmlEntities(m[2]).replace(/^=/, '') }
+    if (a.localSheetId !== undefined) n.sheet = parseInt(a.localSheetId, 10)
+    if (a.hidden === '1' || a.hidden === 'true') n.hidden = true
+    out.push(n)
+  }
+  return out
+}
+
 function parseWorkbookSheets(xml: string): { sheets: { name: string; rId: string }[]; activeTab: number } {
   const sheets: { name: string; rId: string }[] = []
   const section = extractSection(xml, 'sheets')
@@ -760,11 +782,11 @@ function parseSheetXml(xml: string, xfStyles: (CellStyle | undefined)[], sharedS
       if (!Number.isFinite(min) || !Number.isFinite(max)) continue
       const hidden = a.hidden === '1'
       const width = a.width !== undefined ? parseFloat(a.width) : undefined
-      // Matches exceljs's Column#isCustomWidth: it ignores the customWidth="1" attribute and just
-      // compares against its own hardcoded default of 9 chars, so we do the same for equivalence.
+      // Every explicit width is kept (a width of exactly 9 used to be dropped, copying an exceljs quirk,
+      // which silently widened those columns on save).
       for (let i = min; i <= max; i++) {
         if (hidden) hiddenCols[i - 1] = true
-        if (width !== undefined && width !== 9) colWidths[i - 1] = colWidthToPx(width)
+        if (width !== undefined) colWidths[i - 1] = colWidthToPx(width)
       }
     }
   }
@@ -994,7 +1016,7 @@ function parseCellsInRow(
         const siAttr = attrVal(xml, fAfter, fAttrsEnd, 'si')
         const si = siAttr !== undefined ? parseInt(siAttr, 10) : NaN
         if (fText) {
-          const formula = decodeXmlEntities(fText)
+          const formula = stripFuturePrefixes(decodeXmlEntities(fText))
           mastersBySi.set(si, { formula, row: r, col: c })
           cells[key] = { raw: '=' + formula, style }
         } else if (Number.isFinite(si)) {
@@ -1003,7 +1025,7 @@ function parseCellsInRow(
           cells[key] = { style }
         }
       } else {
-        cells[key] = { raw: '=' + decodeXmlEntities(fText ?? ''), style }
+        cells[key] = { raw: '=' + stripFuturePrefixes(decodeXmlEntities(fText ?? '')), style }
       }
       continue
     }
@@ -1113,6 +1135,28 @@ function parseCommentsXml(xml: string): Record<string, NoteData> {
     if (rg) notes[rg.r1 + ',' + rg.c1] = noteFromRuns(runs)
   }
   return notes
+}
+
+function parseHyperlinks(xml: string, files: Record<string, Uint8Array>, dec: TextDecoder, sheetPath: string): Record<string, HyperlinkData> {
+  const section = extractSection(xml, 'hyperlinks')
+  if (!section) return {}
+  const dir = sheetPath.split('/').slice(0, -1).join('/')
+  const file = sheetPath.split('/').pop() ?? ''
+  const relsBytes = files[dir + '/_rels/' + file + '.rels']
+  const rels = relsBytes ? parseRelationships(dec.decode(relsBytes)) : []
+  const out: Record<string, HyperlinkData> = {}
+  for (const m of section.matchAll(/<hyperlink\b([^>]*?)\/?>/g)) {
+    const a = parseAttrs(m[1], 0, m[1].length)
+    const rg = a.ref ? parseSingleOrRange(a.ref) : null
+    if (!rg) continue
+    const link: HyperlinkData = {}
+    if (a.id) { const rel = rels.find((r) => r.id === a.id); if (rel) link.target = rel.target }
+    if (a.location) link.location = a.location
+    if (a.tooltip) link.tooltip = a.tooltip
+    if (!link.target && !link.location) continue
+    for (let r = rg.r1; r <= rg.r2; r++) for (let c = rg.c1; c <= rg.c2; c++) out[r + ',' + c] = link
+  }
+  return out
 }
 
 function parseNotesForSheet(

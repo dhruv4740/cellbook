@@ -31,11 +31,17 @@ export interface SheetState {
 export interface WorkbookData {
   sheets: {
     name: string
-    cells: Record<string, { raw?: string; style?: CellStyle }> // key 'r,c'
+    /** `value`: a formula's last computed result, saved as Excel's cached value. */
+    cells: Record<string, { raw?: string; style?: CellStyle; value?: CellValue }> // key 'r,c'
     layout?: Partial<SheetLayout>
   }[]
   activeSheet?: number
+  /** Workbook defined names (named ranges, print areas...). `ref` has no leading '='; `sheet` is
+   *  the index of the sheet a local name belongs to (localSheetId). */
+  names?: DefinedNameData[]
 }
+
+export interface DefinedNameData { name: string; ref: string; sheet?: number; hidden?: boolean }
 
 interface UndoEntry {
   label: string
@@ -50,6 +56,7 @@ function defaultSelection(): Selection {
 let nextUid = 1
 
 // US-locale input parsing, matching Excel en-US.
+import { shiftLayoutRefs, shiftRange } from './shiftLayout'
 import { registerExtraFunctions, BOOLEAN_NAMES, setRowVisibility } from '../engine/extraFunctions'
 import { DATE_FORMATS } from '../engine/locale'
 registerExtraFunctions()
@@ -78,6 +85,8 @@ export class WorkbookStore {
   clipboard: { sheetUid: number; range: Range; cut: boolean; text?: string } | null = null
   /** Transient UI state any component may read (e.g. edit mode for the status bar). */
   mode: 'Ready' | 'Enter' | 'Edit' | 'Point' = 'Ready'
+  /** Defined names carried through load/save; ordinary ones are also live in the engine. */
+  names: DefinedNameData[] = []
 
   onBroadcast?: (msg: SyncMessage) => void
   isApplyingRemote = false
@@ -656,15 +665,11 @@ export class WorkbookStore {
   }
 
   private shiftMerges(sheet: SheetState, axis: 'r' | 'c', at: number, delta: number): void {
-    const [a, b] = axis === 'r' ? (['r1', 'r2'] as const) : (['c1', 'c2'] as const)
     sheet.layout.merges = sheet.layout.merges
-      .filter((m) => !(delta < 0 && m[a] >= at && m[b] < at - delta))
-      .map((m) => {
-        const n = { ...m }
-        if (n[a] >= at) n[a] = Math.max(at, n[a] + delta)
-        if (n[b] >= at) n[b] = Math.max(at, n[b] + delta)
-        return n
-      })
+      .map((m) => shiftRange(m, axis, at, delta))
+      .filter((m): m is Range => m !== null && (m.r2 > m.r1 || m.c2 > m.c1)) // a merge shrunk to one cell is gone
+    // Notes, comments, links, conditional formatting, validation, filter and charts follow their cells.
+    shiftLayoutRefs(sheet.layout, axis, at, delta)
   }
 
   insertRows(sheet: SheetState, at: number, count: number): void {
@@ -839,6 +844,8 @@ export class WorkbookStore {
     })
     this.hf.destroy()
     this.hf = data.sheets.length ? HyperFormula.buildFromSheets(contents, HF_CONFIG, BOOLEAN_NAMES) : HyperFormula.buildEmpty(HF_CONFIG, BOOLEAN_NAMES)
+    this.names = data.names ? data.names.map((n) => ({ ...n })) : []
+    this.registerNames()
     if (!this.sheets.length) this.addSheetRaw('Sheet1', 0)
     this.activeIndex = Math.min(data.activeSheet ?? 0, this.sheets.length - 1)
     this.fileName = fileName
@@ -850,9 +857,23 @@ export class WorkbookStore {
     this.notify()
   }
 
+  /** Makes ordinary defined names usable in formulas. Built-in _xlnm.* names (print areas, filter
+   *  ranges) are only carried through to the saved file. A name the engine rejects stays saved. */
+  private registerNames(): void {
+    if (!this.names.length) return
+    this.hf.batch(() => {
+      for (const n of this.names) {
+        if (/^_xlnm\./i.test(n.name)) continue
+        const scope = n.sheet !== undefined && this.sheets[n.sheet] ? this.hfId(this.sheets[n.sheet]) : undefined
+        try { this.hf.addNamedExpression(n.name, '=' + n.ref, scope) } catch { /* invalid for the engine */ }
+      }
+    })
+  }
+
   toData(): WorkbookData {
     return {
       activeSheet: this.activeIndex,
+      names: this.names.length ? this.names.map((n) => ({ ...n })) : undefined,
       sheets: this.sheets.map((s) => {
         const cells: WorkbookData['sheets'][number]['cells'] = {}
         const id = this.hfId(s)
@@ -867,7 +888,9 @@ export class WorkbookStore {
               if (typeof val === 'number') raw = String(val)
               else if (typeof val === 'boolean') raw = val ? 'TRUE' : 'FALSE'
             }
-            cells[cellKey(r, c)] = { raw }
+            const cell: { raw: string; value?: CellValue } = { raw }
+            if (raw.startsWith('=')) cell.value = this.getValue(s, r, c)
+            cells[cellKey(r, c)] = cell
           })
         )
         s.styles.forEach((style, k) => (cells[k] = { ...cells[k], style }))

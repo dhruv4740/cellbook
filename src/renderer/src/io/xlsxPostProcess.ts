@@ -1,3 +1,4 @@
+import { colName } from '../model/types'
 // Post-processing on the raw zip package that exceljs's object model can't express: per-column
 // AutoFilter criteria (exceljs only round-trips the filtered range, never filterColumn/filters)
 // and, for .xlsm saves, the VBA project part exceljs always strips. Runs on the bytes
@@ -386,5 +387,80 @@ export function postProcessXlsx(
     if (name.endsWith('/')) continue // directory placeholder, not a real entry we need to keep
     out[name] = bytes
   }
+  return zipSync(out, { level: 6 })
+}
+
+/** Writes the workbook's defined names into xl/workbook.xml, keeping any exceljs already wrote
+ *  (e.g. _xlnm._FilterDatabase) unless ours has the same name and scope. */
+export function injectDefinedNames(zipBytes: Uint8Array, names: { name: string; ref: string; sheet?: number; hidden?: boolean }[]): Uint8Array {
+  if (!names.length) return zipBytes
+  const files = unzipSync(zipBytes)
+  const path = 'xl/workbook.xml'
+  let xml = new TextDecoder('utf-8').decode(files[path])
+  const key = (n: string, s?: number) => n.toLowerCase() + '|' + (s ?? '')
+  const ours = new Set(names.map((n) => key(n.name, n.sheet)))
+  const kept: string[] = []
+  const existing = /<definedNames>([\s\S]*?)<\/definedNames>/.exec(xml)
+  if (existing) {
+    for (const m of existing[1].matchAll(/<definedName\b[^>]*>[\s\S]*?<\/definedName>/g)) {
+      const nm = /name="([^"]*)"/.exec(m[0])?.[1] ?? ''
+      const ls = /localSheetId="(\d+)"/.exec(m[0])?.[1]
+      if (!ours.has(key(nm, ls !== undefined ? +ls : undefined))) kept.push(m[0])
+    }
+  }
+  const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+  const mine = names.map((n) => `<definedName name="${esc(n.name)}"${n.sheet !== undefined ? ` localSheetId="${n.sheet}"` : ''}${n.hidden ? ' hidden="1"' : ''}>${esc(n.ref)}</definedName>`)
+  const block = `<definedNames>${[...kept, ...mine].join('')}</definedNames>`
+  xml = existing ? xml.replace(existing[0], block) : xml.replace('</sheets>', '</sheets>' + block)
+  files[path] = new TextEncoder().encode(xml)
+  const out: Record<string, Uint8Array> = {}
+  for (const [name, bytes] of Object.entries(files)) if (!name.endsWith('/')) out[name] = bytes
+  return zipSync(out, { level: 6 })
+}
+
+/** Writes each sheet's hyperlinks (sheet XML <hyperlinks> + external relationships). */
+export function injectHyperlinks(zipBytes: Uint8Array, sheetLinks: (Record<string, { target?: string; location?: string; tooltip?: string }> | undefined)[]): Uint8Array {
+  if (!sheetLinks.some((l) => l && Object.keys(l).length)) return zipBytes
+  const files = unzipSync(zipBytes)
+  const dec = new TextDecoder('utf-8'), enc = new TextEncoder()
+  const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+  sheetLinks.forEach((links, i) => {
+    if (!links || !Object.keys(links).length) return
+    const path = `xl/worksheets/sheet${i + 1}.xml`
+    if (!files[path]) return
+    let xml = dec.decode(files[path])
+    if (xml.includes('<hyperlinks')) return // already written (e.g. by exceljs): keep it
+    const relsPath = `xl/worksheets/_rels/sheet${i + 1}.xml.rels`
+    let rels = files[relsPath] ? dec.decode(files[relsPath]) : '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>'
+    let maxId = 0
+    for (const m of rels.matchAll(/Id="rId(\d+)"/g)) maxId = Math.max(maxId, +m[1])
+    const items: string[] = []
+    const newRels: string[] = []
+    for (const [key, link] of Object.entries(links)) {
+      const [r, c] = key.split(',').map(Number)
+      const ref = colName(c) + (r + 1)
+      let attrs = `ref="${ref}"`
+      if (link.target) {
+        const id = `rId${++maxId}`
+        newRels.push(`<Relationship Id="${id}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="${esc(link.target)}" TargetMode="External"/>`)
+        attrs += ` r:id="${id}"`
+      }
+      if (link.location) attrs += ` location="${esc(link.location)}"`
+      if (link.tooltip) attrs += ` tooltip="${esc(link.tooltip)}"`
+      items.push(`<hyperlink ${attrs}/>`)
+    }
+    const block = `<hyperlinks>${items.join('')}</hyperlinks>`
+    // Schema order: hyperlinks come after dataValidations and before printOptions/pageMargins.
+    const m = /<(?:printOptions|pageMargins|pageSetup|headerFooter|rowBreaks|colBreaks|customProperties|cellWatches|ignoredErrors|smartTags|drawing|legacyDrawing|legacyDrawingHF|picture|oleObjects|controls|webPublishItems|tableParts|extLst)[\s/>]|<\/worksheet>/.exec(xml)
+    xml = m ? xml.slice(0, m.index) + block + xml.slice(m.index) : xml
+    if (!/xmlns:r=/.test(xml.slice(0, 600))) xml = xml.replace('<worksheet ', '<worksheet xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" ')
+    files[path] = enc.encode(xml)
+    if (newRels.length) {
+      rels = rels.replace('</Relationships>', newRels.join('') + '</Relationships>')
+      files[relsPath] = enc.encode(rels)
+    }
+  })
+  const out: Record<string, Uint8Array> = {}
+  for (const [name, bytes] of Object.entries(files)) if (!name.endsWith('/')) out[name] = bytes
   return zipSync(out, { level: 6 })
 }
