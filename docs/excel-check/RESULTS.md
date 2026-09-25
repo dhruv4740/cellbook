@@ -69,3 +69,29 @@ Still open (not fixed):
 - Hidden column J: Excel wrote width 0, Cellbook writes 13 with `hidden="1"`. Still hidden in Excel.
 - Spilled cells (H9:H10) have no cached value in Cellbook's file; Excel fills them on open (the file has `fullCalcOnLoad`), but Protected View shows them blank.
 - Not done: "any real .xlsx files the user points you to": none were provided.
+
+## 4. Clipboard between Excel and Cellbook
+
+**Not tested live.** Every process started from this Claude session runs inside a Windows job object that denies clipboard access (`OpenClipboard` → "Access is denied", also PowerShell `Set-Clipboard`/`Get-Clipboard`, also with the sandbox off). Nothing I run can read or write the Windows clipboard, so I didn't try to work around that. The first live attempt (`clipboard_check.py`) only showed Excel pasting its own copy.
+
+What I did instead (`scripts/excel-oracle/clipboard_proxy.py`):
+- Excel → Cellbook: Excel saves the block as Unicode text (the same tab-separated text it puts on the clipboard), and Cellbook's paste parses it.
+- Cellbook → Excel: Cellbook's copy output (text + HTML) is captured; Excel opens the HTML with its HTML importer, the same one it uses for pasted HTML.
+
+Bugs found and fixed (tests in `numfmt.test.ts`, `store.test.ts`, `commands.test.ts`):
+
+| Bug | Before | After (= Excel on en-IN, checked with `FormulaLocal`) |
+|---|---|---|
+| **Typed or pasted `1,234.50` was stored as text** (HF has no thousands separator), so SUM ignored it. Same for `12,34,567.89` and `₹5,000` | text `"1,234.50"` | number 1234.5, format `#,##0.00`; `₹5,000` → 5000 with `₹ #,##0;[Red]₹ -#,##0`; `$5,000`, `1,23`, `12,345,67` stay text as in Excel |
+| Copy: a cell with a line break wasn't quoted in the text | splits into 2 rows in text-only apps | `"Line1\nLine2"` like Excel |
+| Copy: HTML had no line-break/text markers | Excel got `Line1 Line2` and `00012` → 12 | Excel gets `Line1⏎Line2` and `00012` (text) |
+| Paste from Excel used only the text | a Text-formatted `00012` became 12 | reads Excel's HTML (`mso-number-format:"\@"` classes) and keeps it as text |
+
+Also: `main` has no `readHTML` in Electron 44; added `clipboard:readHTML` through `clipboard.read()`. That IPC path is unit-tested only with a stub, not against the live clipboard.
+
+**Please check by hand** (2 minutes, in the built app: `npm run build`, then `npx electron .`):
+1. In Excel type in A1:E1: `1234.5` (format `#,##0.00`), `3/9/2026`, `a, b, c`, `Line1` Alt+Enter `Line2`, and `00012` in a Text-formatted cell. Copy, paste into Cellbook: expect 1234.5 as a number, 3 Sept 2026, one cell with two lines, `00012` kept.
+2. Copy those cells in Cellbook, paste into Excel: same expectations.
+3. Copy a cell in Cellbook, then copy a different cell in Excel, then Ctrl+V in Cellbook: it must paste the Excel cell. (Code reads the system text and drops Cellbook's own copy when it differs.)
+
+Risk I could not rule out: if Cellbook's write to the Windows clipboard fails (clipboard locked by another app), its own Ctrl+C → Ctrl+V pastes nothing, because the system text then differs from the copy. Excel still pastes in that case.
