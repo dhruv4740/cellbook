@@ -357,7 +357,11 @@ export default function Grid() {
       const metrics = ctx.measureText(text)
       const isNumeric = typeof store.getValue(sheet, r, c) === 'number'
       if (metrics.width > w - 2 * pad - iconPad && isNumeric) {
-        text = '#'.repeat(Math.max(1, Math.floor((w - 2 * pad - iconPad) / (7 * z))))
+        const avail = w - 2 * pad - iconPad
+        const fmt = style?.numFmt
+        // General numbers shrink the way Excel's do (fewer decimals, then 2.63E+09) before ####.
+        const fit = !fmt || fmt === 'General' ? fitGeneral(store.getValue(sheet, r, c) as number, (t) => ctx.measureText(t).width <= avail) : null
+        text = fit ?? '#'.repeat(Math.max(1, Math.floor(avail / (7 * z))))
       } else if (metrics.width > w - 2 * pad - iconPad && !style?.wrap) {
         // overflow into empty neighbours: only clip if neighbour is non-empty
       }
@@ -1845,4 +1849,25 @@ function PasteSpecialBody() {
       </div>
     </div>
   )
+}
+
+/** Shortest-first Excel General fallbacks for a number too wide for its column. */
+export function fitGeneral(v: number, fits: (t: string) => boolean): string | null {
+  const abs = Math.abs(v)
+  if (!Number.isInteger(v) && abs < 1e11) {
+    const intDigits = Math.max(1, Math.floor(Math.log10(Math.max(abs, 1))) + 1)
+    for (let d = 9 - intDigits; d >= 0; d--) {
+      const t = String(Number(v.toFixed(d)))
+      if (fits(t)) return t
+    }
+  }
+  if (abs >= 1e-9) {
+    for (let d = 5; d >= 0; d--) {
+      const [m, e] = v.toExponential(d).split('e')
+      const exp = Number(e)
+      const t = `${Number(m)}E${exp < 0 ? '-' : '+'}${String(Math.abs(exp)).padStart(2, '0')}`
+      if (fits(t)) return t
+    }
+  }
+  return null
 }

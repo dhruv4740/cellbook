@@ -1031,8 +1031,19 @@ function parseCellsInRow(
       raw = tagText(xml, innerStart, innerEnd, 'v')
     }
 
+    // Text cells must stay text: without the quote prefix the engine would re-read "3.9.2026" as a
+    // date or "00123" as a number, which Excel never does for a cell stored as a string.
+    if (raw !== undefined && (t === 's' || t === 'inlineStr' || t === 'str') && needsTextQuote(raw)) raw = "'" + raw
     if (raw !== undefined || style) cells[key] = { raw, style }
   }
+}
+
+export function needsTextQuote(s: string): boolean {
+  if (s === '') return false
+  const c = s.charCodeAt(0)
+  if (c === 39 /* ' */ || c === 61 /* = */) return true
+  if (/^(true|false)$/i.test(s)) return true
+  return /\d/.test(s) && /^[\s\d.,:/\-+$%()€£¥₹eE]*(am|pm|a|p)?\s*$/i.test(s)
 }
 
 // ---------- legacy cell notes (xl/comments*.xml) ----------

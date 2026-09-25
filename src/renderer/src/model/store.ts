@@ -50,7 +50,8 @@ function defaultSelection(): Selection {
 let nextUid = 1
 
 // US-locale input parsing, matching Excel en-US.
-import { registerExtraFunctions, BOOLEAN_NAMES } from '../engine/extraFunctions'
+import { registerExtraFunctions, BOOLEAN_NAMES, setRowVisibility } from '../engine/extraFunctions'
+import { DATE_FORMATS } from '../engine/locale'
 registerExtraFunctions()
 
 const HF_CONFIG = {
@@ -59,7 +60,7 @@ const HF_CONFIG = {
   licenseKey: 'gpl-v3',
   undoLimit: 0,
   useArrayArithmetic: true,
-  dateFormats: ['MM/DD/YYYY', 'MM/DD/YY', 'YYYY-MM-DD', 'YYYY/MM/DD'],
+  dateFormats: DATE_FORMATS,
   timeFormats: ['hh:mm', 'hh:mm:ss.sss'],
   currencySymbol: ['$'],
   nullDate: { year: 1899, month: 12, day: 30 }
@@ -572,11 +573,31 @@ export class WorkbookStore {
 
   // ---------- layout ----------
   /** Undoable change to the sheet layout (widths, merges, freeze panes, gridlines, zoom, ...). */
+  /** SUBTOTAL/AGGREGATE are volatile; any engine change recalculates them after rows are hidden/shown. */
+  private visVersion = 0
+  touchVisibility(): void {
+    try { this.hf.changeNamedExpression('ZZROWVISVER', '=' + ++this.visVersion) } catch { /* not present */ }
+  }
+  private filteredCache = new WeakMap<number[], Set<number>>()
+  rowHiddenKind(hfSheet: number, row: number): 0 | 1 | 2 {
+    const sh = this.sheets.find((s) => this.hfId(s) === hfSheet)
+    if (!sh) return 0
+    const fr = sh.layout.autoFilter?.filteredOutRows
+    if (fr && fr.length) {
+      let set = this.filteredCache.get(fr)
+      if (!set) this.filteredCache.set(fr, (set = new Set(fr)))
+      if (set.has(row)) return 1
+    }
+    return sh.layout.hiddenRows?.[row] ? 2 : 0
+  }
+
   updateLayout(sheet: SheetState, label: string, fn: (l: SheetLayout) => void): void {
     const before = structuredClone(sheet.layout)
     const next = structuredClone(sheet.layout)
     fn(next)
-    this.commit(label, () => (sheet.layout = structuredClone(next)), () => (sheet.layout = structuredClone(before)))
+    const rowsChanged = before.autoFilter?.filteredOutRows !== next.autoFilter?.filteredOutRows || JSON.stringify(before.hiddenRows) !== JSON.stringify(next.hiddenRows) || JSON.stringify(before.autoFilter?.filteredOutRows) !== JSON.stringify(next.autoFilter?.filteredOutRows)
+    const apply = (l: SheetLayout) => { sheet.layout = structuredClone(l); if (rowsChanged) this.touchVisibility() }
+    this.commit(label, () => apply(next), () => apply(before))
     if (label !== 'Zoom' && label !== 'Freeze Panes') {
       this.broadcastOp({ type: 'updateLayout', sheetName: sheet.name, label, layout: structuredClone(next) })
     }
@@ -839,7 +860,14 @@ export class WorkbookStore {
         content.forEach((row, r) =>
           row.forEach((v, c) => {
             if (v === null || v === undefined || v === '') return
-            cells[cellKey(r, c)] = { raw: typeof v === 'boolean' ? (v ? 'TRUE' : 'FALSE') : String(v) }
+            let raw = typeof v === 'boolean' ? (v ? 'TRUE' : 'FALSE') : String(v)
+            // Typed "1/2/2024", "$1,200", "25%" are numbers to the engine: save the number.
+            if (typeof v === 'string' && !v.startsWith('=') && !v.startsWith("'") && !/^-?\d+(\.\d+)?([eE][+-]?\d+)?$/.test(v)) {
+              const val = this.hf.getCellValue({ sheet: id, row: r, col: c })
+              if (typeof val === 'number') raw = String(val)
+              else if (typeof val === 'boolean') raw = val ? 'TRUE' : 'FALSE'
+            }
+            cells[cellKey(r, c)] = { raw }
           })
         )
         s.styles.forEach((style, k) => (cells[k] = { ...cells[k], style }))
@@ -854,6 +882,7 @@ export class WorkbookStore {
 }
 
 export const store = new WorkbookStore()
+setRowVisibility((sheet, row) => store.rowHiddenKind(sheet, row))
 
 /** React hook: re-renders the component whenever the store changes. Returns the store. */
 export function useStore(): WorkbookStore {

@@ -180,11 +180,11 @@ export function DataTab() {
       ]
     ] },
     { label: 'Data Tools', big: [
-      { label: 'Text to Columns', icon: <ColumnTriple20Regular fontSize={28} />, onClick: () => setUi({ dialog: { kind: 'textToColumns' } }) },
-      { label: 'Flash Fill', icon: <Sparkle20Regular fontSize={28} /> },
-      { label: 'Remove Duplicates', icon: <TableSimple20Regular fontSize={28} />, onClick: () => setUi({ dialog: { kind: 'removeDuplicates' } }) },
-      { label: 'Data Validation', icon: <ShieldTask20Regular fontSize={28} />, onClick: () => setUi({ dialog: { kind: 'dataValidation' } }) },
-      { label: 'Consolidate', icon: <DataArea20Regular fontSize={28} /> },
+      { label: 'Text to Columns', icon: <ColumnTriple20Regular fontSize={28} />, onClick: () => setUi({ dialog: { kind: 'textToColumns' } }), keytip: 'E' },
+      { label: 'Flash Fill', icon: <Sparkle20Regular fontSize={28} />, keytip: 'FF' },
+      { label: 'Remove Duplicates', icon: <TableSimple20Regular fontSize={28} />, onClick: () => setUi({ dialog: { kind: 'removeDuplicates' } }), keytip: 'M' },
+      { label: 'Data Validation', icon: <ShieldTask20Regular fontSize={28} />, onClick: () => setUi({ dialog: { kind: 'dataValidation' } }), keytip: 'V' },
+      { label: 'Consolidate', icon: <DataArea20Regular fontSize={28} />, keytip: 'N' },
       { label: 'Relationships', icon: <FlowchartCircle20Regular fontSize={28} /> }
     ] },
     { label: 'Forecast', big: [

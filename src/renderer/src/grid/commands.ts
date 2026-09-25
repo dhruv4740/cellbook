@@ -18,7 +18,16 @@ function activeRange(): Range {
 }
 
 // ---------- clipboard ----------
-interface ClipCell { r: number; c: number; raw: string; style?: CellStyle }
+interface ClipCell { r: number; c: number; raw: string; style?: CellStyle; pr?: number }
+
+/** Rows a copy skips: with a filter on, Excel copies only the visible rows. */
+function skippedRows(sheet: SheetState, rg: Range): Set<number> {
+  const out = new Set<number>()
+  if (!sheet.layout.autoFilter?.filteredOutRows?.length) return out
+  const n = normRange(rg)
+  for (const k of Object.keys(sheet.layout.hiddenRows ?? {})) { const r = +k; if (r >= n.r1 && r <= n.r2) out.add(r) }
+  return out
+}
 
 /** Intersection of a range with the sheet's used range (cells outside it are empty). */
 function clampUsed(sheet: SheetState, rg: Range): Range | null {
@@ -29,13 +38,17 @@ function clampUsed(sheet: SheetState, rg: Range): Range | null {
   return out.r1 > out.r2 || out.c1 > out.c2 ? null : out
 }
 
-function readRange(rg: Range, sheet: SheetState = store.active): ClipCell[] {
+function readRange(rg: Range, sheet: SheetState = store.active, skip?: Set<number>): ClipCell[] {
   const n = clampUsed(sheet, rg)
   const out: ClipCell[] = []
   if (!n) return out
-  for (let r = n.r1; r <= n.r2; r++)
+  let pr = n.r1
+  for (let r = n.r1; r <= n.r2; r++) {
+    if (skip?.has(r)) continue
     for (let c = n.c1; c <= n.c2; c++)
-      out.push({ r, c, raw: store.getRaw(sheet, r, c), style: store.getStyle(sheet, r, c) })
+      out.push({ r, c, raw: store.getRaw(sheet, r, c), style: store.getStyle(sheet, r, c), pr })
+    pr++
+  }
   return out
 }
 
@@ -43,7 +56,9 @@ function toTSV(rg: Range): string {
   const n = clampUsed(store.active, rg)
   if (!n) return ''
   const rows: string[] = []
+  const skip = skippedRows(store.active, n)
   for (let r = n.r1; r <= n.r2; r++) {
+    if (skip.has(r)) continue
     const cells: string[] = []
     for (let c = n.c1; c <= n.c2; c++) cells.push(store.getDisplay(store.active, r, c).text)
     rows.push(cells.join('\t'))
@@ -55,7 +70,9 @@ function toHTML(rg: Range): string {
   const n = clampUsed(store.active, rg)
   if (!n) return '<table></table>'
   let html = '<table>'
+  const skip = skippedRows(store.active, n)
   for (let r = n.r1; r <= n.r2; r++) {
+    if (skip.has(r)) continue
     html += '<tr>'
     for (let c = n.c1; c <= n.c2; c++) {
       const style = store.getStyle(store.active, r, c)
@@ -114,7 +131,7 @@ function pasteCellsAt(dest: Range, src: ClipCell[], srcRange: Range, kind: Paste
   const transpose = kind === 'transpose'
   const cells: { r: number; c: number; raw: string; style?: CellStyle }[] = []
   for (const cell of src) {
-    const ro = cell.r - n.r1
+    const ro = (cell.pr ?? cell.r) - n.r1
     const co = cell.c - n.c1
     const dr = dest.r1 + (transpose ? co : ro)
     const dc = dest.c1 + (transpose ? ro : co)
@@ -189,7 +206,8 @@ export async function paste(kind: PasteKind = 'all'): Promise<void> {
   if (clip && clip.sheetUid !== undefined) {
     const srcSheet = store.sheetByUid(clip.sheetUid)
     if (srcSheet) {
-      const src = readRange(clip.range, srcSheet)
+      const skip = clip.cut ? undefined : skippedRows(srcSheet, clip.range)
+      const src = readRange(clip.range, srcSheet, skip)
       if (clip.cut) {
         cutMove(srcSheet, clip.range, dest)
         store.clipboard = null
@@ -197,7 +215,9 @@ export async function paste(kind: PasteKind = 'all'): Promise<void> {
         return
       }
       const sn = normRange(clip.range)
-      const targets = tileTargets(dest, sn.r2 - sn.r1 + 1, sn.c2 - sn.c1 + 1, kind === 'transpose')
+      const used = clampUsed(srcSheet, sn)
+      const skipped = skip ? [...skip].filter((r) => r <= (used?.r2 ?? sn.r2)).length : 0
+      const targets = tileTargets(dest, Math.max(1, Math.min(sn.r2, used?.r2 ?? sn.r2) - sn.r1 + 1 - skipped), sn.c2 - sn.c1 + 1, kind === 'transpose')
       store.transact('Paste', () => {
         if (clip.cut) {
           // Clear the source first so an overlapping destination keeps the pasted cells.

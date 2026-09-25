@@ -13,7 +13,14 @@ export interface RemoveDuplicatesDialogProps {
 
 export function RemoveDuplicatesDialog({ store, onClose }: RemoveDuplicatesDialogProps) {
   const sheet = store.active
-  const range = normRange(sheet.selection.ranges[0] || { r1: 0, c1: 0, r2: 0, c2: 0 })
+  // A single active cell means "this table": Excel expands to the current region and selects it.
+  const [range] = useState(() => {
+    const sel = normRange(sheet.selection.ranges[0] || { r1: 0, c1: 0, r2: 0, c2: 0 })
+    if (sel.r1 !== sel.r2 || sel.c1 !== sel.c2) return sel
+    const region = normRange(store.currentRegion(sheet, sel.r1, sel.c1))
+    store.setSelection({ ranges: [region], active: { r: sel.r1, c: sel.c1 } })
+    return region
+  })
 
   const [hasHeaders, setHasHeaders] = useState<boolean>(() => detectHeaders(store, sheet, range))
 
