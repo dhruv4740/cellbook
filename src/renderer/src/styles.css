@@ -61,6 +61,23 @@ body { font: 12px var(--ui-font); color: var(--text); background: #fff; user-sel
   white-space: nowrap;
 }
 
+.xl-dv-dropdown-btn {
+  background: #fdfdfd;
+  border: 1px solid #adadad;
+  box-sizing: border-box;
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  color: #333;
+}
+.xl-dv-dropdown-btn:hover {
+  background: #e5f1fb;
+  border-color: #0078d7;
+}
+
 .xl-paste-strip { display: flex; gap: 2px; padding: 4px 8px; }
 .xl-paste-icon {
   position: relative;

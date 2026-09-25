@@ -11,6 +11,12 @@ import { CfQuickDialog, CfQuickKind } from './CfQuickDialog'
 import { CfNewRuleDialog } from './CfNewRuleDialog'
 import { CfManageDialog } from './CfManageDialog'
 import { CfRule } from '../model/types'
+import { SortDialog } from './SortDialog'
+import { SortWarningDialog } from './SortWarningDialog'
+import { RemoveDuplicatesDialog } from './RemoveDuplicatesDialog'
+import { TextToColumnsDialog } from './TextToColumnsDialog'
+import { DataValidationDialog } from './DataValidationDialog'
+import { DataValidationErrorDialog } from './DataValidationErrorDialog'
 
 export default function DialogHost() {
   const ui = useUi()
@@ -65,6 +71,35 @@ export default function DialogHost() {
           onClose={close}
           onNewRule={() => setUi({ dialog: { kind: 'cfNewRule' } })}
           onEditRule={(rule) => setUi({ dialog: { kind: 'cfNewRule', props: { rule } } })}
+        />
+      )
+    case 'sort':
+      return <SortDialog store={store} onClose={close} />
+    case 'sortWarning':
+      return (
+        <SortWarningDialog
+          onSort={(expand) => {
+            const onSort = d.props?.onSort as ((expand: boolean) => void) | undefined
+            if (onSort) onSort(expand)
+          }}
+          onClose={close}
+        />
+      )
+    case 'removeDuplicates':
+      return <RemoveDuplicatesDialog store={store} onClose={close} />
+    case 'textToColumns':
+      return <TextToColumnsDialog store={store} onClose={close} />
+    case 'dataValidation':
+      return <DataValidationDialog store={store} onClose={close} />
+    case 'dataValidationError':
+      return (
+        <DataValidationErrorDialog
+          style={d.props?.style as any}
+          title={d.props?.title as string}
+          message={d.props?.message as string}
+          onRetry={((d.props?.onRetry as () => void) || close)}
+          onCancel={((d.props?.onCancel as () => void) || close)}
+          onContinue={((d.props?.onContinue as () => void) || close)}
         />
       )
     default:

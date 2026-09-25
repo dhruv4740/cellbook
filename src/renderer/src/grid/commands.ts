@@ -5,6 +5,7 @@ import { setUi, getUi } from '../chrome/ui'
 import { CellStyle, Range, normRange, colName, MAX_ROWS, MAX_COLS, parseA1 } from '../model/types'
 import { shiftFormula } from '../engine/shiftFormula'
 import { generateSeries } from '../engine/autofill'
+import { sortRange, detectHeaders, hasAdjacentData, findCurrentRegion } from '../data/sort'
 
 export type PasteKind = 'all' | 'values' | 'formulas' | 'formats' | 'transpose' | 'noBorders' | 'columnWidths' | 'link'
 
@@ -264,38 +265,65 @@ export function clearSelection(what: 'all' | 'contents' | 'formats'): void {
   store.clear(store.active, sel(), what)
 }
 
+export function openSortDialog(): void {
+  const rg = activeRange()
+  const sheet = store.active
+  const n = normRange(rg)
+  if (hasAdjacentData(store, sheet, n)) {
+    setUi({
+      dialog: {
+        kind: 'sortWarning',
+        props: {
+          onSort: (expand: boolean) => {
+            if (expand) {
+              const exp = findCurrentRegion(store, sheet, n)
+              store.setSelection({ ranges: [exp], active: sheet.selection.active })
+            }
+            setUi({ dialog: { kind: 'sort' } })
+          }
+        }
+      }
+    })
+  } else {
+    setUi({ dialog: { kind: 'sort' } })
+  }
+}
+
 export function sortSelection(order: 'asc' | 'desc'): void {
   const rg = activeRange()
   const sheet = store.active
   const n = clampUsed(sheet, rg)
   if (!n) return
-  const rows: ClipCell[][] = []
-  for (let r = n.r1; r <= n.r2; r++) {
-    const row: ClipCell[] = []
-    for (let c = n.c1; c <= n.c2; c++) row.push({ r, c, raw: store.getRaw(sheet, r, c), style: store.getStyle(sheet, r, c) })
-    rows.push(row)
-  }
-  const key = (row: ClipCell[]): [number, number | string] => {
-    const v = store.getValue(sheet, row[0].r, row[0].c)
-    if (v === null || v === undefined || v === '') return [2, '']
-    if (typeof v === 'number') return [0, v]
-    return [1, String(v).toLowerCase()]
-  }
-  const sorted = [...rows].sort((a, b) => {
-    const [ta, va] = key(a)
-    const [tb, vb] = key(b)
-    if (ta !== tb) return ta - tb
-    const cmp = va < vb ? -1 : va > vb ? 1 : 0
-    return order === 'asc' ? cmp : -cmp
-  })
-  const cells: { r: number; c: number; raw: string; style?: CellStyle }[] = []
-  sorted.forEach((row, i) =>
-    row.forEach((cell, j) => {
-      const r = n.r1 + i
-      cells.push({ r, c: n.c1 + j, raw: cell.raw.startsWith('=') ? shiftFormula(cell.raw, r - cell.r, 0) : cell.raw, style: cell.style })
+
+  if (hasAdjacentData(store, sheet, n)) {
+    setUi({
+      dialog: {
+        kind: 'sortWarning',
+        props: {
+          onSort: (expand: boolean) => {
+            const target = expand ? findCurrentRegion(store, sheet, n) : n
+            if (expand) {
+              store.setSelection({ ranges: [target], active: sheet.selection.active })
+            }
+            const activeCol = sheet.selection.active.c
+            const hasHeaders = detectHeaders(store, sheet, target)
+            sortRange(store, sheet, target, {
+              hasHeaders,
+              levels: [{ columnIndex: activeCol, sortOn: 'values', order }]
+            })
+          }
+        }
+      }
     })
-  )
-  store.setCells(sheet, cells, 'Sort')
+    return
+  }
+
+  const activeCol = sheet.selection.active.c
+  const hasHeaders = detectHeaders(store, sheet, n)
+  sortRange(store, sheet, n, {
+    hasHeaders,
+    levels: [{ columnIndex: activeCol, sortOn: 'values', order }]
+  })
 }
 
 // ---------- fill ----------

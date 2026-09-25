@@ -1,0 +1,86 @@
+/* RemoveDuplicatesDialog styles - Excel M365 light theme */
+
+.xl-rd-body {
+  font: 12px var(--ui-font, 'Segoe UI', Tahoma, sans-serif);
+  color: #242424;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  user-select: none;
+}
+
+.xl-rd-prompt {
+  margin: 0;
+  line-height: 1.4;
+}
+
+.xl-rd-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.xl-rd-btn-group {
+  display: flex;
+  gap: 6px;
+}
+
+.xl-rd-btn {
+  height: 24px;
+  font: 12px var(--ui-font, 'Segoe UI', Tahoma, sans-serif);
+  background: #fdfdfd;
+  border: 1px solid #adadad;
+  border-radius: 2px;
+  padding: 0 10px;
+  cursor: pointer;
+}
+
+.xl-rd-btn:hover {
+  background: #e5f1fb;
+  border-color: #0078d7;
+}
+
+.xl-rd-headers-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+
+.xl-rd-columns-box {
+  border: 1px solid #adadad;
+  background: #fff;
+}
+
+.xl-rd-columns-header {
+  background: #f3f3f3;
+  border-bottom: 1px solid #d4d4d4;
+  padding: 4px 8px;
+  font-weight: 600;
+}
+
+.xl-rd-columns-list {
+  max-height: 180px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.xl-rd-column-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  cursor: pointer;
+  border-bottom: 1px solid #f9f9f9;
+}
+
+.xl-rd-column-item:hover {
+  background: #f0f7fc;
+}
+
+.xl-rd-result-body {
+  font: 12px var(--ui-font, 'Segoe UI', Tahoma, sans-serif);
+  color: #242424;
+  padding: 6px 0;
+}
