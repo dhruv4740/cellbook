@@ -11,6 +11,8 @@ import { formatValue, detectInputFormat, FormattedValue } from '../format/numfmt
 import { computeFilteredRows } from '../engine/filter'
 import { shiftFormula } from '../engine/shiftFormula'
 import { DEFAULT_AUTHOR, defaultLayout } from './defaults'
+import type { StoreOp, SyncMessage } from './sync'
+import { applySyncMessage } from './sync'
 
 // Re-exported so existing `import { DEFAULT_AUTHOR, defaultLayout } from '../model/store'` call
 // sites keep working; the actual definitions live in defaults.ts (no HyperFormula/React), which
@@ -72,6 +74,28 @@ export class WorkbookStore {
   clipboard: { sheetUid: number; range: Range; cut: boolean } | null = null
   /** Transient UI state any component may read (e.g. edit mode for the status bar). */
   mode: 'Ready' | 'Enter' | 'Edit' | 'Point' = 'Ready'
+
+  onBroadcast?: (msg: SyncMessage) => void
+  isApplyingRemote = false
+  private transactOps: StoreOp[] | null = null
+
+  private broadcastOp(op: StoreOp): void {
+    if (this.isApplyingRemote) return
+    if (this.transactOps !== null) {
+      this.transactOps.push(op)
+    } else {
+      this.onBroadcast?.({ type: 'op', op })
+    }
+  }
+
+  applyRemoteSync(msg: SyncMessage): void {
+    this.isApplyingRemote = true
+    try {
+      applySyncMessage(this, msg)
+    } finally {
+      this.isApplyingRemote = false
+    }
+  }
 
   private listeners = new Set<() => void>()
   private undoStack: UndoEntry[] = []
@@ -354,18 +378,30 @@ export class WorkbookStore {
     if (this.group) return fn()
     const g: UndoEntry[] = []
     this.group = g
+    const isTopTransact = this.transactOps === null
+    if (isTopTransact) this.transactOps = []
     try {
       fn() // not batched: fn may read cells between its commits
     } finally {
       this.group = null
     }
-    if (!g.length) return
+    if (!g.length) {
+      if (isTopTransact) this.transactOps = null
+      return
+    }
     this.undoStack.push({
       label,
       undo: () => this.batch(() => [...g].reverse().forEach((e) => e.undo())),
       redo: () => this.batch(() => g.forEach((e) => e.redo()))
     })
     this.redoStack = []
+    if (isTopTransact) {
+      const ops = this.transactOps ?? []
+      this.transactOps = null
+      if (ops.length && !this.isApplyingRemote) {
+        this.onBroadcast?.({ type: 'transact', label, ops })
+      }
+    }
     this.notify()
   }
 
@@ -375,6 +411,9 @@ export class WorkbookStore {
     e.undo()
     this.redoStack.push(e)
     this.dirty = true
+    if (!this.isApplyingRemote) {
+      this.onBroadcast?.({ type: 'undo' })
+    }
     this.notify()
   }
   redo(): void {
@@ -383,6 +422,9 @@ export class WorkbookStore {
     e.redo()
     this.undoStack.push(e)
     this.dirty = true
+    if (!this.isApplyingRemote) {
+      this.onBroadcast?.({ type: 'redo' })
+    }
     this.notify()
   }
   get canUndo(): boolean { return this.undoStack.length > 0 }
@@ -421,6 +463,7 @@ export class WorkbookStore {
         this.writeStyle(sheet, x.r, x.c, x.style)
       }))
     this.commit(label, () => put(after), () => put(before))
+    this.broadcastOp({ type: 'setRangeRaw', sheetName: sheet.name, r, c, raws, label })
   }
 
   setRaw(sheet: SheetState, r: number, c: number, raw: string): void {
@@ -436,6 +479,7 @@ export class WorkbookStore {
         this.writeStyle(sheet, x.r, x.c, x.style)
       }))
     this.commit(label, () => put(cells), () => put(before))
+    this.broadcastOp({ type: 'setCells', sheetName: sheet.name, cells, label })
   }
 
   // ---------- formatting ----------
@@ -462,6 +506,13 @@ export class WorkbookStore {
         this.writeStyle(sheet, r, c, s)
       })
     this.commit(label, () => put(after), () => put(before))
+    if (typeof patch === 'function') {
+      const styles: Record<string, CellStyle | undefined> = {}
+      after.forEach((s, k) => { styles[k] = s })
+      this.broadcastOp({ type: 'setStyles', sheetName: sheet.name, styles, label })
+    } else {
+      this.broadcastOp({ type: 'applyStyle', sheetName: sheet.name, ranges, patch, label })
+    }
   }
 
   /** Whole-row/column selections are limited to the used range so styling them stays cheap. */
@@ -493,6 +544,9 @@ export class WorkbookStore {
     const next = structuredClone(sheet.layout)
     fn(next)
     this.commit(label, () => (sheet.layout = structuredClone(next)), () => (sheet.layout = structuredClone(before)))
+    if (label !== 'Zoom' && label !== 'Freeze Panes') {
+      this.broadcastOp({ type: 'updateLayout', sheetName: sheet.name, label, layout: structuredClone(next) })
+    }
   }
 
   setColWidth(sheet: SheetState, cols: number[], px: number): void {
@@ -567,6 +621,7 @@ export class WorkbookStore {
       sheet.layout.rowHeights = this.shiftKeys(sheet.layout.rowHeights, at, count)
       sheet.layout.hiddenRows = this.shiftKeys(sheet.layout.hiddenRows, at, count)
     })
+    this.broadcastOp({ type: 'insertRows', sheetName: sheet.name, at, count })
   }
   deleteRows(sheet: SheetState, at: number, count: number): void {
     this.structural(sheet, 'Delete Rows', () => {
@@ -576,6 +631,7 @@ export class WorkbookStore {
       sheet.layout.rowHeights = this.shiftKeys(sheet.layout.rowHeights, at, -count)
       sheet.layout.hiddenRows = this.shiftKeys(sheet.layout.hiddenRows, at, -count)
     })
+    this.broadcastOp({ type: 'deleteRows', sheetName: sheet.name, at, count })
   }
   insertCols(sheet: SheetState, at: number, count: number): void {
     this.structural(sheet, 'Insert Columns', () => {
@@ -585,6 +641,7 @@ export class WorkbookStore {
       sheet.layout.colWidths = this.shiftKeys(sheet.layout.colWidths, at, count)
       sheet.layout.hiddenCols = this.shiftKeys(sheet.layout.hiddenCols, at, count)
     })
+    this.broadcastOp({ type: 'insertCols', sheetName: sheet.name, at, count })
   }
   deleteCols(sheet: SheetState, at: number, count: number): void {
     this.structural(sheet, 'Delete Columns', () => {
@@ -594,6 +651,7 @@ export class WorkbookStore {
       sheet.layout.colWidths = this.shiftKeys(sheet.layout.colWidths, at, -count)
       sheet.layout.hiddenCols = this.shiftKeys(sheet.layout.hiddenCols, at, -count)
     })
+    this.broadcastOp({ type: 'deleteCols', sheetName: sheet.name, at, count })
   }
 
   // ---------- sheets ----------
@@ -627,6 +685,7 @@ export class WorkbookStore {
         this.activeIndex = prevActive
       }
     )
+    this.broadcastOp({ type: 'addSheet', name, index })
   }
 
   deleteSheet(index: number): void {
@@ -648,6 +707,7 @@ export class WorkbookStore {
         this.activeIndex = prevActive
       }
     )
+    this.broadcastOp({ type: 'deleteSheet', index })
   }
 
   /** Returns an error message (Excel's wording) or null on success. */
@@ -666,6 +726,7 @@ export class WorkbookStore {
       () => { this.hf.renameSheet(this.hf.getSheetId(old)!, trimmed); s.name = trimmed },
       () => { this.hf.renameSheet(this.hf.getSheetId(trimmed)!, old); s.name = old }
     )
+    this.broadcastOp({ type: 'renameSheet', index, name: trimmed })
     return null
   }
 
@@ -678,6 +739,7 @@ export class WorkbookStore {
       this.activeIndex = this.sheets.indexOf(active)
     }
     this.commit('Move Sheet', () => move(from, to), () => move(to, from))
+    this.broadcastOp({ type: 'moveSheet', from, to })
   }
 
   setActiveSheet(index: number): void {
