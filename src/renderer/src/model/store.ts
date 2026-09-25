@@ -524,7 +524,9 @@ export class WorkbookStore {
         let style = oldStyle
         const fmt = detectInputFormat(raw)
         if (fmt && (!oldStyle?.numFmt || oldStyle.numFmt === 'General')) style = { ...oldStyle, numFmt: fmt }
-        after.push({ r: rr, c: cc, raw: numericInput(raw) ?? raw, style })
+        // A Text-formatted (@) cell keeps what was typed as text, like Excel: "00012" stays "00012".
+        const asText = oldStyle?.numFmt === '@' && raw !== '' && !raw.startsWith("'") && !raw.startsWith('=')
+        after.push({ r: rr, c: cc, raw: asText ? "'" + raw : numericInput(raw) ?? raw, style })
       })
     )
     const put = (list: typeof before) =>

@@ -43,6 +43,15 @@ describe('input parsing', () => {
     expect(s.getValue(s.active, 0, 0)).toBe(1234.5)
     expect(s.getValue(s.active, 1, 0)).toBe(1234.5)
   })
+  it('keeps input in a Text-formatted cell as text ("00012", "1,234.50"), like Excel', () => {
+    const s = new WorkbookStore()
+    s.setCells(s.active, [{ r: 0, c: 0, raw: '', style: { numFmt: '@' } }, { r: 1, c: 0, raw: '', style: { numFmt: '@' } }], 'fmt')
+    s.setRaw(s.active, 0, 0, '00012')
+    s.setRaw(s.active, 1, 0, '1,234.50')
+    expect(s.getValue(s.active, 0, 0)).toBe('00012')
+    expect(s.getValue(s.active, 1, 0)).toBe('1,234.50')
+    expect(s.getDisplay(s.active, 0, 0).text).toBe('00012')
+  })
   it('does not save a spilled result as data (it froze FILTER output and dropped leading zeros)', () => {
     const s = new WorkbookStore()
     s.setRaw(s.active, 0, 0, "'00012")
