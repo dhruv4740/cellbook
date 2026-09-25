@@ -106,6 +106,8 @@ export interface SheetLayout {
   sheetHidden?: 'hidden' | 'veryHidden'
   /** Page Layout settings used by Print / PDF and saved to the file. */
   pageSetup?: PageSetup
+  /** PivotTables whose output starts on this sheet (kept for Refresh; saved to .xlsx as values). */
+  pivots?: import('../data/pivot').PivotDef[]
   autoFilter?: AutoFilter
   notes: Record<string, NoteData> // key 'r,c'
   comments: Record<string, CommentThread> // key 'r,c'

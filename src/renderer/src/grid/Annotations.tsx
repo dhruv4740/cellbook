@@ -21,15 +21,23 @@ export function NoteBox({ sheet, r, c, rect, onClose }: { sheet: SheetState; r: 
   useEffect(() => { ref.current?.focus() }, [])
 
   function commit(): void {
-    store.setNote(sheet, r, c, text, existing?.author ?? DEFAULT_AUTHOR)
+    // Excel keeps what was typed when you click away or press Esc; an untouched new note is dropped.
+    if (!existing && !text.trim()) { onClose(); return }
+    if (!existing || existing.text !== text) store.setNote(sheet, r, c, text, existing?.author ?? DEFAULT_AUTHOR)
     onClose()
   }
+  const commitRef = useRef(commit)
+  commitRef.current = commit
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); commitRef.current() } }
+    window.addEventListener('keydown', key, true)
+    return () => window.removeEventListener('keydown', key, true)
+  }, [])
   return createPortal(
     <div className="xl-note-scrim" onMouseDown={commit}>
       <div className="xl-note-box" style={{ left: rect.x + rect.w + 4, top: Math.max(4, rect.y - 4) }} onMouseDown={(e) => e.stopPropagation()}>
         <div className="xl-note-author">{existing?.author ?? DEFAULT_AUTHOR}:</div>
-        <textarea ref={ref} value={text} onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Escape') { onClose() } }} />
+        <textarea ref={ref} value={text} onChange={(e) => setText(e.target.value)} />
       </div>
     </div>,
     document.body
@@ -63,6 +71,21 @@ export function CommentBox({ sheet, r, c, rect, onClose }: { sheet: SheetState; 
     store.replyToComment(sheet, r, c, replyDraft)
     setReplyDraft('')
   }
+  const keys = useRef({ draft, replyDraft, thread, onClose, postNew, postReply })
+  keys.current = { draft, replyDraft, thread, onClose, postNew, postReply }
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      const k = keys.current
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); k.onClose() }
+      else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault(); e.stopPropagation()
+        if (!k.thread && k.draft.trim()) k.postNew()
+        else if (k.thread && k.replyDraft.trim()) k.postReply()
+      }
+    }
+    window.addEventListener('keydown', key, true)
+    return () => window.removeEventListener('keydown', key, true)
+  }, [])
 
   return createPortal(
     <div className="xl-note-scrim" onMouseDown={onClose}>

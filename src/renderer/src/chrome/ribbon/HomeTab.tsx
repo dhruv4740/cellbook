@@ -251,6 +251,7 @@ export default function HomeTab() {
       onClick: () => {
         const ranges = getSpecialRanges(store, 'formulas')
         if (ranges.length > 0) store.setSelection({ ranges, active: { r: ranges[0].r1, c: ranges[0].c1 } })
+        else setUi({ dialog: { kind: 'message', props: { text: 'No cells were found.' } } })
       }
     },
     {
@@ -258,6 +259,7 @@ export default function HomeTab() {
       onClick: () => {
         const ranges = getSpecialRanges(store, 'comments')
         if (ranges.length > 0) store.setSelection({ ranges, active: { r: ranges[0].r1, c: ranges[0].c1 } })
+        else setUi({ dialog: { kind: 'message', props: { text: 'No cells were found.' } } })
       }
     },
     {
@@ -265,6 +267,7 @@ export default function HomeTab() {
       onClick: () => {
         const ranges = getSpecialRanges(store, 'constants')
         if (ranges.length > 0) store.setSelection({ ranges, active: { r: ranges[0].r1, c: ranges[0].c1 } })
+        else setUi({ dialog: { kind: 'message', props: { text: 'No cells were found.' } } })
       }
     },
     'separator',
@@ -372,7 +375,7 @@ export default function HomeTab() {
         </div>
         <div className="xl-col xl-stack">
           <SmallButton icon={<Cut20Regular />} label="Cut" tip={{ title: 'Cut (Ctrl+X)' }} onClick={() => cmds.cut()} keytip="X" />
-          <SmallButton icon={<Copy20Regular />} label="Copy" menu={[{ label: '&Copy', onClick: () => cmds.copy() }, { label: 'Copy as &Picture...', onClick: () => notAvailable('Copy as Picture') }]} tip={{ title: 'Copy (Ctrl+C)' }} onClick={() => cmds.copy()} keytip="C" />
+          <SmallButton icon={<Copy20Regular />} label="Copy" split menu={[{ label: '&Copy', onClick: () => cmds.copy() }, { label: 'Copy as &Picture...', onClick: () => notAvailable('Copy as Picture') }]} tip={{ title: 'Copy (Ctrl+C)' }} onClick={() => cmds.copy()} keytip="C" />
           <SmallButton
             icon={<PaintBrush20Regular />}
             label="Format Painter"
@@ -443,7 +446,7 @@ export default function HomeTab() {
         </div>
         <div className="xl-col xl-align-side">
           <SmallButton icon={<TextWrap20Regular />} label="Wrap Text" active={!!style.wrap} tip={{ title: 'Wrap Text' }} onClick={() => setStyle({ wrap: !style.wrap }, 'Wrap Text')} />
-          <SmallButton icon={<TableCellsMerge20Regular />} label="Merge & Center" tip={{ title: 'Merge & Center' }} menu={mergeMenu} onClick={() => cmds.mergeCells('center')} keytip="M" />
+          <SmallButton icon={<TableCellsMerge20Regular />} label="Merge & Center" tip={{ title: 'Merge & Center' }} split menu={mergeMenu} onClick={() => cmds.mergeCells('center')} keytip="M" />
         </div>
         <DialogLauncher tip={{ title: 'Format Cells: Alignment' }} onClick={() => setUi({ dialog: { kind: 'formatCells', props: { tab: 'Alignment' } } })} />
       </Group>

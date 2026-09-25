@@ -20,6 +20,7 @@ import { AutoFilterMenu } from './AutoFilterMenu'
 import { NoteBox, NoteTooltip, CommentBox, closeNoteEditor, closeCommentPanel } from './Annotations'
 import { evaluateCf } from '../format/conditional'
 import { linkAt, followLink } from './links'
+import { renderPivot } from '../data/pivot'
 import { getValidationForCell, getListItems } from '../data/dataValidation'
 import {
   Cut20Regular, Copy20Regular, ClipboardPaste20Regular, ClipboardTaskRegular, ClipboardCodeRegular,
@@ -1560,7 +1561,18 @@ export default function Grid() {
   const activeKey = sheet.selection.active.r + ',' + sheet.selection.active.c
   const hasNote = !!sheet.layout.notes[activeKey]
   const hasComment = !!sheet.layout.comments[activeKey]
+  const pv = (() => {
+    const a = sheet.selection.active
+    return (sheet.layout.pivots ?? []).find((p) => p.lastSize && a.r >= p.anchor.r && a.r < p.anchor.r + p.lastSize.rows && a.c >= p.anchor.c && a.c < p.anchor.c + p.lastSize.cols)
+  })()
   const cellMenu: MenuItem[] = [
+    ...(pv
+      ? [
+          { label: '&Refresh', onClick: () => { const e = renderPivot(store, sheet, pv); if (e) setUi({ dialog: { kind: 'message', props: { text: e } } }) } } as MenuItem,
+          { label: 'Show Field &List', onClick: () => setUi({ dialog: { kind: 'pivot', props: { edit: { sheetUid: sheet.uid, id: pv.id } } } }) } as MenuItem,
+          'separator' as const
+        ]
+      : []),
     { label: 'Cu&t', icon: <Cut20Regular />, shortcut: 'Ctrl+X', onClick: () => cmd.cut() },
     { label: '&Copy', icon: <Copy20Regular />, shortcut: 'Ctrl+C', onClick: () => cmd.copy() },
     { label: 'Paste Options:', render: pasteOptionsStrip },

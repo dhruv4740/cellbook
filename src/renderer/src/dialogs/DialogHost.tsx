@@ -22,6 +22,7 @@ import { ArrangeWindowsDialog } from './ArrangeWindowsDialog'
 import { DefineNameDialog, NameManagerDialog, CreateFromSelectionDialog } from './NameDialogs'
 import { HyperlinkDialog } from './HyperlinkDialog'
 import { SubtotalDialog } from './SubtotalDialog'
+import { PivotDialog } from './PivotDialog'
 import { MessageDialog, UnhideSheetDialog, MoveCopySheetDialog, SeriesDialog } from './SheetDialogs'
 
 export default function DialogHost() {
@@ -133,6 +134,8 @@ export default function DialogHost() {
       return <NameManagerDialog onClose={close} />
     case 'createNames':
       return <CreateFromSelectionDialog onClose={close} />
+    case 'pivot':
+      return <PivotDialog onClose={close} edit={d.props?.edit as { sheetUid: number; id: string } | undefined} />
     case 'subtotal':
       return <SubtotalDialog onClose={close} />
     case 'hyperlink':
