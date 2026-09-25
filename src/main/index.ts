@@ -4,9 +4,7 @@ import { promises as fs, existsSync } from 'fs'
 
 // ---------------------------------------------------------------------------
 // One workbook per window, like Excel: each BrowserWindow hosts exactly one
-// workbook. This module tracks every open window, the workbook state the
-// renderer last reported (name/path/dirty), and coordinates "which window"
-// decisions for New / Open / file-associations / second-instance launches.
+// workbook (or a secondary view of a workbook via View > New Window).
 // ---------------------------------------------------------------------------
 
 interface WinState {
@@ -19,12 +17,20 @@ interface WinEntry {
   win: BrowserWindow
   state: WinState
   allowClose: boolean
+  workbookId: string
+  viewIndex: number
 }
 
 const windows = new Map<number, WinEntry>()
 /** Creation order, used for Ctrl+Tab / Ctrl+F6 cycling. */
 const windowOrder: number[] = []
 let bookCounter = 0
+let wbCounter = 0
+
+function nextWbId(): string {
+  wbCounter += 1
+  return `wb_${wbCounter}`
+}
 
 /** A hidden, pre-loaded window kept ready so a plain Ctrl+N feels instant. */
 let spare: BrowserWindow | null = null
@@ -86,17 +92,40 @@ function getWindowList(): { id: number; title: string; current: boolean }[] {
     .filter((id) => windows.has(id))
     .map((id) => {
       const entry = windows.get(id)!
-      return { id, title: `${entry.state.fileName} - Excel`, current: focused?.id === id }
+      const suffix = entry.viewIndex > 0 ? `:${entry.viewIndex}` : ''
+      return { id, title: `${entry.state.fileName}${suffix} - Excel`, current: focused?.id === id }
     })
 }
 
+function updateWorkbookViewTitles(wbId: string): void {
+  const entries = windowOrder.filter((id) => windows.has(id) && windows.get(id)!.workbookId === wbId).map((id) => windows.get(id)!)
+  if (entries.length <= 1) {
+    for (const e of entries) {
+      e.viewIndex = 0
+      const title = `${e.state.fileName} - Excel`
+      e.win.setTitle(title)
+      e.win.webContents.send('window:viewIndexChanged', 0)
+    }
+  } else {
+    entries.forEach((e, idx) => {
+      const viewNum = idx + 1
+      e.viewIndex = viewNum
+      const title = `${e.state.fileName}:${viewNum} - Excel`
+      e.win.setTitle(title)
+      e.win.webContents.send('window:viewIndexChanged', viewNum)
+    })
+  }
+  broadcastWindowList()
+}
+
 /** Creates a new workbook window. Exactly one of `book`/`filePath` should be given. */
-function createWindow(opts: { book?: string; filePath?: string } = {}): BrowserWindow {
+function createWindow(opts: { book?: string; filePath?: string; workbookId?: string } = {}): BrowserWindow {
   const bookName = opts.book ?? (opts.filePath ? basename(opts.filePath) : nextBookName())
+  const workbookId = opts.workbookId ?? nextWbId()
   let win: BrowserWindow
   let usedSpare = false
 
-  if (!opts.filePath && spare) {
+  if (!opts.filePath && !opts.workbookId && spare) {
     win = spare
     spare = null
     usedSpare = true
@@ -132,7 +161,9 @@ function createWindow(opts: { book?: string; filePath?: string } = {}): BrowserW
   const entry: WinEntry = {
     win,
     state: { fileName: bookName, filePath: opts.filePath ?? null, dirty: false },
-    allowClose: false
+    allowClose: false,
+    workbookId,
+    viewIndex: 0
   }
   windows.set(win.id, entry)
   windowOrder.push(win.id)
@@ -144,14 +175,26 @@ function createWindow(opts: { book?: string; filePath?: string } = {}): BrowserW
   // Give the renderer a chance to prompt "Save changes?" before the window actually closes.
   win.on('close', (e) => {
     if (entry.allowClose) return
+    const siblings = [...windows.values()].filter((w) => w.workbookId === entry.workbookId && w.win.id !== entry.win.id)
+    if (siblings.length > 0) {
+      // Not the last window for this workbook: allow immediate close without save prompt
+      entry.allowClose = true
+      return
+    }
+    if (!entry.state.dirty) {
+      entry.allowClose = true
+      return
+    }
+    // Last window and unsaved changes: prompt
     e.preventDefault()
     win.webContents.send('window:closeRequested')
   })
   win.on('closed', () => {
+    const wbId = entry.workbookId
     windows.delete(win.id)
     const idx = windowOrder.indexOf(win.id)
     if (idx >= 0) windowOrder.splice(idx, 1)
-    broadcastWindowList()
+    updateWorkbookViewTitles(wbId)
     // The spare hidden window doesn't count as a real workbook window, so
     // 'window-all-closed' won't fire on its own once the last real one closes.
     if (windows.size === 0) {
@@ -167,7 +210,7 @@ function createWindow(opts: { book?: string; filePath?: string } = {}): BrowserW
     })
   }
 
-  broadcastWindowList()
+  updateWorkbookViewTitles(workbookId)
   return win
 }
 
@@ -177,7 +220,7 @@ async function openPathInWindow(entry: WinEntry, filePath: string): Promise<void
     const data = await fs.readFile(filePath)
     entry.state = { fileName: basename(filePath), filePath, dirty: false }
     entry.win.webContents.send('file:openPath', { path: filePath, data: new Uint8Array(data) })
-    broadcastWindowList()
+    updateWorkbookViewTitles(entry.workbookId)
   } catch {
     dialog.showErrorBox('Cellbook', `Couldn't open "${filePath}".`)
   }
@@ -252,16 +295,123 @@ ipcMain.on('window:reportState', (e, state: WinState) => {
   const changed = entry.state.fileName !== state.fileName || entry.state.filePath !== state.filePath || entry.state.dirty !== state.dirty
   entry.state = state
   if (!changed) return
-  entry.win.setTitle(`${state.fileName} - Excel`)
-  broadcastWindowList()
+  updateWorkbookViewTitles(entry.workbookId)
 })
 
 // ---------------------------------------------------------------------------
 // IPC: multi-window management (View > Window group, Ctrl+Tab, Ctrl+N)
 // ---------------------------------------------------------------------------
 
-ipcMain.handle('window:new', () => {
+ipcMain.handle('window:new', (_e, _opts?: { isNewWorkbook?: boolean }) => {
   createWindow()
+})
+
+ipcMain.handle('window:newView', (e, snapshot: { data: unknown; fileName: string; filePath: string | null }) => {
+  const senderWin = BrowserWindow.fromWebContents(e.sender)
+  const senderEntry = senderWin && windows.get(senderWin.id)
+  if (!senderWin || !senderEntry) return
+  const wbId = senderEntry.workbookId
+  const bookName = senderEntry.state.fileName
+
+  const win = new BrowserWindow({
+    width: 1400,
+    height: 900,
+    minWidth: 800,
+    minHeight: 500,
+    frame: false,
+    backgroundColor: '#ffffff',
+    title: `${bookName} - Excel`,
+    webPreferences: { preload: join(__dirname, '../preload/index.js'), sandbox: false }
+  })
+
+  const entry: WinEntry = {
+    win,
+    state: { fileName: bookName, filePath: senderEntry.state.filePath, dirty: senderEntry.state.dirty },
+    allowClose: false,
+    workbookId: wbId,
+    viewIndex: 0
+  }
+  windows.set(win.id, entry)
+  windowOrder.push(win.id)
+
+  win.on('maximize', () => win.webContents.send('window:maximized', true))
+  win.on('unmaximize', () => win.webContents.send('window:maximized', false))
+  win.on('focus', () => broadcastWindowList())
+
+  win.on('close', (evt) => {
+    if (entry.allowClose) return
+    const siblings = [...windows.values()].filter((w) => w.workbookId === entry.workbookId && w.win.id !== entry.win.id)
+    if (siblings.length > 0) {
+      entry.allowClose = true
+      return
+    }
+    if (!entry.state.dirty) {
+      entry.allowClose = true
+      return
+    }
+    evt.preventDefault()
+    win.webContents.send('window:closeRequested')
+  })
+
+  win.on('closed', () => {
+    windows.delete(win.id)
+    const idx = windowOrder.indexOf(win.id)
+    if (idx >= 0) windowOrder.splice(idx, 1)
+    updateWorkbookViewTitles(wbId)
+    if (windows.size === 0) {
+      spare?.destroy()
+      spare = null
+      app.quit()
+    }
+  })
+
+  win.webContents.once('did-finish-load', () => {
+    updateWorkbookViewTitles(wbId)
+    win.webContents.send('window:initView', {
+      data: snapshot.data,
+      fileName: snapshot.fileName,
+      filePath: snapshot.filePath,
+      viewIndex: entry.viewIndex
+    })
+    win.show()
+  })
+
+  const query: Record<string, string> = { book: bookName }
+  if (process.env.ELECTRON_RENDERER_URL) {
+    const url = new URL(process.env.ELECTRON_RENDERER_URL)
+    for (const [k, v] of Object.entries(query)) url.searchParams.set(k, v)
+    win.loadURL(url.toString())
+  } else {
+    win.loadFile(join(__dirname, '../renderer/index.html'), { query })
+  }
+})
+
+ipcMain.on('workbook:op', (e, msg) => {
+  const senderWin = BrowserWindow.fromWebContents(e.sender)
+  const senderEntry = senderWin && windows.get(senderWin.id)
+  if (!senderEntry) return
+  for (const entry of windows.values()) {
+    if (entry.win.webContents.id !== e.sender.id && entry.workbookId === senderEntry.workbookId) {
+      entry.win.webContents.send('workbook:op', msg)
+    }
+  }
+})
+
+ipcMain.on('workbook:saved', (e, info: { fileName: string; filePath: string | null }) => {
+  const senderWin = BrowserWindow.fromWebContents(e.sender)
+  const senderEntry = senderWin && windows.get(senderWin.id)
+  if (!senderEntry) return
+  for (const entry of windows.values()) {
+    if (entry.workbookId === senderEntry.workbookId) {
+      entry.state.fileName = info.fileName
+      entry.state.filePath = info.filePath
+      entry.state.dirty = false
+      if (entry.win.webContents.id !== e.sender.id) {
+        entry.win.webContents.send('workbook:saved', info)
+      }
+    }
+  }
+  updateWorkbookViewTitles(senderEntry.workbookId)
 })
 
 ipcMain.handle('window:list', () => getWindowList())
@@ -302,6 +452,10 @@ ipcMain.handle('window:arrangePrompt', async (e) => {
   })
   const modes = ['tiled', 'horizontal', 'vertical', 'cascade'] as const
   if (r.response < 4) arrangeWindows(modes[r.response])
+})
+
+ipcMain.handle('window:arrange', (_e, mode: 'tiled' | 'horizontal' | 'vertical' | 'cascade') => {
+  arrangeWindows(mode)
 })
 
 function arrangeWindows(mode: 'tiled' | 'horizontal' | 'vertical' | 'cascade'): void {
