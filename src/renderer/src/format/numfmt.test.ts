@@ -1,5 +1,18 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { formatValue, detectInputFormat, buildNumberFormat, adjustDecimals, FORMAT_CATEGORIES } from './numfmt'
+import { setLakhGrouping, setDayFirst } from '../engine/locale'
+
+beforeEach(() => { setLakhGrouping(false); setDayFirst(false) })
+
+describe('digit grouping follows the PC region (Excel on English (India))', () => {
+  it('groups lakhs and crores', () => {
+    setLakhGrouping(true)
+    expect(formatValue(1234567.891, '#,##0.00').text).toBe('12,34,567.89')
+    expect(formatValue(123456789, '#,##0').text).toBe('12,34,56,789')
+    expect(formatValue(-1234, '#,##0').text).toBe('-1,234')
+    expect(formatValue(999, '#,##0').text).toBe('999')
+  })
+})
 
 function t(value: number | string | boolean | null, fmt?: string) {
   return formatValue(value as never, fmt).text
