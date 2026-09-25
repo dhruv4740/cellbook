@@ -588,8 +588,17 @@ export async function writeXlsx(data: WorkbookData, vba?: VbaProject): Promise<U
   // AutoFilter per-column criteria and the VBA project part both need editing the raw package -
   // exceljs's object model can express neither. Skip the unzip/rezip when there's nothing to add.
   const sheetFilters = data.sheets.map((sd) => sd.layout?.autoFilter)
+  const sheetCharts = data.sheets.map((sd) => sd.layout?.charts)
+  const sheetNames = data.sheets.map((sd, i) => sd.name || `Sheet${i + 1}`)
+  const sheetCells = data.sheets.map((sd) => sd.cells)
+  const sheetLayouts = data.sheets.map((sd) => sd.layout)
+
   const hasCriteria = sheetFilters.some((af) => af && Object.keys(af.columns).length)
-  return hasCriteria || vba ? postProcessXlsx(buf, sheetFilters, vba) : buf
+  const hasCharts = sheetCharts.some((c) => c && c.length > 0)
+
+  return hasCriteria || hasCharts || vba
+    ? postProcessXlsx(buf, sheetFilters, vba, sheetCharts, sheetNames, sheetCells, sheetLayouts)
+    : buf
 }
 
 // ---------- read (fast path) ----------
