@@ -4,6 +4,6 @@ Self-contained tasks for Gemini. Each file is a full prompt: run `git pull` on `
 
 | File | Branch | Status |
 |---|---|---|
-| 1-format-cells-polish.md | gemini/format-cells-polish | open |
-| 2-conditional-formatting.md | gemini/conditional-formatting | open |
-| 3-data-tools.md | gemini/data-tools | open |
+| 1-format-cells-polish.md | gemini/format-cells-polish | merged (milestone-3) |
+| 2-conditional-formatting.md | gemini/conditional-formatting | merged (milestone-3) |
+| 3-data-tools.md | gemini/data-tools | merged (milestone-3) |
