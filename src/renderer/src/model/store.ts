@@ -254,14 +254,24 @@ export class WorkbookStore {
   /** Bounding box of all cells with content or style, or null for an empty sheet. */
   usedRange(sheet: SheetState): Range | null {
     const d = this.hf.getSheetDimensions(this.hfId(sheet))
-    let r2 = d.height - 1, c2 = d.width - 1
-    for (const k of sheet.styles.keys()) {
-      const [r, c] = k.split(',').map(Number)
-      if (r > r2) r2 = r
-      if (c > c2) c2 = c
+    // The extent of the styled cells is cached: scanning every style key on each render made arrow keys take
+    // 400 ms on a 50,000-row sheet. writeStyle drops the cache when a key is added or removed.
+    let e = this.usedCache.get(sheet)
+    if (!e || e.styles !== sheet.styles || e.size !== sheet.styles.size) {
+      let sr = -1, sc = -1
+      for (const k of sheet.styles.keys()) {
+        const comma = k.indexOf(',')
+        const r = +k.slice(0, comma), c = +k.slice(comma + 1)
+        if (r > sr) sr = r
+        if (c > sc) sc = c
+      }
+      e = { styles: sheet.styles, size: sheet.styles.size, r2: sr, c2: sc }
+      this.usedCache.set(sheet, e)
     }
+    const r2 = Math.max(d.height - 1, e.r2), c2 = Math.max(d.width - 1, e.c2)
     return r2 < 0 || c2 < 0 ? null : { r1: 0, c1: 0, r2, c2 }
   }
+  private usedCache = new WeakMap<SheetState, { styles: Map<string, CellStyle>; size: number; r2: number; c2: number }>()
 
   /** The merge range covering (r,c), if any. */
   mergeAt(sheet: SheetState, r: number, c: number): Range | undefined {
@@ -634,8 +644,10 @@ export class WorkbookStore {
   }
   private writeStyle(sheet: SheetState, r: number, c: number, style: CellStyle | undefined): void {
     const k = cellKey(r, c)
-    if (style && Object.keys(style).length) sheet.styles.set(k, style)
-    else sheet.styles.delete(k)
+    if (style && Object.keys(style).length) {
+      if (!sheet.styles.has(k)) this.usedCache.delete(sheet)
+      sheet.styles.set(k, style)
+    } else if (sheet.styles.delete(k)) this.usedCache.delete(sheet)
   }
 
   /** Sets a block of cells starting at (r,c). Rows of strings, as typed by the user. */

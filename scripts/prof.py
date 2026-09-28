@@ -1,5 +1,5 @@
 import json,glob,collections,sys
-f=sorted(glob.glob('scripts/out/*.cpuprofile'))[-1]
+f=sys.argv[2] if len(sys.argv)>2 else sorted(glob.glob('scripts/out/*.cpuprofile'))[-1]
 p=json.load(open(f))
 nodes={n['id']:n for n in p['nodes']}
 parent={}

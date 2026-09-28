@@ -699,6 +699,30 @@ export async function writeXlsx(data: WorkbookData, vba?: VbaProject): Promise<U
   return toBytes(injectPageSetup(injectOutline(injectProtection(named, data.sheets.map((sd) => sd.layout?.protection), data.protection, data.calcMode), data.sheets.map((sd) => sd.layout)), data.sheets.map((sd) => sd.layout?.pageSetup)))
 }
 
+/** Same as writeXlsx, but big workbooks are built in a Web Worker (the UI stays responsive while saving). */
+export async function writeXlsxOffThread(data: WorkbookData, vba?: VbaProject): Promise<Uint8Array> {
+  let cells = 0
+  for (const s of data.sheets) cells += Object.keys(s.cells).length
+  if (cells < 20000 || typeof Worker === 'undefined' || typeof window === 'undefined') return writeXlsx(data, vba)
+  try {
+    return await new Promise<Uint8Array>((resolve, reject) => {
+      const worker = new Worker(new URL('./xlsxWrite.worker.ts', import.meta.url), { type: 'module' })
+      worker.onmessage = (ev: MessageEvent<{ ok: true; bytes: Uint8Array } | { ok: false; error: string }>): void => {
+        worker.terminate()
+        if (ev.data.ok) resolve(ev.data.bytes)
+        else reject(new Error(ev.data.error))
+      }
+      worker.onerror = (ev: ErrorEvent): void => {
+        worker.terminate()
+        reject(ev.error instanceof Error ? ev.error : new Error(ev.message || 'xlsx write worker failed'))
+      }
+      worker.postMessage({ data, vba })
+    })
+  } catch {
+    return writeXlsx(data, vba) // the worker could not run here: build it on this thread instead
+  }
+}
+
 // ---------- read (fast path) ----------
 // Parsing is the hot path for big files, so the real work lives in fastXlsx.ts (fflate unzip + a
 // hand-written XML scanner, no exceljs/DOMParser). In a browser/Electron renderer it runs inside a
