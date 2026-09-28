@@ -74,6 +74,7 @@ export function BigButton({ icon, label, tip, onClick, active, disabled, color, 
         className={'xl-big-btn' + (wide ? ' wide' : '') + (active ? ' active' : '') + (open ? ' active' : '')}
         style={width ? { width, minWidth: width } : undefined}
         disabled={disabled}
+        aria-label={label ? undefined : tip?.title}
         onClick={() => {
           if (menu) {
             const r = ref.current!.getBoundingClientRect()
@@ -131,7 +132,7 @@ export function StackSplit({ icon, label, tip, onClick, menu, keytip }: BtnProps
   return (
     <TipWrap tip={tip}>
       <div ref={ref} className="xl-stacksplit">
-        <button className="xl-stacksplit-main" onClick={onClick}>
+        <button className="xl-stacksplit-main" aria-label={label ? undefined : tip?.title} onClick={onClick}>
           <span className="xl-stacksplit-icon" style={{ position: 'relative' }}>{icon}<KeyTipBadge code={keytip} /></span>
           {label && <span className="xl-stacksplit-label">{label}</span>}
         </button>
@@ -160,7 +161,7 @@ export function SmallButton({ icon, label, tip, onClick, onDoubleClick, active, 
     return (
       <TipWrap tip={tip}>
         <div ref={wrap} className={'xl-small-btn xl-split' + (active ? ' active' : '')}>
-          <button className="xl-small-split-main" disabled={disabled} onClick={onClick}>
+          <button className="xl-small-split-main" aria-label={label ? undefined : tip?.title} disabled={disabled} onClick={onClick}>
             <span className="xl-small-icon" style={{ position: 'relative' }}>{icon}<KeyTipBadge code={keytip} /></span>
             {label && <span className="xl-small-label">{label}</span>}
           </button>
@@ -177,6 +178,7 @@ export function SmallButton({ icon, label, tip, onClick, onDoubleClick, active, 
       <button
         ref={ref}
         className={'xl-small-btn' + (active ? ' active' : '') + (open ? ' active' : '')}
+        aria-label={label ? undefined : tip?.title}
         disabled={disabled}
         onDoubleClick={onDoubleClick}
         onClick={() => {
