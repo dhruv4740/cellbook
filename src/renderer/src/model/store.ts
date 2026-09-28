@@ -11,6 +11,7 @@ import { formatValue, detectInputFormat, numericInput, FormattedValue } from '..
 import { computeFilteredRows } from '../engine/filter'
 import { shiftFormula } from '../engine/shiftFormula'
 import { expandLet } from '../engine/let'
+import { eachPacked, type PackedCells } from '../io/packedCells'
 import { patchHyperFormulaGraph, instrumentHf } from '../engine/hfPatches'
 import { DEFAULT_AUTHOR, defaultLayout } from './defaults'
 import type { StoreOp, SyncMessage } from './sync'
@@ -36,6 +37,8 @@ export interface WorkbookData {
     /** `value`: a formula's last computed result, saved as Excel's cached value.
      *  `spill`: for a formula whose result spills (FILTER, UNIQUE...), the covered range, e.g. "H8:H10". */
     cells: Record<string, { raw?: string; style?: CellStyle; value?: CellValue; spill?: string }> // key 'r,c'
+    /** Big sheets arrive from the parse worker in this compact form instead of `cells` (see io/packedCells.ts). */
+    packed?: PackedCells
     layout?: Partial<SheetLayout>
   }[]
   activeSheet?: number
@@ -1253,6 +1256,12 @@ export class WorkbookStore {
         const r = +k.slice(0, comma), c = +k.slice(comma + 1)
         if (cell.raw) (rows[r] ??= [])[c] = this.toEngine(s, r, c, cell.raw)
         if (cell.style && Object.keys(cell.style).length) s.styles.set(k, cell.style)
+      }
+      if (sd.packed) {
+        eachPacked(sd.packed, (r, c, raw, style) => {
+          if (raw) (rows[r] ??= [])[c] = this.toEngine(s, r, c, raw)
+          if (style) s.styles.set(cellKey(r, c), style)
+        })
       }
       // HyperFormula wants no holes in the outer array.
       for (let r = 0; r < rows.length; r++) rows[r] ??= []

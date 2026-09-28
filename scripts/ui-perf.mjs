@@ -107,6 +107,15 @@ const time = async (label, fn) => {
   log(label, ms.toFixed(0) + ' ms')
 }
 await time('turn on AutoFilter', (s) => s.toggleAutoFilter(s.active))
+// open the AutoFilter dropdown of a header cell with Alt+Down and time until it is on screen
+await win.evaluate(() => globalThis.store.setSelection({ ranges: [{ r1: 0, c1: 4, r2: 0, c2: 4 }], active: { r: 0, c: 4 } }))
+await win.locator('.grid-host').first().focus()
+t = Date.now()
+await win.keyboard.press('Alt+ArrowDown')
+await win.locator('.xl-afmenu').first().waitFor({ timeout: 20000 }).catch(() => {})
+log('open filter dropdown (Alt+Down)', (Date.now() - t) + ' ms, list items: ' + (await win.locator('.xl-afmenu-check').count()))
+await win.keyboard.press('Escape')
+await win.locator('.xl-afmenu-scrim').first().click({ timeout: 1000 }).catch(() => {})
 await time('filter SOURCE = one value', (s) => { const v = s.getDisplay(s.active, 1, 4).text; s.setColumnFilter(s.active, 4, { selected: [v] }) })
 await time('clear filters', (s) => s.clearAllFilters(s.active))
 await time('turn off AutoFilter', (s) => s.toggleAutoFilter(s.active))
