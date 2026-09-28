@@ -167,6 +167,8 @@ export interface SheetLayout {
   /** PivotTables whose output starts on this sheet (kept for Refresh; saved to .xlsx as values). */
   pivots?: import('../data/pivot').PivotDef[]
   autoFilter?: AutoFilter
+  /** Data > Advanced Filter (in place): the rows it hid, so Data > Clear can show them again. */
+  advFilter?: { hidden: number[] }
   notes: Record<string, NoteData> // key 'r,c'
   comments: Record<string, CommentThread> // key 'r,c'
   /** Cell hyperlinks, key 'r,c': an external target (URL, file, mailto) or an in-workbook location. */

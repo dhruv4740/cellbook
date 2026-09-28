@@ -245,19 +245,23 @@ export function DataTab() {
         { label: 'Filter', icon: <Filter20Regular />, active: filtered, onClick: () => store.toggleAutoFilter(), keytip: 'T' },
         { label: 'Clear', icon: <ArrowRepeatAllOff20Regular />, onClick: () => store.clearAllFilters(), keytip: 'FC' },
         { label: 'Reapply', icon: <ArrowRepeatAll20Regular />, onClick: () => store.reapplyFilter(), keytip: 'Y' },
-        { label: 'Advanced', icon: <Filter20Regular />, keytip: 'AD' }
+        { label: 'Advanced', icon: <Filter20Regular />, keytip: 'AD', onClick: () => setUi({ dialog: { kind: 'advancedFilter' } }) }
       ]
     ] },
     { label: 'Data Tools', big: [
       { label: 'Text to Columns', icon: <ColumnTriple20Regular fontSize={28} />, onClick: () => setUi({ dialog: { kind: 'textToColumns' } }), keytip: 'E' },
-      { label: 'Flash Fill', icon: <Sparkle20Regular fontSize={28} />, keytip: 'FF' },
+      { label: 'Flash Fill', icon: <Sparkle20Regular fontSize={28} />, shortcut: 'Ctrl+E', keytip: 'FF', onClick: () => cmds.flashFillSelection() },
       { label: 'Remove Duplicates', icon: <TableSimple20Regular fontSize={28} />, onClick: () => setUi({ dialog: { kind: 'removeDuplicates' } }), keytip: 'M' },
       { label: 'Data Validation', icon: <ShieldTask20Regular fontSize={28} />, onClick: () => setUi({ dialog: { kind: 'dataValidation' } }), keytip: 'V' },
-      { label: 'Consolidate', icon: <DataArea20Regular fontSize={28} />, keytip: 'N' },
+      { label: 'Consolidate', icon: <DataArea20Regular fontSize={28} />, keytip: 'N', onClick: () => setUi({ dialog: { kind: 'consolidate' } }) },
       { label: 'Relationships', icon: <FlowchartCircle20Regular fontSize={28} /> }
     ] },
     { label: 'Forecast', big: [
-      { label: 'What-If Analysis', icon: <DataHistogram20Regular fontSize={28} /> },
+      { label: 'What-If Analysis', icon: <DataHistogram20Regular fontSize={28} />, menu: [
+        { label: '&Scenario Manager...', onClick: () => notAvailable('Scenario Manager') },
+        { label: '&Goal Seek...', onClick: () => setUi({ dialog: { kind: 'goalSeek' } }) },
+        { label: 'Data &Table...', onClick: () => notAvailable('Data Table') }
+      ] },
       { label: 'Forecast Sheet', icon: <ChartMultiple20Regular fontSize={28} /> }
     ] },
     { label: 'Outline', launcher: true, onLauncher: () => setUi({ dialog: { kind: 'outlineSettings' } }), big: [

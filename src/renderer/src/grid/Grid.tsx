@@ -1274,6 +1274,7 @@ export default function Grid() {
       if (mod && e.key.toLowerCase() === 'a') { cmd.selectAll(); e.preventDefault(); return }
       if (mod && e.key === ' ') { const cur = sheet.selection; const rg = cur.ranges[cur.ranges.length - 1]; setSel([{ r1: 0, c1: rg.c1, r2: MAX_ROWS - 1, c2: rg.c2 }], cur.active); e.preventDefault(); return }
       if (e.shiftKey && e.key === ' ') { const cur = sheet.selection; const rg = cur.ranges[cur.ranges.length - 1]; setSel([{ r1: rg.r1, c1: 0, r2: rg.r2, c2: MAX_COLS - 1 }], cur.active); e.preventDefault(); return }
+      if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'e') { cmd.flashFillSelection(); e.preventDefault(); return }
       if (mod && e.shiftKey && e.key.toLowerCase() === 'l') { store.toggleAutoFilter(sheet); e.preventDefault(); return }
       if (mod && e.key.toLowerCase() === 'z') { store.undo(); e.preventDefault(); return }
       if (mod && e.key.toLowerCase() === 'y') { store.redo(); e.preventDefault(); return }
