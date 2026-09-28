@@ -689,6 +689,7 @@ export default function Grid() {
   }
 
   function beginEdit(r: number, c: number, mode: 'Enter' | 'Edit', initialText?: string): void {
+    if (!store.canEditCells(sheet, [{ r, c }])) return
     pointCur.current = null
     pointedLen.current = 0
     const raw = initialText ?? store.getRaw(sheet, r, c)

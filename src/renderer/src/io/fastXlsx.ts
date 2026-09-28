@@ -7,7 +7,8 @@ import { unzipSync } from 'fflate'
 import { shiftFormula } from '../engine/shiftFormula'
 import { stripFuturePrefixes } from '../engine/xlfn'
 import { resolveStructuredRefs, type TableDef } from '../engine/structuredRefs'
-import type { BorderSide, CellStyle, CfRule, HyperlinkData, CommentThread, DataValidationRule, DvAllowType, DvErrorStyle, DvOperator, FilterCriteria, NoteData, PageSetup, Range, SheetLayout } from '../model/types'
+import type { BorderSide, CellStyle, CfRule, HyperlinkData, CommentThread, DataValidationRule, DvAllowType, DvErrorStyle, DvOperator, FilterCriteria, NoteData, PageSetup, Range, SheetLayout, CalcMode } from '../model/types'
+import { parseSheetProtection } from '../model/protection'
 import type { WorkbookData, DefinedNameData } from '../model/store'
 import { DEFAULT_AUTHOR, defaultLayout } from '../model/defaults'
 import {
@@ -157,6 +158,12 @@ export function parseXlsx(bytes: Uint8Array): WorkbookData & { vbaProject?: VbaP
     if (parsed.frozen) layout.frozen = parsed.frozen
     const ps = parsePageSetup(xml)
     if (ps) layout.pageSetup = ps
+    const spAt = xml.lastIndexOf('<sheetProtection')
+    if (spAt !== -1) {
+      const sp = /^<sheetProtection\b([^>]*?)\/?>/.exec(xml.slice(spAt, spAt + 1500))
+      const prot = sp ? parseSheetProtection(parseAttrs(sp[1], 0, sp[1].length)) : undefined
+      if (prot) layout.protection = prot
+    }
     if (parsed.tabColorAttrs) {
       const c = resolveColor(parseAttrs(parsed.tabColorAttrs, 0, parsed.tabColorAttrs.length), themeColors)
       if (c) layout.tabColor = c
@@ -212,7 +219,21 @@ export function parseXlsx(bytes: Uint8Array): WorkbookData & { vbaProject?: VbaP
   })
   const activeSheet = Math.max(0, Math.min(activeTab, sheets.length - 1))
   const names = parseDefinedNames(workbookXml)
-  return { sheets, activeSheet, names: names.length ? names : undefined, vbaProject: parseVbaProject(files, relsXml, dec) }
+  const out: WorkbookData & { vbaProject?: VbaProject } = { sheets, activeSheet, names: names.length ? names : undefined, vbaProject: parseVbaProject(files, relsXml, dec) }
+  const wp = /<workbookProtection\b([^>]*?)\/?>/.exec(workbookXml)
+  if (wp) {
+    const a = parseAttrs(wp[1], 0, wp[1].length)
+    const lockStructure = a.lockStructure === '1' || a.lockStructure === 'true', lockWindows = a.lockWindows === '1' || a.lockWindows === 'true'
+    if (lockStructure || lockWindows) {
+      const password = a.workbookHashValue && a.workbookSaltValue
+        ? { hashValue: a.workbookHashValue, saltValue: a.workbookSaltValue, spinCount: parseInt(a.workbookSpinCount ?? '100000', 10) }
+        : a.workbookPassword ? { legacy: a.workbookPassword } : undefined
+      out.protection = { lockStructure, lockWindows, ...(password ? { password } : {}) }
+    }
+  }
+  const cm = /<calcPr\b[^>]*\bcalcMode="(manual|autoNoTable)"/.exec(workbookXml)
+  if (cm) out.calcMode = cm[1] as CalcMode
+  return out
 }
 
 function parseTables(files: Record<string, Uint8Array>, dec: TextDecoder, sheetPath: string, sheetName: string): { def: TableDef; autoFilterXml?: string }[] {

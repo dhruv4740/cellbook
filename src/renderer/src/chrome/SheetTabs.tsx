@@ -7,6 +7,7 @@ import { Menu, MenuItem, useMenu } from '../components/Menu'
 import { Dialog } from '../components/Dialog'
 import { ChevronLeft20Regular, ChevronRight20Regular, Add20Regular } from '@fluentui/react-icons'
 import './SheetTabs.css'
+import { toggleSheetProtection } from '../dialogs/ProtectDialogs'
 
 export default function SheetTabs() {
   const store = useStore()
@@ -38,13 +39,13 @@ export default function SheetTabs() {
   })
 
   const items = (i: number): MenuItem[] => [
-    { label: '&Insert...', onClick: () => store.addSheet(undefined, i) },
-    { label: '&Delete', onClick: () => store.deleteSheet(i) },
-    { label: '&Rename', onClick: () => startRename(i) },
-    { label: '&Move or Copy...', onClick: () => setUi({ dialog: { kind: 'moveCopySheet', props: { index: i } } }) },
+    { label: '&Insert...', disabled: !!store.bookProtection?.lockStructure, onClick: () => store.addSheet(undefined, i) },
+    { label: '&Delete', disabled: !!store.bookProtection?.lockStructure, onClick: () => store.deleteSheet(i) },
+    { label: '&Rename', disabled: !!store.bookProtection?.lockStructure, onClick: () => startRename(i) },
+    { label: '&Move or Copy...', disabled: !!store.bookProtection?.lockStructure, onClick: () => setUi({ dialog: { kind: 'moveCopySheet', props: { index: i } } }) },
     'separator',
     { label: 'View &Code', onClick: () => notAvailable('View Code') },
-    { label: '&Protect Sheet...', onClick: () => notAvailable('Protect Sheet') },
+    { label: store.sheets[i].layout.protection ? 'Unprotect S&heet...' : '&Protect Sheet...', onClick: () => toggleSheetProtection(store.sheets[i]) },
     {
       label: 'Ta&b Color',
       submenu: ['#FF0000', '#FFC000', '#FFFF00', '#00B050', '#00B0F0', '#0070C0', '#7030A0', 'No Color'].map((c) => ({

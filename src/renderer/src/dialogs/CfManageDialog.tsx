@@ -134,6 +134,7 @@ export function CfManageDialog({ store, onClose, onNewRule, onEditRule }: CfMana
   }
 
   const saveToLayout = () => {
+    if (store.refuseIfProtected(sheet)) return
     store.updateLayout(sheet, 'Manage Conditional Formatting', (l) => {
       l.conditionalFormats = rules
     })

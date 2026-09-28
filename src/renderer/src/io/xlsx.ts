@@ -13,7 +13,7 @@ import {
 } from './xlsxShared'
 import { extractSection, parseAttrs, parseRelationships, resolveRelTarget } from './fastXlsxXml'
 import type { VbaProject } from './xlsxPostProcess'
-import { fixLegacyDrawingOrder, markDynamicArrays, injectDefinedNames, injectHyperlinks, postProcessXlsx } from './xlsxPostProcess'
+import { fixLegacyDrawingOrder, markDynamicArrays, injectDefinedNames, injectHyperlinks, injectProtection, postProcessXlsx } from './xlsxPostProcess'
 import { parseDataValidations } from './fastXlsx'
 
 const EXCEL_ERRORS = new Set(['#NULL!', '#DIV/0!', '#VALUE!', '#REF!', '#NAME?', '#NUM!', '#N/A', '#GETTING_DATA', '#SPILL!', '#CALC!'])
@@ -660,7 +660,8 @@ export async function writeXlsx(data: WorkbookData, vba?: VbaProject): Promise<U
     ? postProcessXlsx(buf, sheetFilters, vba, sheetValidations, sheetCharts, sheetNames, sheetCells, sheetLayouts)
     : buf
   const linked = markDynamicArrays(fixLegacyDrawingOrder(injectHyperlinks(processed, data.sheets.map((sd) => sd.layout?.hyperlinks))))
-  return data.names?.length ? injectDefinedNames(linked, data.names) : linked
+  const named = data.names?.length ? injectDefinedNames(linked, data.names) : linked
+  return injectProtection(named, data.sheets.map((sd) => sd.layout?.protection), data.protection, data.calcMode)
 }
 
 // ---------- read (fast path) ----------

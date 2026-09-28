@@ -701,12 +701,14 @@ export function autoFitRows(): void {
   store.setRowHeight(store.active, rows, 20)
 }
 export function hideRows(hide: boolean): void {
+  if (!store.allows(store.active, 'formatRows')) return
   const rows = selectedRows()
   store.updateLayout(store.active, hide ? 'Hide' : 'Unhide', (l) => {
     rows.forEach((r) => { if (hide) l.hiddenRows[r] = true; else delete l.hiddenRows[r] })
   })
 }
 export function hideColumns(hide: boolean): void {
+  if (!store.allows(store.active, 'formatColumns')) return
   const cols = selectedCols()
   store.updateLayout(store.active, hide ? 'Hide' : 'Unhide', (l) => {
     cols.forEach((c) => { if (hide) l.hiddenCols[c] = true; else delete l.hiddenCols[c] })
@@ -828,6 +830,7 @@ export function collapseToActiveCell(): void {
 // ---------- merge ----------
 export function mergeCells(kind: 'center' | 'across' | 'merge' | 'unmerge'): void {
   const sheet = store.active
+  if (!store.allows(sheet, 'formatCells')) return
   const rg = normRange(activeRange())
   const overlaps = (m: Range) => !(m.r2 < rg.r1 || m.r1 > rg.r2 || m.c2 < rg.c1 || m.c1 > rg.c2)
   // Merge & Center on a merged cell unmerges it (the button is a toggle in Excel).
