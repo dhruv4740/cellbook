@@ -14,9 +14,9 @@ import {
   ArrowRepeatAllOff20Regular, AppsListDetail20Regular, DataHistogram20Regular, DataFunnel20Regular,
   Filter20Regular, ArrowSort20Regular, TableSimple20Regular, Print20Regular, Cloud20Regular,
   DataBarVertical20Regular, DataBarHorizontal20Regular, DataTrending20Regular, DataPie20Regular, DataScatter20Regular,
-  Eraser20Regular
+  Eraser20Regular, ArrowUndo20Regular, ArrowRedo20Regular, Add20Regular
 } from '@fluentui/react-icons'
-import { GenericTab, GGroup } from './GenericTab'
+import { GenericTab, GGroup, GBtn } from './GenericTab'
 import { useStore, store } from '../../model/store'
 import { useUi, setUi, getUi, notAvailable } from '../ui'
 import { PageSetup } from '../../model/types'
@@ -32,255 +32,6 @@ import { openFile } from '../../io/fileOps'
 import { refreshAllPivots } from '../../data/pivot'
 import { autoOutline, clearAllOutlines, outlineCommand } from '../../grid/outlineCommands'
 import { toggleSheetProtection, toggleWorkbookProtection } from '../../dialogs/ProtectDialogs'
-
-function chartGalleryMenu(entries: GalleryEntry[]): MenuItem[] {
-  return entries.map((e) => ({ label: e.label, icon: <ChartMultiple20Regular />, onClick: () => insertChartFromSelection(store, e) }))
-}
-
-export function InsertTab() {
-  const groups: GGroup[] = [
-    { label: 'Tables', big: [
-      { label: 'PivotTable', icon: <TableSettings20Regular fontSize={28} />, keytip: 'V', onClick: () => setUi({ dialog: { kind: 'pivot' } }) },
-      { label: 'Table', icon: <Table20Regular fontSize={28} />, shortcut: 'Ctrl+T', keytip: 'T', onClick: () => cmds.formatAsTable(0) }
-    ] },
-    { label: 'Illustrations', big: [
-      { label: 'Pictures', icon: <ImageAdd20Regular fontSize={28} /> },
-      { label: 'Shapes', icon: <Shapes20Regular fontSize={28} /> },
-      { label: 'Icons', icon: <Sparkle20Regular fontSize={28} /> },
-      { label: 'SmartArt', icon: <FlowchartCircle20Regular fontSize={28} /> }
-    ] },
-    { label: 'Add-ins', big: [
-      { label: 'Get Add-ins', icon: <DataFunnel20Regular fontSize={28} /> },
-      { label: 'My Add-ins', icon: <AppsListDetail20Regular fontSize={28} /> }
-    ] },
-    { label: 'Charts', big: [
-      { label: 'Recommended Charts', icon: <ChartMultiple20Regular fontSize={28} />, onClick: () => insertChartFromSelection(store, COLUMN_BAR_GALLERY[0]) },
-      { label: 'Insert Column or Bar Chart', icon: <DataBarVertical20Regular fontSize={28} />, wide: true, menu: chartGalleryMenu(COLUMN_BAR_GALLERY) },
-      { label: 'Insert Line or Area Chart', icon: <DataTrending20Regular fontSize={28} />, wide: true, menu: chartGalleryMenu(LINE_AREA_GALLERY) },
-      { label: 'Insert Pie or Doughnut Chart', icon: <DataPie20Regular fontSize={28} />, wide: true, menu: chartGalleryMenu(PIE_DOUGHNUT_GALLERY) },
-      { label: 'Insert Scatter (X, Y) or Bubble Chart', icon: <DataScatter20Regular fontSize={28} />, wide: true, menu: chartGalleryMenu(SCATTER_BUBBLE_GALLERY) },
-      { label: 'Maps', icon: <DataBarHorizontal20Regular fontSize={28} /> },
-      { label: 'PivotChart', icon: <DataHistogram20Regular fontSize={28} /> }
-    ] },
-    { label: 'Tours', big: [{ label: '3D Map', icon: <DataArea20Regular fontSize={28} /> }] },
-    { label: 'Sparklines', big: [
-      { label: 'Line', icon: <ArrowSort20Regular fontSize={28} /> },
-      { label: 'Column', icon: <ColumnTriple20Regular fontSize={28} /> },
-      { label: 'Win/Loss', icon: <ArrowRepeatAll20Regular fontSize={28} /> }
-    ] },
-    { label: 'Filters', big: [{ label: 'Slicer', icon: <Filter20Regular fontSize={28} /> }, { label: 'Timeline', icon: <DocumentPageBreak20Regular fontSize={28} /> }] },
-    { label: 'Links', big: [{ label: 'Link', icon: <Link20Regular fontSize={28} />, shortcut: 'Ctrl+K', onClick: () => setUi({ dialog: { kind: 'hyperlink' } }) }] },
-    { label: 'Comments', big: [{ label: 'Comment', icon: <CommentAdd20Regular fontSize={28} />, onClick: () => { const a = store.active.selection.active; setUi({ commentPanel: { r: a.r, c: a.c } }) } }] },
-    { label: 'Text', big: [
-      { label: 'Text Box', icon: <TextboxAlignTopLeft20Regular fontSize={28} /> },
-      { label: 'Header & Footer', icon: <PanelLeftText20Regular fontSize={28} />, onClick: () => openPageSetup('Header/Footer') },
-      { label: 'WordArt', icon: <SignatureFilled fontSize={28} /> },
-      { label: 'Signature Line', icon: <SignatureFilled fontSize={28} /> },
-      { label: 'Object', icon: <MathSymbols20Regular fontSize={28} /> }
-    ] },
-    { label: 'Symbols', big: [
-      { label: 'Equation', icon: <MathFormula20Regular fontSize={28} /> },
-      { label: 'Symbol', icon: <MathSymbols20Regular fontSize={28} /> }
-    ] },
-    { label: 'Media', big: [{ label: 'Video', icon: <Video20Regular fontSize={28} /> }] }
-  ]
-  return <GenericTab groups={groups} />
-}
-
-export function PageLayoutTab() {
-  const store = useStore()
-  useUi()
-  const layout = store.active.layout
-  const ps = layout.pageSetup ?? {}
-  const setPs = (p: Partial<PageSetup>) => updatePageSetup(p)
-  const hasPrintArea = store.names.some((n) => /^_xlnm\.Print_Area$/i.test(n.name) && n.sheetUid === store.active.uid)
-  const fit = fitOf(ps)
-  const fitMenu = (axis: 'w' | 'h'): MenuItem[] => [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => ({
-    label: n === 0 ? 'Automatic' : `${n} page${n > 1 ? 's' : ''}`,
-    checked: (fit.on ? (axis === 'w' ? fit.w : fit.h) : 0) === n,
-    onClick: () => setFitPages(axis, n)
-  }))
-  const groups: GGroup[] = [
-    { label: 'Themes', big: [{ label: 'Themes', icon: <PenSparkle20Regular fontSize={28} /> }] },
-    { label: 'Page Setup', rows: [
-      [
-        { label: 'Margins', icon: <ArrowMoveInward20Regular />, menu: [
-          ...(['normal', 'wide', 'narrow'] as const).map((m) => ({ label: m[0].toUpperCase() + m.slice(1), checked: marginPresetOf(ps) === m, onClick: () => setMarginPreset(m) })),
-          { label: 'Custom Margins...', checked: marginPresetOf(ps) === 'custom', onClick: () => openPageSetup('Margins') }
-        ] },
-        { label: 'Orientation', icon: <DocumentPageBreak20Regular />, menu: [
-          { label: 'Portrait', checked: !ps.landscape, onClick: () => updatePageSetup({ landscape: false }, 'Orientation') },
-          { label: 'Landscape', checked: !!ps.landscape, onClick: () => updatePageSetup({ landscape: true }, 'Orientation') }
-        ] },
-        { label: 'Size', icon: <TableSimple20Regular />, menu: [
-          ...PAPER_SIZES.map((z) => ({ label: `${z.name} (${z.wIn} x ${z.hIn} in)`, checked: paperOf(ps).code === z.code, onClick: () => updatePageSetup({ paperSize: z.code }, 'Paper Size') })),
-          { label: 'More Paper Sizes...', onClick: () => openPageSetup('Page') }
-        ] }
-      ],
-      [
-        { label: 'Print Area', icon: <Print20Regular />, menu: [
-          { label: '&Set Print Area', onClick: () => store.setPrintArea(store.active, selectionRef().replace(/^=/, '')) },
-          { label: '&Clear Print Area', disabled: !hasPrintArea, onClick: () => store.setPrintArea(store.active, null) }
-        ] },
-        { label: 'Breaks', icon: <SplitHorizontal20Regular />, menu: [
-          { label: 'Insert Page Break', onClick: insertPageBreak },
-          { label: 'Remove Page Break', disabled: !canRemovePageBreak(), onClick: removePageBreak },
-          { label: 'Reset All Page Breaks', disabled: !(ps.rowBreaks?.length || ps.colBreaks?.length), onClick: resetPageBreaks }
-        ] },
-        { label: 'Background', icon: <ImageAdd20Regular />, onClick: () => notAvailable('Sheet Background') }
-      ],
-      [{ label: 'Print Titles', icon: <TableFreezeRow20Regular />, onClick: () => openPageSetup('Sheet') }]
-    ], launcher: true, onLauncher: () => openPageSetup('Page') },
-    { label: 'Scale to Fit', rows: [
-      [{ label: 'Width', icon: <PageFit20Regular />, menu: fitMenu('w') }],
-      [{ label: 'Height', icon: <PageFit20Regular />, menu: fitMenu('h') }],
-      [{ label: 'Scale', icon: <ZoomFit20Regular />, onClick: () => openPageSetup('Page') }]
-    ] },
-    { label: 'Sheet Options', rows: [
-      [{ label: 'Gridlines: View', icon: <GridDots20Regular />, active: layout.showGridlines, onClick: () => store.updateLayout(store.active, 'Gridlines', (l) => (l.showGridlines = !l.showGridlines)) }],
-      [{ label: 'Gridlines: Print', icon: <GridDots20Regular />, active: !!ps.gridlines, onClick: () => setPs({ gridlines: !ps.gridlines }) }],
-      [{ label: 'Headings: View', icon: <ColumnTriple20Regular />, active: layout.showHeadings, onClick: () => store.updateLayout(store.active, 'Headings', (l) => (l.showHeadings = !l.showHeadings)) }],
-      [{ label: 'Headings: Print', icon: <ColumnTriple20Regular />, active: !!ps.headings, onClick: () => setPs({ headings: !ps.headings }) }]
-    ] },
-    { label: 'Arrange', big: [
-      { label: 'Bring Forward', icon: <ArrowRepeatAll20Regular fontSize={28} /> },
-      { label: 'Send Backward', icon: <ArrowRepeatAllOff20Regular fontSize={28} /> },
-      { label: 'Selection Pane', icon: <AppsListDetail20Regular fontSize={28} /> },
-      { label: 'Align', icon: <TableFreezeRow20Regular fontSize={28} /> },
-      { label: 'Group', icon: <FlowchartCircle20Regular fontSize={28} /> },
-      { label: 'Rotate', icon: <ArrowRepeatAll20Regular fontSize={28} /> }
-    ] }
-  ]
-  return <GenericTab groups={groups} />
-}
-
-export function FormulasTab() {
-  const store = useStore()
-  const ui = useUi()
-  const active = store.active.selection.active
-  const insertFn = (name: string) => setUi({ edit: { r: active.r, c: active.c, text: '=' + name + '(', source: 'bar', mode: 'Enter' } })
-  const have = (() => { try { return new Set((store.hf.getRegisteredFunctionNames() as string[]).map((n) => n.toUpperCase())) } catch { return new Set<string>() } })()
-  const fnMenu = (list: string[]): MenuItem[] => {
-    const ok = list.filter((n) => have.has(n))
-    return ok.length ? ok.map((n) => ({ label: n, onClick: () => insertFn(n) })) : [{ label: '(none)', disabled: true }]
-  }
-  const others = new Set(Object.values(FUNCTION_CATEGORIES).flat())
-  const moreFunctions = [...have].filter((n) => !others.has(n) && /^[A-Z]/.test(n) && n !== 'ZZROWVISVER').sort()
-  const userNames = store.names.filter((n) => !/^_xlnm\./i.test(n.name) && !n.hidden)
-  const useInFormula: MenuItem[] = [
-    ...userNames.map((n) => ({
-      label: n.name,
-      onClick: () => {
-        const e = getUi().edit
-        if (e) setUi({ edit: { ...e, text: e.text + n.name } })
-        else setUi({ edit: { r: active.r, c: active.c, text: '=' + n.name, source: 'bar', mode: 'Enter' } })
-      }
-    } as MenuItem)),
-    ...(userNames.length ? ['separator' as const] : []),
-    { label: 'Paste Names...', onClick: () => setUi({ dialog: { kind: 'nameManager' } }) }
-  ]
-  const groups: GGroup[] = [
-    { label: 'Function Library', rows: undefined, big: [
-      { label: 'Insert Function', icon: <MathFormula20Regular fontSize={28} />, onClick: () => insertFn(''), shortcut: 'Shift+F3', keytip: 'FX' },
-      { label: 'AutoSum', icon: <MathFormula20Regular fontSize={28} />, menu: [{ label: '&Sum', onClick: () => cmds.autoSum('SUM') }, { label: '&Average', onClick: () => cmds.autoSum('AVERAGE') }, { label: 'Count &Numbers', onClick: () => cmds.autoSum('COUNT') }, { label: 'M&ax', onClick: () => cmds.autoSum('MAX') }, { label: 'M&in', onClick: () => cmds.autoSum('MIN') }], onClick: () => cmds.autoSum('SUM'), keytip: 'U' },
-      { label: 'Recently Used', icon: <ArrowRepeatAll20Regular fontSize={28} />, menu: fnMenu(RECENTLY_USED) },
-      { label: 'Financial', icon: <Calculator20Regular fontSize={28} />, menu: fnMenu(FUNCTION_CATEGORIES.Financial) },
-      { label: 'Logical', icon: <FlowchartCircle20Regular fontSize={28} />, menu: fnMenu(FUNCTION_CATEGORIES.Logical) },
-      { label: 'Text', icon: <ClipboardTextLtr20Regular fontSize={28} />, menu: fnMenu(FUNCTION_CATEGORIES.Text) },
-      { label: 'Date & Time', icon: <DocumentPageBreak20Regular fontSize={28} />, menu: fnMenu(FUNCTION_CATEGORIES['Date & Time']) },
-      { label: 'Lookup & Reference', icon: <ArrowImport20Regular fontSize={28} />, menu: fnMenu(FUNCTION_CATEGORIES['Lookup & Reference']) },
-      { label: 'Math & Trig', icon: <MathSymbols20Regular fontSize={28} />, menu: fnMenu(FUNCTION_CATEGORIES['Math & Trig']) },
-      { label: 'More Functions', icon: <DataUsage20Regular fontSize={28} />, menu: [
-        { label: 'Statistical', submenu: fnMenu(FUNCTION_CATEGORIES.Statistical) },
-        { label: 'Information', submenu: fnMenu(FUNCTION_CATEGORIES.Information) },
-        { label: 'Other', submenu: fnMenu(moreFunctions).slice(0, 80) }
-      ] }
-    ] },
-    { label: 'Defined Names', big: [
-      { label: 'Name Manager', icon: <TableSettings20Regular fontSize={28} />, shortcut: 'Ctrl+F3', onClick: () => setUi({ dialog: { kind: 'nameManager' } }) },
-      { label: 'Define Name', icon: <TableSettings20Regular fontSize={28} />, onClick: () => setUi({ dialog: { kind: 'defineName' } }) },
-      { label: 'Use in Formula', icon: <MathFormula20Regular fontSize={28} />, menu: useInFormula },
-      { label: 'Create from Selection', icon: <TableSettings20Regular fontSize={28} />, shortcut: 'Ctrl+Shift+F3', onClick: () => setUi({ dialog: { kind: 'createNames' } }) }
-    ] },
-    { label: 'Formula Auditing', big: [
-      { label: 'Trace Precedents', icon: <ArrowImport20Regular fontSize={28} /> },
-      { label: 'Trace Dependents', icon: <ArrowRepeatAll20Regular fontSize={28} /> },
-      { label: 'Remove Arrows', icon: <ArrowRepeatAllOff20Regular fontSize={28} /> },
-      { label: 'Show Formulas', icon: <ClipboardTextLtr20Regular fontSize={28} />, shortcut: 'Ctrl+`', active: ui.formulasVisible, onClick: () => setUi({ formulasVisible: !getUi().formulasVisible }) },
-      { label: 'Error Checking', icon: <ShieldTask20Regular fontSize={28} /> },
-      { label: 'Watch Window', icon: <AppsListDetail20Regular fontSize={28} /> }
-    ] },
-    { label: 'Calculation', big: [
-      { label: 'Calculation Options', icon: <Calculator20Regular fontSize={28} />, menu: [
-        { label: '&Automatic', checked: store.calcMode === 'auto', onClick: () => store.setCalcMode('auto') },
-        { label: 'Automatic Except for &Data Tables', checked: store.calcMode === 'autoNoTable', onClick: () => store.setCalcMode('autoNoTable') },
-        { label: '&Manual', checked: store.calcMode === 'manual', onClick: () => store.setCalcMode('manual') }
-      ] },
-      { label: 'Calculate Now', icon: <Calculator20Regular fontSize={28} />, shortcut: 'F9', onClick: () => store.recalculate() },
-      { label: 'Calculate Sheet', icon: <Calculator20Regular fontSize={28} />, shortcut: 'Shift+F9', onClick: () => store.recalculateSheet() }
-    ] }
-  ]
-  return <GenericTab groups={groups} />
-}
-
-export function DataTab() {
-  const store = useStore()
-  const filtered = !!store.active.layout.autoFilter
-  const groups: GGroup[] = [
-    { label: 'Get & Transform Data', big: [
-      { label: 'Get Data', icon: <ArrowImport20Regular fontSize={28} /> },
-      { label: 'From Text/CSV', icon: <ClipboardTextLtr20Regular fontSize={28} />, onClick: () => void openFile() },
-      { label: 'From Web', icon: <Link20Regular fontSize={28} /> },
-      { label: 'Recent Sources', icon: <ArrowRepeatAll20Regular fontSize={28} /> },
-      { label: 'Existing Connections', icon: <DataArea20Regular fontSize={28} /> }
-    ] },
-    { label: 'Queries & Connections', big: [
-      { label: 'Refresh All', icon: <ArrowRepeatAll20Regular fontSize={28} />, onClick: () => { store.recalculate(); const e = refreshAllPivots(store); if (e.length) setUi({ dialog: { kind: 'message', props: { text: e.join('\n') } } }) } },
-      { label: 'Queries & Connections', icon: <DataArea20Regular fontSize={28} /> }
-    ] },
-    { label: 'Data Types', big: [{ label: 'Stocks', icon: <DataHistogram20Regular fontSize={28} /> }, { label: 'Geography', icon: <DataArea20Regular fontSize={28} /> }] },
-    { label: 'Sort & Filter', rows: [
-      [{ label: 'A→Z', icon: <ArrowSort20Regular />, onClick: () => cmds.sortSelection('asc'), keytip: 'SA' }, { label: 'Z→A', icon: <ArrowSort20Regular />, onClick: () => cmds.sortSelection('desc'), keytip: 'SD' }, { label: 'Sort', icon: <ArrowSort20Regular />, onClick: () => cmds.openSortDialog(), keytip: 'S' }],
-      [
-        { label: 'Filter', icon: <Filter20Regular />, active: filtered, onClick: () => store.toggleAutoFilter(), keytip: 'T' },
-        { label: 'Clear', icon: <ArrowRepeatAllOff20Regular />, onClick: () => store.clearAllFilters(), keytip: 'FC' },
-        { label: 'Reapply', icon: <ArrowRepeatAll20Regular />, onClick: () => store.reapplyFilter(), keytip: 'Y' },
-        { label: 'Advanced', icon: <Filter20Regular />, keytip: 'AD', onClick: () => setUi({ dialog: { kind: 'advancedFilter' } }) }
-      ]
-    ] },
-    { label: 'Data Tools', big: [
-      { label: 'Text to Columns', icon: <ColumnTriple20Regular fontSize={28} />, onClick: () => setUi({ dialog: { kind: 'textToColumns' } }), keytip: 'E' },
-      { label: 'Flash Fill', icon: <Sparkle20Regular fontSize={28} />, shortcut: 'Ctrl+E', keytip: 'FF', onClick: () => cmds.flashFillSelection() },
-      { label: 'Remove Duplicates', icon: <TableSimple20Regular fontSize={28} />, onClick: () => setUi({ dialog: { kind: 'removeDuplicates' } }), keytip: 'M' },
-      { label: 'Data Validation', icon: <ShieldTask20Regular fontSize={28} />, onClick: () => setUi({ dialog: { kind: 'dataValidation' } }), keytip: 'V' },
-      { label: 'Consolidate', icon: <DataArea20Regular fontSize={28} />, keytip: 'N', onClick: () => setUi({ dialog: { kind: 'consolidate' } }) },
-      { label: 'Relationships', icon: <FlowchartCircle20Regular fontSize={28} /> }
-    ] },
-    { label: 'Forecast', big: [
-      { label: 'What-If Analysis', icon: <DataHistogram20Regular fontSize={28} />, menu: [
-        { label: '&Scenario Manager...', onClick: () => notAvailable('Scenario Manager') },
-        { label: '&Goal Seek...', onClick: () => setUi({ dialog: { kind: 'goalSeek' } }) },
-        { label: 'Data &Table...', onClick: () => notAvailable('Data Table') }
-      ] },
-      { label: 'Forecast Sheet', icon: <ChartMultiple20Regular fontSize={28} /> }
-    ] },
-    { label: 'Outline', launcher: true, onLauncher: () => setUi({ dialog: { kind: 'outlineSettings' } }), big: [
-      { label: 'Group', icon: <FlowchartCircle20Regular fontSize={28} />, shortcut: 'Alt+Shift+Right', onClick: () => outlineCommand('group'), menu: [
-        { label: '&Group...', onClick: () => outlineCommand('group') },
-        { label: '&Auto Outline', onClick: () => autoOutline() }
-      ] },
-      { label: 'Ungroup', icon: <FlowchartCircle20Regular fontSize={28} />, shortcut: 'Alt+Shift+Left', onClick: () => outlineCommand('ungroup'), menu: [
-        { label: '&Ungroup...', onClick: () => outlineCommand('ungroup') },
-        { label: '&Clear Outline', onClick: () => clearAllOutlines() }
-      ] },
-      { label: 'Subtotal', icon: <MathFormula20Regular fontSize={28} />, onClick: () => setUi({ dialog: { kind: 'subtotal' } }) }
-    ], rows: [
-      [{ label: 'Show Detail', icon: <ArrowRepeatAll20Regular />, onClick: () => outlineCommand('show') }],
-      [{ label: 'Hide Detail', icon: <ArrowRepeatAllOff20Regular />, onClick: () => outlineCommand('hide') }]
-    ] }
-  ]
-  return <GenericTab groups={groups} />
-}
 
 export function ReviewTab() {
   const store = useStore()
@@ -308,8 +59,8 @@ export function ReviewTab() {
       { label: 'Workbook Statistics', onClick: () => setUi({ dialog: { kind: 'message', props: { text: workbookStats() } } }), icon: <DataUsage20Regular fontSize={28} /> }
     ] },
     { label: 'Accessibility', big: [{ label: 'Check Accessibility', icon: <ShieldTask20Regular fontSize={28} /> }] },
-    { label: 'Insights', big: [{ label: 'Smart Lookup', icon: <Sparkle20Regular fontSize={28} /> }] },
     { label: 'Language', big: [{ label: 'Translate', icon: <TranslateAuto20Regular fontSize={28} /> }] },
+    { label: 'Changes', big: [{ label: 'Show Changes', icon: <CommentMultiple20Regular fontSize={28} />, disabled: true }] },
     { label: 'Comments', big: [
       { label: 'New Comment', icon: <CommentAdd20Regular fontSize={28} />, onClick: () => setUi({ commentPanel: { r: active.r, c: active.c } }) },
       { label: 'Delete', icon: <CommentMultiple20Regular fontSize={28} />, disabled: !hasComment, onClick: () => { if (hasComment) store.deleteComment(store.active, active.r, active.c) } },
@@ -354,114 +105,45 @@ function cellName(r: number, c: number): string {
   return s + (r + 1)
 }
 
-export function ViewTab() {
-  const store = useStore()
-  const ui = useUi()
-  const layout = store.active.layout
-  const [viewMode, setViewMode] = useState<'normal' | 'pageBreak' | 'pageLayout'>('normal')
-
-  // Other open workbook windows, for the Switch Windows dropdown. Excel keeps one window per
-  // workbook, so this doubles as the app's window list.
-  const [wins, setWins] = useState<{ id: number; title: string; current: boolean }[]>([])
-  useEffect(() => {
-    void window.api?.listWindows?.().then((l) => l && setWins(l))
-    return window.api?.onWindowListChanged?.((l) => setWins(l))
-  }, [])
-  const switchWindowsMenu: MenuItem[] = wins.length
-    ? wins.map((w) => ({ label: w.title, checked: w.current, onClick: () => void window.api?.activateWindow(w.id) }))
-    : [{ label: 'No other windows open', disabled: true }]
-
-  const groups: GGroup[] = [
-    { label: 'Sheet View', big: [{ label: 'New Sheet View', icon: <TableSettings20Regular fontSize={28} /> }, { label: 'Sheet View', icon: <TableSettings20Regular fontSize={28} /> }] },
-    { label: 'Workbook Views', big: [
-      { label: 'Normal', icon: <TableSimple20Regular fontSize={28} />, active: viewMode === 'normal', onClick: () => setViewMode('normal') },
-      { label: 'Page Break Preview', icon: <DocumentPageBreak20Regular fontSize={28} />, onClick: () => notAvailable('Page Break Preview') },
-      { label: 'Page Layout', icon: <PageFit20Regular fontSize={28} />, onClick: () => setUi({ backstage: true, backstageTab: 'print' }) },
-      { label: 'Custom Views', icon: <AppsListDetail20Regular fontSize={28} /> }
-    ] },
-    { label: 'Show', rows: [
-      [{ label: 'Ruler', icon: <Ruler20Regular />, keytip: 'VR' }, { label: 'Gridlines', icon: <GridDots20Regular />, active: layout.showGridlines, onClick: () => store.updateLayout(store.active, 'Gridlines', (l) => (l.showGridlines = !l.showGridlines)), keytip: 'VG' }],
-      [{ label: 'Formula Bar', icon: <ClipboardTextLtr20Regular />, active: !ui.hideFormulaBar, onClick: () => setUi({ hideFormulaBar: !ui.hideFormulaBar }), keytip: 'VF' }],
-      [{ label: 'Headings', icon: <ColumnTriple20Regular />, active: layout.showHeadings, onClick: () => store.updateLayout(store.active, 'Headings', (l) => (l.showHeadings = !l.showHeadings)), keytip: 'VH' }]
-    ] },
-    { label: 'Zoom', big: [
-      { label: 'Zoom', icon: <ZoomIn20Regular fontSize={28} />, onClick: () => setUi({ dialog: { kind: 'zoom' } }) },
-      { label: '100%', icon: <ZoomFit20Regular fontSize={28} />, onClick: () => store.updateLayout(store.active, 'Zoom', (l) => (l.zoom = 100)) },
-      { label: 'Zoom to Selection', icon: <ZoomIn20Regular fontSize={28} />, onClick: () => cmds.zoomToSelection() }
-    ] },
-    { label: 'Window', rows: [
-      [
-        {
-          label: 'New Window',
-          icon: <AppsListDetail20Regular />,
-          onClick: () => {
-            void window.api?.newViewWindow?.({
-              data: store.toData(),
-              fileName: store.fileName,
-              filePath: store.filePath
-            })
-          }
-        },
-        {
-          label: 'Arrange All',
-          icon: <AppsListDetail20Regular />,
-          onClick: () => setUi({ dialog: { kind: 'arrangeWindows' } })
-        },
-        { label: 'Freeze Panes', icon: <TableFreezeRow20Regular />, menu: [
-          { label: 'Freeze Panes', onClick: () => cmds.freezePanes('panes') },
-          { label: 'Freeze Top Row', onClick: () => cmds.freezePanes('topRow') },
-          { label: 'Freeze First Column', onClick: () => cmds.freezePanes('firstColumn') },
-          { label: 'Unfreeze Panes', onClick: () => cmds.freezePanes('unfreeze') }
-        ] }
-      ],
-      [{ label: 'Split', icon: <SplitHorizontal20Regular /> }, { label: 'Hide', icon: <ArrowRepeatAllOff20Regular /> }, { label: 'Unhide', icon: <ArrowRepeatAll20Regular /> }],
-      [
-        { label: 'View Side by Side', icon: <AppsListDetail20Regular /> },
-        { label: 'Synchronous Scrolling', icon: <ArrowSort20Regular /> },
-        { label: 'Reset Window Position', icon: <ArrowRepeatAllOff20Regular /> }
-      ],
-      [{ label: 'Switch Windows', icon: <AppsListDetail20Regular />, menu: switchWindowsMenu }]
-    ] },
-    { label: 'Macros', big: [{ label: 'Macros', icon: <CodeBlock20Regular fontSize={28} /> }] }
-  ]
-  return <GenericTab groups={groups} />
-}
-
 // Excel 2021's Draw tab: pen/highlighter/eraser tools for inking on the sheet. Commands are inert
 // (no touch/pen input to drive them in this environment) but the real groups and tools are present.
 export function DrawTab() {
+  const pen = (label: string, w = 30): GBtn => ({ label, icon: <PenSparkle20Regular fontSize={28} />, noLabel: true, width: w })
   const groups: GGroup[] = [
-    { label: 'Drawing Tools', big: [
-      { label: 'Select', icon: <DesktopFlow20Regular fontSize={28} /> },
-      { label: 'Lasso Select', icon: <DesktopFlow20Regular fontSize={28} /> },
-      { label: 'Eraser', icon: <Eraser20Regular fontSize={28} /> }
+    { label: 'Input Mode', items: [{ label: 'Draw', icon: <PenSparkle20Regular fontSize={28} />, width: 44 }] },
+    { label: 'Undo', items: [[
+      { label: 'Undo', icon: <ArrowUndo20Regular />, iconOnly: true, onClick: () => store.undo() },
+      { label: 'Redo', icon: <ArrowRedo20Regular />, iconOnly: true, onClick: () => store.redo() }
+    ]] },
+    { label: 'Drawing Tools', items: [
+      { label: 'Select Objects', icon: <DesktopFlow20Regular fontSize={28} />, noLabel: true, width: 40 },
+      { label: 'Lasso Select', icon: <DesktopFlow20Regular fontSize={28} />, noLabel: true, width: 40 },
+      pen('Eraser'), pen('Pen: Black'), pen('Pen: Red'), pen('Pencil'), pen('Highlighter: Yellow'), pen('Pen: Blue'), pen('Pen: Green'),
+      { label: 'Add', icon: <Add20Regular fontSize={28} />, width: 44, menu: [{ label: 'Add Pen...', onClick: () => notAvailable('Add Pen') }] }
     ] },
-    { label: 'Pens', big: [
-      { label: 'Pen: Black', icon: <PenSparkle20Regular fontSize={28} /> },
-      { label: 'Pen: Red', icon: <PenSparkle20Regular fontSize={28} /> },
-      { label: 'Pen: Blue', icon: <PenSparkle20Regular fontSize={28} /> },
-      { label: 'Pencil', icon: <PenSparkle20Regular fontSize={28} /> },
-      { label: 'Highlighter', icon: <PenSparkle20Regular fontSize={28} /> },
-      { label: 'Add Pen', icon: <PenSparkle20Regular fontSize={28} /> }
+    { label: 'Convert', items: [
+      { label: 'Ink to Shape', icon: <Shapes20Regular fontSize={28} />, width: 50 },
+      { label: 'Ink to Math', icon: <MathSymbols20Regular fontSize={28} />, width: 50 }
     ] },
-    { label: 'Insert', big: [{ label: 'Drawing Canvas', icon: <Shapes20Regular fontSize={28} /> }] },
-    { label: 'Convert', big: [
-      { label: 'Ink to Shape', icon: <Shapes20Regular fontSize={28} /> },
-      { label: 'Ink to Math', icon: <MathSymbols20Regular fontSize={28} /> }
-    ] }
+    { label: 'Replay', items: [{ label: 'Ink Replay', icon: <ArrowRepeatAll20Regular fontSize={28} />, width: 48 }] },
+    { label: 'Help', items: [{ label: 'Ink Help', icon: <QuestionCircle20Regular fontSize={28} />, width: 44 }] }
   ]
   return <GenericTab groups={groups} />
 }
 
 export function HelpTab() {
   const groups: GGroup[] = [
-    { label: 'Help', big: [
-      { label: 'Help', icon: <QuestionCircle20Regular fontSize={28} />, shortcut: 'F1' },
-      { label: 'Show Training', icon: <ChatHelp20Regular fontSize={28} /> },
-      { label: "What's New", icon: <Sparkle20Regular fontSize={28} /> },
-      { label: 'Suggest a Feature', icon: <Mail20Regular fontSize={28} /> },
-      { label: 'Contact Support', icon: <Mail20Regular fontSize={28} /> }
-    ] }
+    { label: 'Help', items: [
+      { label: 'Help', icon: <QuestionCircle20Regular fontSize={28} />, shortcut: 'F1', width: 40 },
+      { label: 'Contact Support', icon: <ChatHelp20Regular fontSize={28} />, width: 56, onClick: () => notAvailable('Contact Support') },
+      { label: 'Feedback', icon: <Mail20Regular fontSize={28} />, width: 56, onClick: () => notAvailable('Feedback') },
+      { label: 'Show Training', icon: <Sparkle20Regular fontSize={28} />, width: 56 }
+    ] },
+    { label: 'Community', items: [
+      { label: 'Community', icon: <ChatHelp20Regular fontSize={28} />, width: 64 },
+      { label: 'Excel Blog', icon: <Note20Regular fontSize={28} />, width: 48 }
+    ] },
+    { label: 'Mobile', items: [{ label: 'Get Excel Mobile App', icon: <Mail20Regular fontSize={28} />, width: 84 }] }
   ]
   return <GenericTab groups={groups} />
 }

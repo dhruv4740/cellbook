@@ -375,11 +375,10 @@ export default function HomeTab() {
           <SplitButton icon={<ClipboardPaste24Regular fontSize={28} />} label="Paste" tip={{ title: 'Paste (Ctrl+V)', desc: 'Paste the contents of the Clipboard.' }} onClick={() => cmds.paste('all')} menu={pasteMenu} keytip="V" />
         </div>
         <div className="xl-col xl-stack">
-          <SmallButton icon={<Cut20Regular />} label="Cut" tip={{ title: 'Cut (Ctrl+X)' }} onClick={() => cmds.cut()} keytip="X" />
-          <SmallButton icon={<Copy20Regular />} label="Copy" split menu={[{ label: '&Copy', onClick: () => cmds.copy() }, { label: 'Copy as &Picture...', onClick: () => notAvailable('Copy as Picture') }]} tip={{ title: 'Copy (Ctrl+C)' }} onClick={() => cmds.copy()} keytip="C" />
+          <SmallButton icon={<Cut20Regular />} tip={{ title: 'Cut (Ctrl+X)' }} onClick={() => cmds.cut()} keytip="X" />
+          <SmallButton icon={<Copy20Regular />} split menu={[{ label: '&Copy', onClick: () => cmds.copy() }, { label: 'Copy as &Picture...', onClick: () => notAvailable('Copy as Picture') }]} tip={{ title: 'Copy (Ctrl+C)' }} onClick={() => cmds.copy()} keytip="C" />
           <SmallButton
             icon={<PaintBrush20Regular />}
-            label="Format Painter"
             tip={{ title: 'Format Painter', desc: 'Copy formatting to another selection. Double-click to keep it on.' }}
             active={!!getUi().formatPainter}
             onClick={() => setUi({ formatPainter: getUi().formatPainter ? null : { once: true } })}
@@ -393,8 +392,8 @@ export default function HomeTab() {
       <Group label="Font" icon={<TextFont20Regular />}>
         <div className="xl-col">
           <div className="xl-row">
-            <Combo value={style.fontFamily ?? 'Calibri'} options={FONTS} width={120} tip={{ title: 'Font' }} onChange={(v) => setStyle({ fontFamily: v }, 'Font')} keytip="FF" />
-            <Combo value={String(style.fontSize ?? 11)} options={SIZES} width={48} tip={{ title: 'Font Size' }} onChange={(v) => { const n = +v; if (n > 0) setStyle({ fontSize: n }, 'Font Size') }} keytip="FS" />
+            <Combo value={style.fontFamily ?? 'Calibri'} options={FONTS} width={112} tip={{ title: 'Font' }} onChange={(v) => setStyle({ fontFamily: v }, 'Font')} keytip="FF" />
+            <Combo value={String(style.fontSize ?? 11)} options={SIZES} width={40} tip={{ title: 'Font Size' }} onChange={(v) => { const n = +v; if (n > 0) setStyle({ fontSize: n }, 'Font Size') }} keytip="FS" />
             <SmallButton icon={<FontIncrease20Regular />} tip={{ title: 'Increase Font Size' }} onClick={() => setStyle({ fontSize: (style.fontSize ?? 11) + 1 }, 'Font Size')} keytip="FG" />
             <SmallButton icon={<FontDecrease20Regular />} tip={{ title: 'Decrease Font Size' }} onClick={() => setStyle({ fontSize: Math.max(1, (style.fontSize ?? 11) - 1) }, 'Font Size')} keytip="FK" />
           </div>
@@ -402,7 +401,6 @@ export default function HomeTab() {
             <SmallButton icon={<TextBold20Regular />} active={!!style.bold} tip={{ title: 'Bold (Ctrl+B)' }} onClick={() => toggle('bold', 'Bold')} keytip="1" />
             <SmallButton icon={<TextItalic20Regular />} active={!!style.italic} tip={{ title: 'Italic (Ctrl+I)' }} onClick={() => toggle('italic', 'Italic')} keytip="2" />
             <SmallButton icon={<TextUnderline20Regular />} active={!!style.underline} tip={{ title: 'Underline (Ctrl+U)' }} split menu={underlineMenu} onClick={() => setStyle({ underline: style.underline ? undefined : 'single' }, 'Underline')} keytip="3" />
-            <SmallButton icon={<TextStrikethrough20Regular />} active={!!style.strike} tip={{ title: 'Strikethrough' }} onClick={() => toggle('strike', 'Strikethrough')} keytip="4" />
             <SmallButton icon={<BorderAll20Regular />} tip={{ title: 'Borders' }} split menu={bordersMenu} onClick={() => applyBorders(lastBorder)} keytip="B" />
             <ColorSplit
               icon={<PaintBucket20Regular />}
@@ -438,9 +436,6 @@ export default function HomeTab() {
             <SmallButton icon={<AlignLeft20Regular />} active={style.hAlign === 'left'} tip={{ title: 'Align Left' }} onClick={() => setStyle({ hAlign: 'left' }, 'Align')} keytip="AL" />
             <SmallButton icon={<AlignCenterHorizontal20Regular />} active={style.hAlign === 'center'} tip={{ title: 'Center' }} onClick={() => setStyle({ hAlign: 'center' }, 'Align')} keytip="AC" />
             <SmallButton icon={<AlignRight20Regular />} active={style.hAlign === 'right'} tip={{ title: 'Align Right' }} onClick={() => setStyle({ hAlign: 'right' }, 'Align')} keytip="AR" />
-            <SmallButton icon={<TextWrap20Regular />} active={!!style.wrap} tip={{ title: 'Wrap Text' }} onClick={() => setStyle({ wrap: !style.wrap }, 'Wrap Text')} keytip="W" />
-          </div>
-          <div className="xl-row">
             <SmallButton icon={<TextIndentDecrease20Regular />} tip={{ title: 'Decrease Indent' }} onClick={() => setStyle({ indent: Math.max(0, (style.indent ?? 0) - 1) }, 'Indent')} keytip="AO" />
             <SmallButton icon={<TextIndentIncrease20Regular />} tip={{ title: 'Increase Indent' }} onClick={() => setStyle({ indent: (style.indent ?? 0) + 1 }, 'Indent')} keytip="AI" />
           </div>
@@ -500,12 +495,17 @@ export default function HomeTab() {
 
       <Group label="Editing" icon={<ArrowSort20Regular />}>
         <div className="xl-col xl-stack">
-          <StackSplit icon={<MathFormula20Regular />} label="AutoSum" tip={{ title: 'AutoSum (Alt+=)' }} menu={autoSumMenu} onClick={() => cmds.autoSum('SUM')} keytip="U" />
-          <StackSplit icon={<TableInsertRow20Regular />} label="Fill" tip={{ title: 'Fill' }} menu={fillDirMenu} onClick={() => cmds.fill('down')} keytip="FI" />
-          <StackSplit icon={<Delete20Regular />} label="Clear" tip={{ title: 'Clear' }} menu={clearMenu} onClick={() => cmds.clearSelection('contents')} keytip="E" />
+          <StackSplit icon={<MathFormula20Regular />} tip={{ title: 'AutoSum (Alt+=)' }} menu={autoSumMenu} onClick={() => cmds.autoSum('SUM')} keytip="U" />
+          <StackSplit icon={<TableInsertRow20Regular />} tip={{ title: 'Fill' }} menu={fillDirMenu} onClick={() => cmds.fill('down')} keytip="FI" />
+          <StackSplit icon={<Delete20Regular />} tip={{ title: 'Clear' }} menu={clearMenu} onClick={() => cmds.clearSelection('contents')} keytip="E" />
         </div>
         <SplitButton icon={<ArrowSort20Regular />} label="Sort & Filter" tip={{ title: 'Sort & Filter' }} menu={sortMenu} menuOnly keytip="S" />
         <SplitButton icon={<Search20Regular />} label="Find & Select" tip={{ title: 'Find & Select' }} menu={findMenu} menuOnly keytip="FD" />
+      </Group>
+      <GroupSep />
+
+      <Group label="Add-ins" icon={<DataFunnel20Regular />}>
+        <BigButton icon={<DataFunnel20Regular fontSize={28} />} label="Add-ins" tip={{ title: 'Add-ins', desc: 'Get and manage add-ins for Excel.' }} onClick={() => notAvailable('Add-ins')} wide />
       </Group>
 
 

@@ -64,7 +64,7 @@ export function KeyTipBadge({ code }: { code?: string }) {
 }
 
 /** Large ribbon button: icon on top, label wraps below, used for group headline commands. */
-export function BigButton({ icon, label, tip, onClick, active, disabled, color, menu, wide, keytip }: BtnProps & { menu?: MenuItem[]; wide?: boolean }) {
+export function BigButton({ icon, label, tip, onClick, active, disabled, color, menu, wide, keytip, width }: BtnProps & { menu?: MenuItem[]; wide?: boolean; width?: number }) {
   const [open, setOpen] = useState<{ x: number; y: number } | null>(null)
   const ref = useRef<HTMLButtonElement>(null)
   return (
@@ -72,6 +72,7 @@ export function BigButton({ icon, label, tip, onClick, active, disabled, color, 
       <button
         ref={ref}
         className={'xl-big-btn' + (wide ? ' wide' : '') + (active ? ' active' : '') + (open ? ' active' : '')}
+        style={width ? { width, minWidth: width } : undefined}
         disabled={disabled}
         onClick={() => {
           if (menu) {
