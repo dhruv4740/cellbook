@@ -1322,9 +1322,8 @@ export default function Grid() {
       if (e.key === 'F1' && e.altKey && e.shiftKey) { store.addSheet(); e.preventDefault(); return }
       // ---- Alt+F1: embedded chart of the default type (clustered column) from the selection ----
       if (e.key === 'F1' && e.altKey && !e.shiftKey && !mod) { insertChartFromSelection(store, COLUMN_BAR_GALLERY[0]); e.preventDefault(); return }
-      // ---- F9 / Shift+F9: calculate now / calculate active sheet (calc is always automatic here,
-      // so these force a redraw rather than changing any calculation mode) ----
-      if ((e.key === 'F9') && !mod) { store.recalculate(); e.preventDefault(); return }
+      // ---- F9 / Shift+F9 / Ctrl+Alt+F9: calculate now / active sheet / everything ----
+      if (e.key === 'F9' && !(mod && !e.altKey)) { if (e.shiftKey) store.recalculateSheet(); else store.recalculate(); e.preventDefault(); return }
       // ---- Shift+F3: Insert Function ----
       if (e.key === 'F3' && e.shiftKey) { const a = sheet.selection.active; setUi({ edit: { r: a.r, c: a.c, text: '=', source: 'bar', mode: 'Enter' } }); e.preventDefault(); return }
       // ---- Ctrl+Alt+V: Paste Special ----

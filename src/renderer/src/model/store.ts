@@ -96,6 +96,10 @@ export class WorkbookStore {
   bookProtection: WorkbookProtection | undefined
   /** Formulas > Calculation Options. */
   calcMode: CalcMode = 'auto'
+  /** Manual mode: formula results as of the last calculation. Excel leaves them stale until F9. */
+  private frozen: Map<string, { f: string; v: CellValue }> | null = null
+  /** Manual mode: something changed since the last calculation (the status bar shows "Calculate"). */
+  calcPending = false
   /** The UI shows Excel's "protected sheet" message through this. */
   onProtectedEdit?: (msg: string) => void
 
@@ -178,7 +182,12 @@ export class WorkbookStore {
   }
 
   getValue(sheet: SheetState, r: number, c: number): CellValue {
-    const v = this.hf.getCellValue({ sheet: this.hfId(sheet), row: r, col: c })
+    const addr = { sheet: this.hfId(sheet), row: r, col: c }
+    if (this.frozen) {
+      const e = this.frozen.get(`${addr.sheet}:${r},${c}`)
+      if (e && this.hf.getCellFormula(addr) === e.f) return e.v
+    }
+    const v = this.hf.getCellValue(addr)
     if (v instanceof DetailedCellError) return { error: (v.value as never) ?? '#ERROR!' }
     return v as CellValue
   }
@@ -484,6 +493,7 @@ export class WorkbookStore {
       this.redoStack = []
     }
     this.dirty = true
+    if (this.frozen) this.calcPending = true
     this.notify()
   }
 
@@ -1051,10 +1061,46 @@ export class WorkbookStore {
     this.notify()
   }
 
-  /** F9 / Calculate Now: recomputes volatile functions (NOW, TODAY, RAND, OFFSET...). */
+  /** F9 / Calculate Now: recomputes volatile functions (NOW, TODAY, RAND, OFFSET...) and, in manual mode, everything. */
   recalculate(): void {
     try { this.hf.rebuildAndRecalculate() } catch { /* engine keeps its last values */ }
+    if (this.frozen) this.freezeValues()
+    this.calcPending = false
     this.notify()
+  }
+
+  /** Shift+F9 / Calculate Sheet: refreshes only the active sheet's formula results in manual mode. */
+  recalculateSheet(): void {
+    if (!this.frozen) return this.recalculate()
+    try { this.hf.rebuildAndRecalculate() } catch { /* */ }
+    this.freezeValues(this.hfId(this.active))
+    this.notify()
+  }
+
+  /** Formulas > Calculation Options. */
+  setCalcMode(mode: CalcMode): void {
+    if (mode === this.calcMode) return
+    this.calcMode = mode
+    this.dirty = true
+    if (mode === 'manual') this.freezeValues()
+    else { this.frozen = null; this.calcPending = false }
+    this.notify()
+  }
+
+  /** Snapshots every formula cell's current result (all sheets, or one engine sheet id). */
+  private freezeValues(only?: number): void {
+    if (!this.frozen || only === undefined) this.frozen = new Map()
+    for (const s of this.sheets) {
+      const id = this.hfId(s)
+      if (only !== undefined && id !== only) continue
+      const ser = this.hf.getSheetSerialized(id)
+      const vals = this.hf.getSheetValues(id)
+      ser.forEach((row, r) => row.forEach((f, c) => {
+        if (typeof f !== 'string' || !f.startsWith('=')) return
+        const v = vals[r]?.[c]
+        this.frozen!.set(`${id}:${r},${c}`, { f, v: (v instanceof DetailedCellError ? { error: (v.value as never) ?? '#ERROR!' } : v) as CellValue })
+      }))
+    }
   }
 
   // ---------- selection (not undoable) ----------
@@ -1110,6 +1156,9 @@ export class WorkbookStore {
     }
     this.bookProtection = data.protection
     this.calcMode = data.calcMode ?? 'auto'
+    this.frozen = null
+    this.calcPending = false
+    if (this.calcMode === 'manual') this.freezeValues()
     this.fileName = fileName
     this.filePath = filePath
     this.dirty = false

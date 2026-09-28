@@ -212,12 +212,12 @@ export function FormulasTab() {
     ] },
     { label: 'Calculation', big: [
       { label: 'Calculation Options', icon: <Calculator20Regular fontSize={28} />, menu: [
-        { label: '&Automatic', checked: true, onClick: () => {} },
-        { label: 'Automatic Except for &Data Tables', onClick: () => notAvailable('Automatic Except for Data Tables') },
-        { label: '&Manual', onClick: () => notAvailable('Manual calculation') }
+        { label: '&Automatic', checked: store.calcMode === 'auto', onClick: () => store.setCalcMode('auto') },
+        { label: 'Automatic Except for &Data Tables', checked: store.calcMode === 'autoNoTable', onClick: () => store.setCalcMode('autoNoTable') },
+        { label: '&Manual', checked: store.calcMode === 'manual', onClick: () => store.setCalcMode('manual') }
       ] },
       { label: 'Calculate Now', icon: <Calculator20Regular fontSize={28} />, shortcut: 'F9', onClick: () => store.recalculate() },
-      { label: 'Calculate Sheet', icon: <Calculator20Regular fontSize={28} />, shortcut: 'Shift+F9', onClick: () => store.recalculate() }
+      { label: 'Calculate Sheet', icon: <Calculator20Regular fontSize={28} />, shortcut: 'Shift+F9', onClick: () => store.recalculateSheet() }
     ] }
   ]
   return <GenericTab groups={groups} />
