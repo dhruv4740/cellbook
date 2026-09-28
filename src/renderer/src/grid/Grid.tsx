@@ -743,7 +743,7 @@ export default function Grid() {
   function c0(a: CellRef) { return a.c }
 
   function jumpTo(r: number, c: number, dr: number, dc: number): CellRef {
-    const hasVal = (rr: number, cc: number) => rr >= 0 && cc >= 0 && rr < MAX_ROWS && cc < MAX_COLS && store.getRaw(sheet, rr, cc) !== ''
+    const hasVal = (rr: number, cc: number) => rr >= 0 && cc >= 0 && rr < MAX_ROWS && cc < MAX_COLS && !store.isBlank(sheet, rr, cc)
     let rr = r, cc = c
     const step = () => { rr += dr; cc += dc }
     const inBounds = () => rr >= 0 && cc >= 0 && rr < MAX_ROWS && cc < MAX_COLS

@@ -32,6 +32,7 @@ if (!data) { console.log('file did not open'); await app.close(); process.exit(1
 win = data
 log('open (until data visible)', (Date.now() - t) + ' ms')
 await win.waitForTimeout(500)
+log('open timing (read in worker / store.load)', await win.evaluate(() => globalThis.__openTiming))
 log('used range rows', await win.evaluate(() => globalThis.store.usedRange(globalThis.store.active).r2 + 1))
 
 // ---- frame-time recorder ----
