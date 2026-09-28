@@ -5,6 +5,17 @@ import { colName } from '../model/types'
 // wb.xlsx.writeBuffer() already produced, so a normal .xlsx save with no criteria and no macros
 // pays nothing beyond the unzip/rezip when there's actually something to patch.
 import { unzipSync, zipSync } from 'fflate'
+
+/** An unzipped package handed from stage to stage, so a save unzips and re-zips once instead of once per stage. */
+export interface Pkg { files: Record<string, Uint8Array> }
+export type PkgLike = Uint8Array | Pkg
+export const toFiles = (z: PkgLike): Record<string, Uint8Array> => (z instanceof Uint8Array ? unzipSync(z) : z.files)
+export function toBytes(z: PkgLike, level: 1 | 4 | 6 = 4): Uint8Array {
+  if (z instanceof Uint8Array) return z
+  const out: Record<string, Uint8Array> = {}
+  for (const [name, bytes] of Object.entries(z.files)) if (!name.endsWith('/')) out[name] = bytes
+  return zipSync(out, { level })
+}
 import type { AutoFilter, CalcMode, ChartSpec, DataValidationRule, SheetLayout, SheetProtection, WorkbookProtection } from '../model/types'
 import { passwordAttrs, sheetProtectionXml } from '../model/protection'
 import { outlineRuns } from '../model/outline'
@@ -136,8 +147,8 @@ export function buildDataValidationsXml(rules: DataValidationRule[]): string {
 
 /** ExcelJS puts <legacyDrawing> (notes) after a data bar's worksheet <extLst>; Excel requires
  *  extLst last and refuses to open the file otherwise. Moves it back; returns the input if nothing moved. */
-export function fixLegacyDrawingOrder(zipBytes: Uint8Array): Uint8Array {
-  const files = unzipSync(zipBytes)
+export function fixLegacyDrawingOrder(zipBytes: PkgLike): PkgLike {
+  const files = toFiles(zipBytes)
   let changed = false
   for (const name of Object.keys(files)) {
     if (!/^xl\/worksheets\/sheet\d+\.xml$/.test(name)) continue
@@ -149,15 +160,15 @@ export function fixLegacyDrawingOrder(zipBytes: Uint8Array): Uint8Array {
     files[name] = new TextEncoder().encode(without.slice(0, ext.index) + legacy[0] + without.slice(ext.index))
     changed = true
   }
-  return changed ? zipSync(files, { level: 6 }) : zipBytes
+  return changed ? { files } : zipBytes
 }
 
 const DYNAMIC_ARRAY_METADATA = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<metadata xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:xda="http://schemas.microsoft.com/office/spreadsheetml/2017/dynamicarray"><metadataTypes count="1"><metadataType name="XLDAPR" minSupportedVersion="120000" copy="1" pasteAll="1" pasteValues="1" merge="1" splitFirst="1" rowColShift="1" clearFormats="1" clearComments="1" assign="1" coerce="1" cellMeta="1"/></metadataTypes><futureMetadata name="XLDAPR" count="1"><bk><extLst><ext uri="{bdbb8cdc-fa1e-496e-a857-3c3f30c029c3}"><xda:dynamicArrayProperties fDynamic="1" fCollapsed="0"/></ext></extLst></bk></futureMetadata><cellMetadata count="1"><bk><rc t="1" v="0"/></bk></cellMetadata></metadata>'
 
 /** Marks array formulas as dynamic (spilling) arrays the way Excel does: cm="1" on the cell plus
  *  xl/metadata.xml. Without it Excel treats FILTER/UNIQUE as fixed legacy array formulas. */
-export function markDynamicArrays(zipBytes: Uint8Array): Uint8Array {
-  const files = unzipSync(zipBytes)
+export function markDynamicArrays(zipBytes: PkgLike): PkgLike {
+  const files = toFiles(zipBytes)
   const dec = new TextDecoder()
   const enc = new TextEncoder()
   let any = false
@@ -176,7 +187,7 @@ export function markDynamicArrays(zipBytes: Uint8Array): Uint8Array {
     const rels = dec.decode(files['xl/_rels/workbook.xml.rels'])
     files['xl/_rels/workbook.xml.rels'] = enc.encode(rels.replace('</Relationships>', '<Relationship Id="rIdMeta1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sheetMetadata" Target="metadata.xml"/></Relationships>'))
   }
-  return zipSync(files, { level: 6 })
+  return { files }
 }
 
 /** Finds a worksheet-level element (global regex) past sheetData/conditionalFormatting, so an
@@ -383,8 +394,12 @@ function injectVbaProject(files: Record<string, Uint8Array>, vba: VbaProject): v
 
 /** `sheetFilters[i]` is sheet `i+1`'s AutoFilter (exceljs names worksheet parts sheet1.xml,
  *  sheet2.xml, ... in the order worksheets were added, which matches WorkbookData.sheets order). */
-export function postProcessXlsx(
-  zipBytes: Uint8Array,
+export function postProcessXlsx(...args: Parameters<typeof postProcessPkg>): Uint8Array {
+  return toBytes(postProcessPkg(...args))
+}
+
+export function postProcessPkg(
+  zipBytes: PkgLike,
   sheetFilters: (AutoFilter | undefined)[],
   vba?: VbaProject,
   sheetValidations?: (DataValidationRule[] | undefined)[],
@@ -392,8 +407,8 @@ export function postProcessXlsx(
   sheetNames?: string[],
   sheetCells?: Record<string, { raw?: string }>[],
   sheetLayouts?: (Partial<SheetLayout> | undefined)[]
-): Uint8Array {
-  const files = unzipSync(zipBytes)
+): PkgLike {
+  const files = toFiles(zipBytes)
   const sheetCount = Math.max(sheetFilters.length, sheetValidations?.length ?? 0)
 
   for (let i = 0; i < sheetCount; i++) {
@@ -443,14 +458,14 @@ export function postProcessXlsx(
     if (name.endsWith('/')) continue // directory placeholder, not a real entry we need to keep
     out[name] = bytes
   }
-  return zipSync(out, { level: 6 })
+  return { files: out }
 }
 
 /** Writes the workbook's defined names into xl/workbook.xml, keeping any exceljs already wrote
  *  (e.g. _xlnm._FilterDatabase) unless ours has the same name and scope. */
-export function injectDefinedNames(zipBytes: Uint8Array, names: { name: string; ref: string; sheet?: number; hidden?: boolean }[]): Uint8Array {
+export function injectDefinedNames(zipBytes: PkgLike, names: { name: string; ref: string; sheet?: number; hidden?: boolean }[]): PkgLike {
   if (!names.length) return zipBytes
-  const files = unzipSync(zipBytes)
+  const files = toFiles(zipBytes)
   const path = 'xl/workbook.xml'
   let xml = new TextDecoder('utf-8').decode(files[path])
   const key = (n: string, s?: number) => n.toLowerCase() + '|' + (s ?? '')
@@ -471,13 +486,13 @@ export function injectDefinedNames(zipBytes: Uint8Array, names: { name: string; 
   files[path] = new TextEncoder().encode(xml)
   const out: Record<string, Uint8Array> = {}
   for (const [name, bytes] of Object.entries(files)) if (!name.endsWith('/')) out[name] = bytes
-  return zipSync(out, { level: 6 })
+  return { files: out }
 }
 
 /** Writes each sheet's hyperlinks (sheet XML <hyperlinks> + external relationships). */
-export function injectHyperlinks(zipBytes: Uint8Array, sheetLinks: (Record<string, { target?: string; location?: string; tooltip?: string }> | undefined)[]): Uint8Array {
+export function injectHyperlinks(zipBytes: PkgLike, sheetLinks: (Record<string, { target?: string; location?: string; tooltip?: string }> | undefined)[]): PkgLike {
   if (!sheetLinks.some((l) => l && Object.keys(l).length)) return zipBytes
-  const files = unzipSync(zipBytes)
+  const files = toFiles(zipBytes)
   const dec = new TextDecoder('utf-8'), enc = new TextEncoder()
   const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
   sheetLinks.forEach((links, i) => {
@@ -518,19 +533,19 @@ export function injectHyperlinks(zipBytes: Uint8Array, sheetLinks: (Record<strin
   })
   const out: Record<string, Uint8Array> = {}
   for (const [name, bytes] of Object.entries(files)) if (!name.endsWith('/')) out[name] = bytes
-  return zipSync(out, { level: 6 })
+  return { files: out }
 }
 
 /** Writes sheet protection, workbook protection and the calculation mode - none of which exceljs can express faithfully
  *  (it re-hashes passwords and inverts the option flags). Placement follows the schema: sheetProtection right after sheetData. */
 export function injectProtection(
-  zipBytes: Uint8Array,
+  zipBytes: PkgLike,
   sheetProt: (SheetProtection | undefined)[],
   wbProt: WorkbookProtection | undefined,
   calcMode: CalcMode | undefined
-): Uint8Array {
+): PkgLike {
   if (!sheetProt.some(Boolean) && !wbProt && (!calcMode || calcMode === 'auto')) return zipBytes
-  const files = unzipSync(zipBytes)
+  const files = toFiles(zipBytes)
   const dec = new TextDecoder('utf-8'), enc = new TextEncoder()
   sheetProt.forEach((p, i) => {
     if (!p) return
@@ -557,13 +572,13 @@ export function injectProtection(
   files['xl/workbook.xml'] = enc.encode(wx)
   const out: Record<string, Uint8Array> = {}
   for (const [name, bytes] of Object.entries(files)) if (!name.endsWith('/')) out[name] = bytes
-  return zipSync(out, { level: 6 })
+  return { files: out }
 }
 
 /** Writes Excel's `collapsed` flags on the summary rows/columns of collapsed groups (and nowhere else). */
-export function injectOutline(zipBytes: Uint8Array, layouts: (Partial<SheetLayout> | undefined)[]): Uint8Array {
+export function injectOutline(zipBytes: PkgLike, layouts: (Partial<SheetLayout> | undefined)[]): PkgLike {
   if (!layouts.some((l) => l && (l.rowLevels || l.colLevels))) return zipBytes
-  const files = unzipSync(zipBytes)
+  const files = toFiles(zipBytes)
   const dec = new TextDecoder('utf-8'), enc = new TextEncoder()
   layouts.forEach((l, i) => {
     if (!l || (!l.rowLevels && !l.colLevels)) return
@@ -586,13 +601,13 @@ export function injectOutline(zipBytes: Uint8Array, layouts: (Partial<SheetLayou
   })
   const out: Record<string, Uint8Array> = {}
   for (const [name, bytes] of Object.entries(files)) if (!name.endsWith('/')) out[name] = bytes
-  return zipSync(out, { level: 6 })
+  return { files: out }
 }
 
 /** Replaces exceljs's placeholder page elements with the sheet's real Page Setup (margins, header/footer, scale, breaks...). */
-export function injectPageSetup(zipBytes: Uint8Array, setups: (PageSetup | undefined)[]): Uint8Array {
+export function injectPageSetup(zipBytes: PkgLike, setups: (PageSetup | undefined)[]): PkgLike {
   if (!setups.some(Boolean)) return zipBytes
-  const files = unzipSync(zipBytes)
+  const files = toFiles(zipBytes)
   const dec = new TextDecoder('utf-8'), enc = new TextEncoder()
   setups.forEach((p, i) => {
     if (!p) return
@@ -616,5 +631,5 @@ export function injectPageSetup(zipBytes: Uint8Array, setups: (PageSetup | undef
   })
   const out: Record<string, Uint8Array> = {}
   for (const [name, bytes] of Object.entries(files)) if (!name.endsWith('/')) out[name] = bytes
-  return zipSync(out, { level: 6 })
+  return { files: out }
 }
