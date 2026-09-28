@@ -11,7 +11,8 @@ let epoch = 0
 /** Called before every engine mutation: flattened ranges and indexes built earlier may be stale. */
 export function bumpAggEpoch(): void { epoch++ }
 
-interface Flat { vals: unknown[]; h: number; w: number; index?: Map<string, number[]> }
+interface Line { vals: unknown[]; index?: Map<string, number[]> }
+interface Flat { vals: unknown[]; h: number; w: number; index?: Map<string, number[]>; lines?: Map<string, Line> }
 const caches = new WeakMap<object, { epoch: number; map: Map<string, Flat> }>()
 
 const isBlank = (v: unknown): boolean => v === null || v === undefined || typeof v === 'symbol' || v === ''
@@ -341,6 +342,101 @@ class FastLookupPlugin extends FunctionPlugin {
     }) as never)
   }
 }
+// ---------- VLOOKUP / HLOOKUP / MATCH ----------
+/** One column ('c') or row ('r') of a flattened range, with its own hash index. */
+function lineOf(f: Flat, dim: 'c' | 'r', k: number): Line {
+  const m = (f.lines ??= new Map())
+  const key = dim + k
+  let l = m.get(key)
+  if (!l) {
+    l = { vals: dim === 'c' ? Array.from({ length: f.h }, (_, i) => f.vals[i * f.w + k]) : f.vals.slice(k * f.w, (k + 1) * f.w) }
+    m.set(key, l)
+  }
+  return l
+}
+function lineIndex(l: Line): Map<string, number[]> {
+  if (l.index) return l.index
+  const m = new Map<string, number[]>()
+  for (let i = 0; i < l.vals.length; i++) {
+    const k = keyOf(l.vals[i])
+    if (k === null) continue
+    const a = m.get(k)
+    if (a) a.push(i)
+    else m.set(k, [i])
+  }
+  l.index = m
+  return m
+}
+function findExact(l: Line, key: unknown): number {
+  if (typeof key === 'string' && hasWildcard(key)) {
+    const re = wildcardRe(key)
+    return l.vals.findIndex((v) => typeof v === 'string' && re.test(v))
+  }
+  const k = keyOf(key)
+  if (k === null) return -1
+  const a = lineIndex(l).get(k)
+  return a ? a[0] : -1
+}
+const sameType = (a: unknown, b: unknown): boolean => typeof a === typeof b && !(a instanceof CellError)
+const cmpVals = (a: unknown, b: unknown): number => (typeof a === 'number' ? a - (b as number) : typeof a === 'boolean' ? Number(a) - Number(b) : String(a).toLowerCase().localeCompare(String(b).toLowerCase()))
+/** Sorted-data search: index of the last value <= key (ascending) or of the last value >= key (descending); -1 if none. */
+function findApprox(vals: unknown[], key: unknown, descending: boolean): number {
+  let lo = 0, hi = vals.length - 1, best = -1
+  while (lo <= hi) {
+    let mid = (lo + hi) >> 1
+    // skip cells of another type (blanks, text among numbers) like Excel does
+    let m = mid
+    while (m <= hi && !sameType(vals[m], key)) m++
+    if (m > hi) { m = mid; while (m >= lo && !sameType(vals[m], key)) m-- }
+    if (m < lo) break
+    mid = m
+    const c = cmpVals(vals[mid], key)
+    if (c === 0 || (descending ? c > 0 : c < 0)) { best = mid; lo = mid + 1 } else hi = mid - 1
+  }
+  return best
+}
+const keyArg = (k: unknown): unknown => (k instanceof SimpleRangeValue ? norm(k.data[0]?.[0]) : norm(k))
+
+class FastVLookupPlugin extends FunctionPlugin {
+  static implementedFunctions = {
+    VLOOKUP: { method: 'vlookup', parameters: [{ argumentType: FunctionArgumentType.ANY }, { argumentType: FunctionArgumentType.RANGE }, { argumentType: FunctionArgumentType.NUMBER }, { argumentType: FunctionArgumentType.BOOLEAN, optionalArg: true, defaultValue: true }] },
+    HLOOKUP: { method: 'hlookup', parameters: [{ argumentType: FunctionArgumentType.ANY }, { argumentType: FunctionArgumentType.RANGE }, { argumentType: FunctionArgumentType.NUMBER }, { argumentType: FunctionArgumentType.BOOLEAN, optionalArg: true, defaultValue: true }] },
+    MATCH: { method: 'match', parameters: [{ argumentType: FunctionArgumentType.ANY }, { argumentType: FunctionArgumentType.RANGE }, { argumentType: FunctionArgumentType.NUMBER, optionalArg: true, defaultValue: 1 }] }
+  }
+  private lookup(ast: any, state: any, name: 'VLOOKUP' | 'HLOOKUP'): InterpreterValue {
+    const v = name === 'VLOOKUP'
+    return this.runFunction(ast.args, state, this.metadata(name), ((key0: unknown, table: unknown, idx: number, approx: boolean) => {
+      const key = keyArg(key0)
+      if (key instanceof CellError) return key
+      const f = flatten(this, table)
+      const n = Math.trunc(idx)
+      if (n < 1) return VALUE()
+      if (n > (v ? f.w : f.h)) return new CellError(ErrorType.REF)
+      if (key === null) return new CellError(ErrorType.NA)
+      const l = lineOf(f, v ? 'c' : 'r', 0)
+      const at = approx ? findApprox(l.vals, key, false) : findExact(l, key)
+      if (at < 0) return new CellError(ErrorType.NA)
+      const out = v ? f.vals[at * f.w + n - 1] : f.vals[(n - 1) * f.w + at]
+      return (out === null || out === undefined ? 0 : out) as never
+    }) as never)
+  }
+  vlookup(ast: any, state: any): InterpreterValue { return this.lookup(ast, state, 'VLOOKUP') }
+  hlookup(ast: any, state: any): InterpreterValue { return this.lookup(ast, state, 'HLOOKUP') }
+  match(ast: any, state: any): InterpreterValue {
+    return this.runFunction(ast.args, state, this.metadata('MATCH'), ((key0: unknown, range: unknown, type: number) => {
+      const key = keyArg(key0)
+      if (key instanceof CellError) return key
+      const f = flatten(this, range)
+      if (f.h !== 1 && f.w !== 1) return new CellError(ErrorType.NA)
+      if (key === null) return new CellError(ErrorType.NA)
+      const l: Line = f.h === 1 ? lineOf(f, 'r', 0) : lineOf(f, 'c', 0)
+      const t = Math.sign(Math.trunc(type))
+      const at = t === 0 ? findExact(l, key) : findApprox(l.vals, key, t < 0)
+      return at < 0 ? new CellError(ErrorType.NA) : at + 1
+    }) as never)
+  }
+}
+
 const escapeEq = (s: string): string => s.replace(/~/g, '~~').replace(/\*/g, '~*').replace(/\?/g, '~?')
 const cmpOf = (v: unknown, k: unknown): number => (typeof v === 'number' ? v - (k as number) : String(v).toLowerCase().localeCompare(String(k).toLowerCase()))
 
@@ -349,7 +445,7 @@ export function registerFastAggregates(): void {
   if (registered) return
   registered = true
   const names = (p: { implementedFunctions: object }): Record<string, string> => Object.fromEntries(Object.keys(p.implementedFunctions).map((k) => [k, k]))
-  for (const p of [FastAggPlugin, FastLookupPlugin]) {
+  for (const p of [FastAggPlugin, FastLookupPlugin, FastVLookupPlugin]) {
     for (const f of Object.keys(p.implementedFunctions)) { try { HyperFormula.unregisterFunction(f) } catch { /* not registered */ } }
     HyperFormula.registerFunctionPlugin(p as never, { enGB: names(p), enUS: names(p) } as never)
   }
