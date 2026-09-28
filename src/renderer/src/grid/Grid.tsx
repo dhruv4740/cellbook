@@ -1195,7 +1195,7 @@ export default function Grid() {
         }
         e.preventDefault(); return
       }
-      if (e.key === 'ArrowDown') { tabAnchorCol.current = null; const j = mod || getUi().endMode; moveActive(1, 0, extending, { jump: j }); if (getUi().endMode) setUi({ endMode: false }); e.preventDefault(); return }
+      if (e.key === 'ArrowDown' && !(e.altKey && !mod)) { tabAnchorCol.current = null; const j = mod || getUi().endMode; moveActive(1, 0, extending, { jump: j }); if (getUi().endMode) setUi({ endMode: false }); e.preventDefault(); return }
       if (e.key === 'ArrowUp') { tabAnchorCol.current = null; const j = mod || getUi().endMode; moveActive(-1, 0, extending, { jump: j }); if (getUi().endMode) setUi({ endMode: false }); e.preventDefault(); return }
       if (e.key === 'ArrowLeft') { tabAnchorCol.current = null; const j = mod || getUi().endMode; moveActive(0, -1, extending, { jump: j }); if (getUi().endMode) setUi({ endMode: false }); e.preventDefault(); return }
       if (e.key === 'ArrowRight') { tabAnchorCol.current = null; const j = mod || getUi().endMode; moveActive(0, 1, extending, { jump: j }); if (getUi().endMode) setUi({ endMode: false }); e.preventDefault(); return }

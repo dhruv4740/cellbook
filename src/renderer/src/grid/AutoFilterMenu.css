@@ -15,7 +15,7 @@
 .xl-afmenu-search { padding: 4px 8px; }
 .xl-afmenu-search input { width: 100%; box-sizing: border-box; padding: 3px 6px; border: 1px solid #8a8886; font: 12px var(--ui-font); }
 .xl-afmenu-list { max-height: 180px; overflow-y: auto; border: 1px solid #e1dfdd; margin: 2px 8px; padding: 2px 0; }
-.xl-afmenu-check { display: flex; align-items: center; gap: 6px; padding: 2px 8px; cursor: default; }
+.xl-afmenu-check { display: flex; align-items: center; gap: 6px; padding: 0 8px; height: 22px; box-sizing: border-box; white-space: nowrap; overflow: hidden; cursor: default; }
 .xl-afmenu-check:hover { background: #f3f2f1; }
 .xl-afmenu-footer { display: flex; justify-content: flex-end; gap: 6px; padding: 8px; }
 .xl-afmenu-condrow { display: flex; gap: 8px; align-items: center; padding: 4px 0; }
