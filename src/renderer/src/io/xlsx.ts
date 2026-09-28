@@ -13,8 +13,9 @@ import {
 } from './xlsxShared'
 import { extractSection, parseAttrs, parseRelationships, resolveRelTarget } from './fastXlsxXml'
 import type { VbaProject } from './xlsxPostProcess'
-import { fixLegacyDrawingOrder, markDynamicArrays, injectDefinedNames, injectHyperlinks, injectOutline, injectPageSetup, injectProtection, postProcessXlsx } from './xlsxPostProcess'
+import { toBytes, fixLegacyDrawingOrder, markDynamicArrays, injectDefinedNames, injectHyperlinks, injectOutline, injectPageSetup, injectProtection, postProcessPkg } from './xlsxPostProcess'
 import { parseDataValidations } from './fastXlsx'
+import { injectBulkCells, fastWriteThreshold, BulkRows } from './bulkCells'
 
 const EXCEL_ERRORS = new Set(['#NULL!', '#DIV/0!', '#VALUE!', '#REF!', '#NAME?', '#NUM!', '#N/A', '#GETTING_DATA', '#SPILL!', '#CALC!'])
 
@@ -459,12 +460,35 @@ export async function writeXlsx(data: WorkbookData, vba?: VbaProject): Promise<U
   wb.created = new Date()
   wb.calcProperties.fullCalcOnLoad = true
 
+  // Big sheets: their plain cells are written as XML by bulkCells.ts instead of through exceljs objects.
+  const bulk: (BulkRows | undefined)[] = []
+  const threshold = fastWriteThreshold()
   data.sheets.forEach((sd, i) => {
     const ws = wb.addWorksheet(sd.name || 'Sheet' + (i + 1))
     const layout = { ...defaultLayout(), ...sd.layout }
 
-    for (const [key, cell] of Object.entries(sd.cells)) {
-      const [r, c] = key.split(',').map(Number)
+    // Cells that need exceljs objects (notes, comments, merged areas) stay on the exceljs path.
+    let special: Set<string> | undefined
+    if (Object.keys(sd.cells).length >= threshold) {
+      special = new Set<string>([...Object.keys(layout.notes ?? {}), ...Object.keys(layout.comments ?? {})])
+      let mergedCells = 0
+      for (const m of layout.merges ?? []) mergedCells += (m.r2 - m.r1 + 1) * (m.c2 - m.c1 + 1)
+      if (mergedCells > 50000) special = undefined
+      else for (const m of layout.merges ?? []) for (let r = m.r1; r <= m.r2; r++) for (let c = m.c1; c <= m.c2; c++) special.add(`${r},${c}`)
+    }
+    const rows: BulkRows | undefined = special ? new Map() : undefined
+    bulk[i] = rows
+
+    for (const key in sd.cells) {
+      const cell = sd.cells[key]
+      const comma = key.indexOf(',')
+      const r = +key.slice(0, comma), c = +key.slice(comma + 1)
+      if (rows && !special!.has(key)) {
+        let row = rows.get(r)
+        if (!row) rows.set(r, (row = []))
+        row.push({ c, cell })
+        continue
+      }
       const target = ws.getCell(r + 1, c + 1)
       if (cell.raw !== undefined && cell.raw !== '') {
         if (cell.raw.startsWith("'")) {
@@ -650,7 +674,9 @@ export async function writeXlsx(data: WorkbookData, vba?: VbaProject): Promise<U
   if (!isVisible(activeTab)) activeTab = Math.max(0, data.sheets.findIndex((_, i) => isVisible(i)))
   wb.views = [{ x: 0, y: 0, width: 25000, height: 15000, firstSheet: 0, activeTab, visibility: 'visible' }]
 
-  const buf = new Uint8Array(await wb.xlsx.writeBuffer() as ArrayBuffer)
+  const anyBulk = bulk.some(Boolean)
+  const raw = new Uint8Array(await wb.xlsx.writeBuffer(anyBulk ? ({ zip: { compression: 'STORE' } } as never) : undefined) as ArrayBuffer)
+  const buf = anyBulk ? injectBulkCells(raw, bulk) : raw
 
   // AutoFilter per-column criteria and the VBA project part both need editing the raw package -
   // exceljs's object model can express neither. Skip the unzip/rezip when there's nothing to add.
@@ -666,11 +692,11 @@ export async function writeXlsx(data: WorkbookData, vba?: VbaProject): Promise<U
   const hasCharts = sheetCharts.some((c) => c && c.length > 0)
 
   const processed = hasCriteria || hasValidations || hasCharts || vba
-    ? postProcessXlsx(buf, sheetFilters, vba, sheetValidations, sheetCharts, sheetNames, sheetCells, sheetLayouts)
+    ? postProcessPkg(buf, sheetFilters, vba, sheetValidations, sheetCharts, sheetNames, sheetCells, sheetLayouts)
     : buf
   const linked = markDynamicArrays(fixLegacyDrawingOrder(injectHyperlinks(processed, data.sheets.map((sd) => sd.layout?.hyperlinks))))
   const named = data.names?.length ? injectDefinedNames(linked, data.names) : linked
-  return injectPageSetup(injectOutline(injectProtection(named, data.sheets.map((sd) => sd.layout?.protection), data.protection, data.calcMode), data.sheets.map((sd) => sd.layout)), data.sheets.map((sd) => sd.layout?.pageSetup))
+  return toBytes(injectPageSetup(injectOutline(injectProtection(named, data.sheets.map((sd) => sd.layout?.protection), data.protection, data.calcMode), data.sheets.map((sd) => sd.layout)), data.sheets.map((sd) => sd.layout?.pageSetup)))
 }
 
 // ---------- read (fast path) ----------
