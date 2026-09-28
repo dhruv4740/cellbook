@@ -777,6 +777,22 @@ export class WorkbookStore {
     return out
   }
 
+  /** Group levels follow their rows/columns; a row inserted inside a group joins it, as in Excel. */
+  private shiftOutline(sheet: SheetState, axis: 'row' | 'col', at: number, delta: number): void {
+    const l = sheet.layout
+    const levels = axis === 'row' ? l.rowLevels : l.colLevels
+    if (!levels) return
+    const shifted = this.shiftKeys(levels, at, delta)
+    if (delta > 0 && (levels[at - 1] ?? 0) > 0 && (levels[at] ?? 0) > 0) {
+      const lv = Math.min(levels[at - 1], levels[at])
+      for (let i = at; i < at + delta; i++) shifted[i] = lv
+    }
+    const collapsed = axis === 'row' ? l.collapsedRows : l.collapsedCols
+    if (axis === 'row') { l.rowLevels = shifted; if (collapsed) l.collapsedRows = this.shiftKeys(collapsed, at, delta) }
+    else { l.colLevels = shifted; if (collapsed) l.collapsedCols = this.shiftKeys(collapsed, at, delta) }
+    if (!Object.keys(shifted).length) { if (axis === 'row') { delete l.rowLevels; delete l.collapsedRows } else { delete l.colLevels; delete l.collapsedCols } }
+  }
+
   private shiftStyles(sheet: SheetState, axis: 'r' | 'c', at: number, delta: number): void {
     const next = new Map<string, CellStyle>()
     sheet.styles.forEach((s, k) => {
@@ -819,6 +835,7 @@ export class WorkbookStore {
       this.shiftMerges(sheet, 'r', at, count)
       sheet.layout.rowHeights = this.shiftKeys(sheet.layout.rowHeights, at, count)
       sheet.layout.hiddenRows = this.shiftKeys(sheet.layout.hiddenRows, at, count)
+      this.shiftOutline(sheet, 'row', at, count)
     })
     this.broadcastOp({ type: 'insertRows', sheetName: sheet.name, at, count })
   }
@@ -830,6 +847,7 @@ export class WorkbookStore {
       this.shiftMerges(sheet, 'r', at, -count)
       sheet.layout.rowHeights = this.shiftKeys(sheet.layout.rowHeights, at, -count)
       sheet.layout.hiddenRows = this.shiftKeys(sheet.layout.hiddenRows, at, -count)
+      this.shiftOutline(sheet, 'row', at, -count)
     })
     this.broadcastOp({ type: 'deleteRows', sheetName: sheet.name, at, count })
   }
@@ -841,6 +859,7 @@ export class WorkbookStore {
       this.shiftMerges(sheet, 'c', at, count)
       sheet.layout.colWidths = this.shiftKeys(sheet.layout.colWidths, at, count)
       sheet.layout.hiddenCols = this.shiftKeys(sheet.layout.hiddenCols, at, count)
+      this.shiftOutline(sheet, 'col', at, count)
     })
     this.broadcastOp({ type: 'insertCols', sheetName: sheet.name, at, count })
   }
@@ -852,6 +871,7 @@ export class WorkbookStore {
       this.shiftMerges(sheet, 'c', at, -count)
       sheet.layout.colWidths = this.shiftKeys(sheet.layout.colWidths, at, -count)
       sheet.layout.hiddenCols = this.shiftKeys(sheet.layout.hiddenCols, at, -count)
+      this.shiftOutline(sheet, 'col', at, -count)
     })
     this.broadcastOp({ type: 'deleteCols', sheetName: sheet.name, at, count })
   }

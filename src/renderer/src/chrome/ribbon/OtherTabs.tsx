@@ -28,6 +28,7 @@ import { COLUMN_BAR_GALLERY, LINE_AREA_GALLERY, PIE_DOUGHNUT_GALLERY, SCATTER_BU
 import { insertChartFromSelection } from '../../charts/insertChart'
 import { openFile } from '../../io/fileOps'
 import { refreshAllPivots } from '../../data/pivot'
+import { autoOutline, clearAllOutlines, outlineCommand } from '../../grid/outlineCommands'
 import { toggleSheetProtection, toggleWorkbookProtection } from '../../dialogs/ProtectDialogs'
 
 function chartGalleryMenu(entries: GalleryEntry[]): MenuItem[] {
@@ -244,10 +245,19 @@ export function DataTab() {
       { label: 'What-If Analysis', icon: <DataHistogram20Regular fontSize={28} /> },
       { label: 'Forecast Sheet', icon: <ChartMultiple20Regular fontSize={28} /> }
     ] },
-    { label: 'Outline', big: [
-      { label: 'Group', icon: <FlowchartCircle20Regular fontSize={28} /> },
-      { label: 'Ungroup', icon: <FlowchartCircle20Regular fontSize={28} /> },
+    { label: 'Outline', launcher: true, onLauncher: () => setUi({ dialog: { kind: 'outlineSettings' } }), big: [
+      { label: 'Group', icon: <FlowchartCircle20Regular fontSize={28} />, shortcut: 'Alt+Shift+Right', onClick: () => outlineCommand('group'), menu: [
+        { label: '&Group...', onClick: () => outlineCommand('group') },
+        { label: '&Auto Outline', onClick: () => autoOutline() }
+      ] },
+      { label: 'Ungroup', icon: <FlowchartCircle20Regular fontSize={28} />, shortcut: 'Alt+Shift+Left', onClick: () => outlineCommand('ungroup'), menu: [
+        { label: '&Ungroup...', onClick: () => outlineCommand('ungroup') },
+        { label: '&Clear Outline', onClick: () => clearAllOutlines() }
+      ] },
       { label: 'Subtotal', icon: <MathFormula20Regular fontSize={28} />, onClick: () => setUi({ dialog: { kind: 'subtotal' } }) }
+    ], rows: [
+      [{ label: 'Show Detail', icon: <ArrowRepeatAll20Regular />, onClick: () => outlineCommand('show') }],
+      [{ label: 'Hide Detail', icon: <ArrowRepeatAllOff20Regular />, onClick: () => outlineCommand('hide') }]
     ] }
   ]
   return <GenericTab groups={groups} />

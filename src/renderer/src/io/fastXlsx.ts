@@ -156,6 +156,11 @@ export function parseXlsx(bytes: Uint8Array): WorkbookData & { vbaProject?: VbaP
     if (parsed.showHeadings !== undefined) layout.showHeadings = parsed.showHeadings
     if (parsed.zoom !== undefined) layout.zoom = parsed.zoom
     if (parsed.frozen) layout.frozen = parsed.frozen
+    if (parsed.rowLevels) layout.rowLevels = parsed.rowLevels
+    if (parsed.colLevels) layout.colLevels = parsed.colLevels
+    if (parsed.collapsedRows) layout.collapsedRows = parsed.collapsedRows
+    if (parsed.collapsedCols) layout.collapsedCols = parsed.collapsedCols
+    if (parsed.outline) layout.outline = parsed.outline
     const ps = parsePageSetup(xml)
     if (ps) layout.pageSetup = ps
     const spAt = xml.lastIndexOf('<sheetProtection')
@@ -832,6 +837,11 @@ interface ParsedSheet {
   showGridlines?: boolean
   showHeadings?: boolean
   zoom?: number
+  rowLevels?: Record<number, number>
+  colLevels?: Record<number, number>
+  collapsedRows?: Record<number, true>
+  collapsedCols?: Record<number, true>
+  outline?: { summaryBelow?: boolean; summaryRight?: boolean }
 }
 
 type CellsMap = WorkbookData['sheets'][number]['cells']
@@ -859,10 +869,26 @@ function parseSheetXml(xml: string, xfStyles: (CellStyle | undefined)[], sharedS
   // sheetPr / tabColor
   const sheetPr = extractSection(xml, 'sheetPr')
   let tabColorAttrs: string | undefined
+  let outline: ParsedSheet['outline']
   if (sheetPr !== undefined) {
     const tc = /<tabColor\b([^>]*)\/>/.exec(sheetPr)
     if (tc) tabColorAttrs = tc[1]
+    const op = /<outlinePr\b([^>]*)\/?>/.exec(sheetPr)
+    if (op) {
+      const a = parseAttrs(op[1], 0, op[1].length)
+      outline = {}
+      if (a.summaryBelow === '0') outline.summaryBelow = false
+      if (a.summaryRight === '0') outline.summaryRight = false
+      if (outline.summaryBelow === undefined && outline.summaryRight === undefined) outline = undefined
+    }
   }
+  // Rows are only scanned for group levels when the sheet declares any (keeps the hot loop untouched otherwise).
+  const fmtPr = /<sheetFormatPr\b([^>]*?)\/?>/.exec(xml.slice(0, Math.max(0, xml.indexOf('<sheetData'))))
+  const fmtAttrs = fmtPr ? parseAttrs(fmtPr[1], 0, fmtPr[1].length) : {}
+  const rowLevels: Record<number, number> | undefined = parseInt(fmtAttrs.outlineLevelRow ?? '0', 10) > 0 ? {} : undefined
+  const collapsedRows: Record<number, true> = {}
+  const colLevels: Record<number, number> | undefined = parseInt(fmtAttrs.outlineLevelCol ?? '0', 10) > 0 ? {} : undefined
+  const collapsedCols: Record<number, true> = {}
 
   // sheetView
   let showGridlines: boolean | undefined
@@ -904,6 +930,8 @@ function parseSheetXml(xml: string, xfStyles: (CellStyle | undefined)[], sharedS
       for (let i = min; i <= max; i++) {
         if (hidden) hiddenCols[i - 1] = true
         if (width !== undefined) colWidths[i - 1] = colWidthToPx(width)
+        if (colLevels && a.outlineLevel && +a.outlineLevel > 0) colLevels[i - 1] = +a.outlineLevel
+        if (colLevels && a.collapsed === '1') collapsedCols[i - 1] = true
       }
     }
   }
@@ -934,6 +962,11 @@ function parseSheetXml(xml: string, xfStyles: (CellStyle | undefined)[], sharedS
       const htAttr = attrVal(dataSection, after, rowAttrsEnd, 'ht')
       if (htAttr !== undefined) rowHeights[r] = ptToPx(parseFloat(htAttr))
       if (attrVal(dataSection, after, rowAttrsEnd, 'hidden') === '1') hiddenRows[r] = true
+      if (rowLevels) {
+        const ol = attrVal(dataSection, after, rowAttrsEnd, 'outlineLevel')
+        if (ol && +ol > 0) rowLevels[r] = +ol
+        if (attrVal(dataSection, after, rowAttrsEnd, 'collapsed') === '1') collapsedRows[r] = true
+      }
 
       if (selfClose) {
         pos = gt + 1
@@ -1005,7 +1038,12 @@ function parseSheetXml(xml: string, xfStyles: (CellStyle | undefined)[], sharedS
     frozen,
     showGridlines,
     showHeadings,
-    zoom
+    zoom,
+    rowLevels: rowLevels && Object.keys(rowLevels).length ? rowLevels : undefined,
+    colLevels: colLevels && Object.keys(colLevels).length ? colLevels : undefined,
+    collapsedRows: Object.keys(collapsedRows).length ? collapsedRows : undefined,
+    collapsedCols: Object.keys(collapsedCols).length ? collapsedCols : undefined,
+    outline
   }
 }
 

@@ -23,6 +23,7 @@ import { DefineNameDialog, NameManagerDialog, CreateFromSelectionDialog } from '
 import { HyperlinkDialog } from './HyperlinkDialog'
 import { SubtotalDialog } from './SubtotalDialog'
 import { PivotDialog } from './PivotDialog'
+import { OutlineAxisDialog, OutlineSettingsDialog } from './OutlineDialogs'
 import { PasswordPromptDialog, ProtectSheetDialog, ProtectWorkbookDialog } from './ProtectDialogs'
 import { MessageDialog, UnhideSheetDialog, MoveCopySheetDialog, SeriesDialog } from './SheetDialogs'
 
@@ -135,6 +136,10 @@ export default function DialogHost() {
       return <ArrangeWindowsDialog onClose={close} />
     case 'message':
       return <MessageDialog text={String(d.props?.text ?? '')} onClose={close} />
+    case 'outlineAxis':
+      return <OutlineAxisDialog mode={d.props?.mode as never} onClose={close} />
+    case 'outlineSettings':
+      return <OutlineSettingsDialog onClose={close} />
     case 'protectSheet':
       return <ProtectSheetDialog sheetUid={(d.props?.sheetUid as number | undefined) ?? sheet.uid} onClose={close} />
     case 'protectWorkbook':

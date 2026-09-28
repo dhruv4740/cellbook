@@ -130,6 +130,14 @@ export interface SheetLayout {
   sheetHidden?: 'hidden' | 'veryHidden'
   /** Page Layout settings used by Print / PDF and saved to the file. */
   pageSetup?: PageSetup
+  /** Data > Group: group depth per row / column (absent = not grouped), see model/outline.ts. */
+  rowLevels?: Record<number, number>
+  colLevels?: Record<number, number>
+  /** Summary lines whose group was collapsed by the user (remembered so nested groups re-expand correctly). */
+  collapsedRows?: Record<number, true>
+  collapsedCols?: Record<number, true>
+  /** Data > Outline settings; both default to true (summary below / to the right of the detail). */
+  outline?: { summaryBelow?: boolean; summaryRight?: boolean }
   /** Set while the sheet is protected (Review > Protect Sheet). */
   protection?: SheetProtection
   /** PivotTables whose output starts on this sheet (kept for Refresh; saved to .xlsx as values). */

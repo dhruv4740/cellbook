@@ -42,13 +42,15 @@ export interface UiState {
   pickList: null | { r: number; c: number; x: number; y: number; values: string[] }
   /** Short message shown bottom-centre for a few seconds (e.g. a command Cellbook doesn't have yet). */
   toast: string | null
+  /** Ctrl+8: hide the outline symbols (gutter) even when the sheet has groups. */
+  outlineHidden: boolean
 }
 
 let state: UiState = {
   backstage: false, ribbonTab: 'Home', ribbonCollapsed: false, hideFormulaBar: false, dialog: null,
   formatPainter: null, edit: null, noteEditor: null, commentPanel: null, selectedChart: null,
   formulasVisible: false, selectMode: 'none', backstageTab: null, scrollLock: false, endMode: false,
-  groupedSheets: null, pickList: null, toast: null
+  groupedSheets: null, pickList: null, toast: null, outlineHidden: false
 }
 const listeners = new Set<() => void>()
 
