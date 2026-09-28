@@ -73,3 +73,25 @@ describe('Calculate Now (F9)', () => {
     expect(s.getValue(sh, 1, 0)).toBe(8)
   })
 })
+
+describe('manual calculation mode', () => {
+  it('keeps formula results stale until F9', () => {
+    const s = new WorkbookStore()
+    const sh = s.active
+    s.setRaw(sh, 0, 0, '1')
+    s.setRaw(sh, 0, 1, '=A1*10')
+    s.setCalcMode('manual')
+    s.setRaw(sh, 0, 0, '5')
+    expect(s.getValue(sh, 0, 0)).toBe(5)
+    expect(s.getValue(sh, 0, 1)).toBe(10)
+    expect(s.calcPending).toBe(true)
+    s.setRaw(sh, 1, 1, '=A1+1') // a newly entered formula calculates
+    expect(s.getValue(sh, 1, 1)).toBe(6)
+    s.recalculate()
+    expect(s.getValue(sh, 0, 1)).toBe(50)
+    expect(s.calcPending).toBe(false)
+    s.setCalcMode('auto')
+    s.setRaw(sh, 0, 0, '2')
+    expect(s.getValue(sh, 0, 1)).toBe(20)
+  })
+})

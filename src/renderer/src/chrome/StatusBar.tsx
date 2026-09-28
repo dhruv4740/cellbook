@@ -84,7 +84,7 @@ export default function StatusBar() {
     <div className="xl-statusbar" onContextMenu={(e) => { e.preventDefault(); openMenu(e) }}>
       <div className="xl-status-left">
         <span className="xl-status-mode">
-          {ui.selectMode === 'extend' ? 'Extend Selection' : ui.selectMode === 'add' ? 'Add to Selection' : store.mode}
+          {ui.selectMode === 'extend' ? 'Extend Selection' : ui.selectMode === 'add' ? 'Add to Selection' : store.calcPending && store.mode === 'Ready' ? 'Calculate' : store.mode}
         </span>
         {ui.scrollLock && <span className="xl-status-records">Scroll Lock</span>}
         {ui.endMode && <span className="xl-status-records">End Mode</span>}
