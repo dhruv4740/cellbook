@@ -309,6 +309,42 @@ class ExcelFixPlugin extends FunctionPlugin {
 }
 void scalarText
 
+// ---------- INDIRECT: a reference built from text (values only; volatile, so it follows every edit) ----------
+const colIdx = (t: string): number => [...t.toUpperCase()].reduce((v, ch) => v * 26 + ch.charCodeAt(0) - 64, 0) - 1
+class IndirectPlugin extends FunctionPlugin {
+  static implementedFunctions = {
+    INDIRECT: { method: 'indirect', parameters: [{ argumentType: FunctionArgumentType.STRING }, { argumentType: FunctionArgumentType.BOOLEAN, optionalArg: true, defaultValue: true }], isVolatile: true }
+  }
+  indirect(ast: any, state: any): InterpreterValue {
+    return this.runFunction(ast.args, state, this.metadata('INDIRECT'), (text: string, a1: boolean) => {
+      if (!a1) return new CellError(ErrorType.REF) // R1C1 text is not supported
+      const graph = (this as any).dependencyGraph
+      let ref = text.trim()
+      let sheet: number = state.formulaAddress.sheet
+      const bang = ref.lastIndexOf('!')
+      if (bang >= 0) {
+        let name = ref.slice(0, bang)
+        if (name.startsWith("'") && name.endsWith("'")) name = name.slice(1, -1).replace(/''/g, "'")
+        const id = graph.sheetMapping.getSheetId(name)
+        if (id === undefined) return new CellError(ErrorType.REF)
+        sheet = id
+        ref = ref.slice(bang + 1)
+      }
+      const m = /^\$?([A-Za-z]{1,3})\$?(\d+)(?::\$?([A-Za-z]{1,3})\$?(\d+))?$/.exec(ref)
+      if (!m) return new CellError(ErrorType.REF)
+      const c1 = colIdx(m[1]), r1 = +m[2] - 1
+      const c2 = m[3] ? colIdx(m[3]) : c1, r2 = m[4] ? +m[4] - 1 : r1
+      const [ra, rb, ca, cb] = [Math.min(r1, r2), Math.max(r1, r2), Math.min(c1, c2), Math.max(c1, c2)]
+      if (ra < 0 || (rb - ra + 1) * (cb - ca + 1) > 1_000_000) return new CellError(ErrorType.REF)
+      const at = (r: number, c: number): unknown => graph.getScalarValue({ sheet, row: r, col: c })
+      if (ra === rb && ca === cb) return at(ra, ca) as never
+      const data: unknown[][] = []
+      for (let r = ra; r <= rb; r++) { const row: unknown[] = []; for (let c = ca; c <= cb; c++) row.push(at(r, c)); data.push(row) }
+      return SimpleRangeValue.onlyValues(data as never) as never
+    })
+  }
+}
+
 let registered = false
 export function registerExtraFunctions(): void {
   if (registered) return
@@ -319,6 +355,7 @@ export function registerExtraFunctions(): void {
   const fixNames = Object.fromEntries(Object.keys(ExcelFixPlugin.implementedFunctions).map((k) => [k, k]))
   HyperFormula.registerFunctionPlugin(ExcelFixPlugin, { enGB: fixNames, enUS: fixNames } as any)
   HyperFormula.registerFunctionPlugin(SubtotalPlugin, { enGB: { SUBTOTAL: 'SUBTOTAL', AGGREGATE: 'AGGREGATE' }, enUS: { SUBTOTAL: 'SUBTOTAL', AGGREGATE: 'AGGREGATE' } } as any)
+  HyperFormula.registerFunctionPlugin(IndirectPlugin, { enGB: { INDIRECT: 'INDIRECT' }, enUS: { INDIRECT: 'INDIRECT' } } as any)
   HyperFormula.registerFunctionPlugin(ExtraTextPlugin, { enGB: { CONCAT: 'CONCAT', TEXTJOIN: 'TEXTJOIN' }, enUS: { CONCAT: 'CONCAT', TEXTJOIN: 'TEXTJOIN' } } as any)
 }
 
