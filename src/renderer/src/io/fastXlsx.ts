@@ -9,6 +9,7 @@ import { stripFuturePrefixes } from '../engine/xlfn'
 import { resolveStructuredRefs, type TableDef } from '../engine/structuredRefs'
 import type { BorderSide, CellStyle, CfRule, HyperlinkData, CommentThread, DataValidationRule, DvAllowType, DvErrorStyle, DvOperator, FilterCriteria, NoteData, PageSetup, Range, SheetLayout, CalcMode } from '../model/types'
 import { parseSheetProtection } from '../model/protection'
+import { parsePageSetupXml } from './pageSetupXml'
 import type { WorkbookData, DefinedNameData } from '../model/store'
 import { DEFAULT_AUTHOR, defaultLayout } from '../model/defaults'
 import {
@@ -161,7 +162,7 @@ export function parseXlsx(bytes: Uint8Array): WorkbookData & { vbaProject?: VbaP
     if (parsed.collapsedRows) layout.collapsedRows = parsed.collapsedRows
     if (parsed.collapsedCols) layout.collapsedCols = parsed.collapsedCols
     if (parsed.outline) layout.outline = parsed.outline
-    const ps = parsePageSetup(xml)
+    const ps = parsePageSetupXml(xml)
     if (ps) layout.pageSetup = ps
     const spAt = xml.lastIndexOf('<sheetProtection')
     if (spAt !== -1) {
@@ -793,34 +794,6 @@ function parseStyles(xml: string | undefined, themeColors: string[]): (CellStyle
     }
   }
   return out.length ? out : [undefined]
-}
-
-// ---------- page setup ----------
-const PAPER: Record<string, 'A4' | 'Letter' | 'Legal'> = { '1': 'Letter', '5': 'Legal', '9': 'A4' }
-function parsePageSetup(xml: string): PageSetup | undefined {
-  const tail = xml.slice(Math.max(0, xml.lastIndexOf('</sheetData>')))
-  const out: PageSetup = {}
-  const ps = /<pageSetup\b([^>]*)\/?>/.exec(tail)
-  if (ps) {
-    const a = parseAttrs(ps[1], 0, ps[1].length)
-    if (a.orientation === 'landscape') out.landscape = true
-    if (a.paperSize && PAPER[a.paperSize]) out.pageSize = PAPER[a.paperSize]
-    if (a.fitToHeight === '0' && /<pageSetUpPr\b[^>]*fitToPage="(1|true)"/.test(xml.slice(0, 4000))) out.fitColumns = true
-  }
-  const po = /<printOptions\b([^>]*)\/?>/.exec(tail)
-  if (po) {
-    const a = parseAttrs(po[1], 0, po[1].length)
-    if (a.gridLines === '1' || a.gridLines === 'true') out.gridlines = true
-    if (a.headings === '1' || a.headings === 'true') out.headings = true
-  }
-  const pm = /<pageMargins\b([^>]*)\/?>/.exec(tail)
-  if (pm) {
-    const a = parseAttrs(pm[1], 0, pm[1].length)
-    const l = parseFloat(a.left ?? '0.7')
-    if (l <= 0.3) out.margins = 'narrow'
-    else if (l >= 0.95) out.margins = 'wide'
-  }
-  return Object.keys(out).length ? out : undefined
 }
 
 // ---------- worksheet xml ----------

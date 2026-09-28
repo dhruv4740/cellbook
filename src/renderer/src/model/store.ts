@@ -1167,6 +1167,35 @@ export class WorkbookStore {
     this.commit(ref ? 'Set Print Area' : 'Clear Print Area', () => { this.names = after }, () => { this.names = before })
   }
 
+  /** The sheet's print title rows / columns (Excel's _xlnm.Print_Titles), as 0-based inclusive spans. */
+  printTitles(sheet: SheetState): { rows?: [number, number]; cols?: [number, number] } {
+    const n = this.names.find((x) => /^_xlnm\.Print_Titles$/i.test(x.name) && x.sheetUid === sheet.uid)
+    const out: { rows?: [number, number]; cols?: [number, number] } = {}
+    if (!n) return out
+    const col = (t: string): number => [...t].reduce((v, ch) => v * 26 + ch.charCodeAt(0) - 64, 0) - 1
+    for (const part of n.ref.split(',')) {
+      const body = part.includes('!') ? part.slice(part.lastIndexOf('!') + 1) : part
+      let m = /^\$?(\d+):\$?(\d+)$/.exec(body)
+      if (m) { out.rows = [+m[1] - 1, +m[2] - 1]; continue }
+      m = /^\$?([A-Za-z]+):\$?([A-Za-z]+)$/.exec(body)
+      if (m) out.cols = [col(m[1].toUpperCase()), col(m[2].toUpperCase())]
+    }
+    return out
+  }
+
+  /** Page Layout > Print Titles: rows and/or columns repeated on every printed page (null clears). */
+  setPrintTitles(sheet: SheetState, titles: { rows?: [number, number] | null; cols?: [number, number] | null }): void {
+    const colName = (c: number): string => { let s = ''; c += 1; while (c > 0) { const m = (c - 1) % 26; s = String.fromCharCode(65 + m) + s; c = Math.floor((c - 1) / 26) } return s }
+    const q = /^[A-Za-z_][A-Za-z0-9_.]*$/.test(sheet.name) ? sheet.name : `'${sheet.name.replace(/'/g, "''")}'`
+    const parts: string[] = []
+    if (titles.cols) parts.push(`${q}!$${colName(titles.cols[0])}:$${colName(titles.cols[1])}`)
+    if (titles.rows) parts.push(`${q}!$${titles.rows[0] + 1}:$${titles.rows[1] + 1}`)
+    const before = this.names
+    const rest = before.filter((n) => !(/^_xlnm\.Print_Titles$/i.test(n.name) && n.sheetUid === sheet.uid))
+    const after = parts.length ? [...rest, { name: '_xlnm.Print_Titles', ref: parts.join(','), sheetUid: sheet.uid }] : rest
+    this.commit('Set Print Titles', () => { this.names = after }, () => { this.names = before })
+  }
+
   deleteName(name: string, sheetUid?: number): void {
     const scopeOf = (uid?: number) => { const sh = uid !== undefined ? this.sheetByUid(uid) : undefined; return sh ? this.hfId(sh) : undefined }
     const old = this.names.find((n) => n.name === name && n.sheetUid === sheetUid)

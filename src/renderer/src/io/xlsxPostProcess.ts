@@ -8,6 +8,8 @@ import { unzipSync, zipSync } from 'fflate'
 import type { AutoFilter, CalcMode, ChartSpec, DataValidationRule, SheetLayout, SheetProtection, WorkbookProtection } from '../model/types'
 import { passwordAttrs, sheetProtectionXml } from '../model/protection'
 import { outlineRuns } from '../model/outline'
+import { buildPageSetupXml } from './pageSetupXml'
+import type { PageSetup } from '../model/types'
 import { rangeA1 } from '../model/types'
 import { BLANK_TOKEN } from '../engine/filter'
 import { parseRelationships, resolveRelTarget } from './fastXlsxXml'
@@ -580,6 +582,36 @@ export function injectOutline(zipBytes: Uint8Array, layouts: (Partial<SheetLayou
       const n = run.summary + 1
       xml = xml.replace(new RegExp(`<col min="${n}" max="${n}"(?=[ >/])`), `<col min="${n}" max="${n}" collapsed="1"`)
     }
+    files[path] = enc.encode(xml)
+  })
+  const out: Record<string, Uint8Array> = {}
+  for (const [name, bytes] of Object.entries(files)) if (!name.endsWith('/')) out[name] = bytes
+  return zipSync(out, { level: 6 })
+}
+
+/** Replaces exceljs's placeholder page elements with the sheet's real Page Setup (margins, header/footer, scale, breaks...). */
+export function injectPageSetup(zipBytes: Uint8Array, setups: (PageSetup | undefined)[]): Uint8Array {
+  if (!setups.some(Boolean)) return zipBytes
+  const files = unzipSync(zipBytes)
+  const dec = new TextDecoder('utf-8'), enc = new TextEncoder()
+  setups.forEach((p, i) => {
+    if (!p) return
+    const path = `xl/worksheets/sheet${i + 1}.xml`
+    if (!files[path]) return
+    let xml = dec.decode(files[path])
+    xml = xml.replace(/<printOptions\b[^>]*\/>/, '').replace(/<pageMargins\b[^>]*\/>/, '').replace(/<pageSetup\b[^>]*\/>/, '')
+    xml = xml.replace(/<headerFooter\b[^>]*(?:\/>|>[\s\S]*?<\/headerFooter>)/, '').replace(/<rowBreaks\b[\s\S]*?<\/rowBreaks>/, '').replace(/<colBreaks\b[\s\S]*?<\/colBreaks>/, '')
+    // fit-to-page lives in sheetPr/pageSetUpPr (the last child of sheetPr)
+    xml = xml.replace(/<pageSetUpPr\b[^>]*\/>/, '')
+    if (p.fitToPage) {
+      const pr = '<pageSetUpPr fitToPage="1"/>'
+      if (/<sheetPr\b[^>]*>/.test(xml) && !/<sheetPr\b[^>]*\/>/.test(xml)) xml = xml.replace('</sheetPr>', pr + '</sheetPr>')
+      else xml = xml.replace(/<sheetPr\b[^>]*\/>/, '').replace(/(<worksheet\b[^>]*>)/, '$1<sheetPr>' + pr + '</sheetPr>')
+    }
+    const frag = buildPageSetupXml(p)
+    // Schema order: these come after hyperlinks/dataValidations and before drawing, legacyDrawing, tableParts, extLst.
+    const m = execTopLevel(/<(?:customProperties|cellWatches|ignoredErrors|smartTags|drawing|legacyDrawing|legacyDrawingHF|drawingHF|picture|oleObjects|controls|webPublishItems|tableParts|extLst)[ />]|<\/worksheet>/g, xml)
+    xml = m ? xml.slice(0, m.index) + frag + xml.slice(m.index) : xml
     files[path] = enc.encode(xml)
   })
   const out: Record<string, Uint8Array> = {}

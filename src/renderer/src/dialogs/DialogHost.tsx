@@ -1,5 +1,6 @@
 // Renders whichever dialog ui.dialog names, and owns the dialog keyboard shortcuts.
 // Kept separate from App so store changes re-render only this component, not the whole window.
+import { PageSetupDialog } from './PageSetupDialog'
 import { useEffect, useRef } from 'react'
 import { setUi, useUi, getUi } from '../chrome/ui'
 import { formatAsTable } from '../grid/commands'
@@ -142,6 +143,8 @@ export default function DialogHost() {
       return <OutlineSettingsDialog onClose={close} />
     case 'protectSheet':
       return <ProtectSheetDialog sheetUid={(d.props?.sheetUid as number | undefined) ?? sheet.uid} onClose={close} />
+    case 'pageSetup':
+      return <PageSetupDialog initialTab={d.props?.tab as never} onClose={close} />
     case 'protectWorkbook':
       return <ProtectWorkbookDialog onClose={close} />
     case 'password':
