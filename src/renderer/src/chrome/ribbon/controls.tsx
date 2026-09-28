@@ -298,7 +298,9 @@ function GroupPopup({ anchor, onClose, children }: { anchor: HTMLElement | null;
     const btn = t.closest('button, .xl-combo-item') as HTMLElement | null
     if (!btn) return
     if (btn.querySelector('[class*="caret"]')) return
-    onClose()
+    // Closed after the click has been handled: unmounting the popup while the event is still being dispatched
+    // dropped the button's own onClick when the click came from a real mouse.
+    setTimeout(onClose, 0)
   }
 
   if (!pos) return null

@@ -18,6 +18,22 @@ const val = (r, c) => win.evaluate(([r, c]) => globalThis.store.getValue(globalT
 const sel = (r1, c1, r2 = r1, c2 = c1) => win.evaluate(([r1, c1, r2, c2]) => globalThis.store.setSelection({ ranges: [{ r1, c1, r2, c2 }], active: { r: r1, c: c1 } }), [r1, c1, r2, c2])
 const tab = async (name) => { await win.locator('.xl-tab', { hasText: name }).first().click(); await win.waitForTimeout(250) }
 const click = async (text) => { await win.getByText(text, { exact: false }).filter({ visible: true }).first().click(); await win.waitForTimeout(250) }
+// ribbon groups collapse into a popup button at narrow widths: open the group first when the item isn't visible
+const clickIn = async (text, group) => {
+  const item = win.getByText(text, { exact: false }).filter({ visible: true })
+  if (!(await item.count())) { await win.getByText(group, { exact: true }).filter({ visible: true }).first().click(); await win.waitForTimeout(250) }
+  await click(text)
+}
+const shot = async (n) => {
+  const b64 = await app.evaluate(async ({ BrowserWindow }) => {
+    // the app keeps a spare window: capture the one that holds this test's data
+    let target = BrowserWindow.getAllWindows()[0]
+    for (const w of BrowserWindow.getAllWindows()) { const has = await w.webContents.executeJavaScript('!!globalThis.store?.getRaw(globalThis.store.active, 0, 0)').catch(() => false); if (has) target = w }
+    return (await target.webContents.capturePage()).toPNG().toString('base64')
+  })
+  fs.mkdirSync('scripts/excel-oracle/out/ui', { recursive: true })
+  fs.writeFileSync('scripts/excel-oracle/out/ui/' + n + '.png', Buffer.from(b64, 'base64'))
+}
 const set = (r, c, v) => win.evaluate(([r, c, v]) => globalThis.store.setRaw(globalThis.store.active, r, c, v), [r, c, v])
 
 // ---- Flash Fill (Ctrl+E) ----
@@ -51,7 +67,7 @@ await win.evaluate(() => { const s = globalThis.store; s.clearAllFilters(s.activ
 await set(30, 0, '2'); await set(30, 1, '=A31*3')
 await sel(30, 1)
 await tab('Data')
-await click('What-If Analysis')
+await clickIn('What-If Analysis', 'Forecast')
 await click('Goal Seek')
 await win.waitForTimeout(300)
 const gs = win.locator('.xl-dialog input')
@@ -68,7 +84,7 @@ log('goal seek A31 (expect 4)', await val(30, 0))
 // ---- Manual calculation ----
 await set(40, 0, '1'); await set(40, 1, '=A41*10')
 await tab('Formulas')
-await click('Calculation Options')
+await clickIn('Calculation Options', 'Calculation')
 await click('Manual')
 await set(40, 0, '5')
 log('manual: B41 stale (expect 10)', await val(40, 1))
@@ -78,7 +94,7 @@ await win.keyboard.press('F9')
 await win.waitForTimeout(200)
 log('after F9: B41 (expect 50)', await val(40, 1))
 await tab('Formulas')
-await click('Calculation Options')
+await clickIn('Calculation Options', 'Calculation')
 await click('Automatic')
 
 // ---- Consolidate ----
@@ -86,8 +102,10 @@ await set(60, 0, 'a'); await set(60, 1, '1'); await set(61, 0, 'b'); await set(6
 await set(60, 3, 'a'); await set(60, 4, '10'); await set(61, 3, 'b'); await set(61, 4, '20')
 await sel(70, 0)
 await tab('Data')
-await click('Consolidate')
+await win.getByText('Data Tools', { exact: true }).filter({ visible: true }).first().click(); await win.waitForTimeout(300); await shot('datatools-popup'); await win.locator('.xl-group-popup').getByText('Consolidate').click(); await win.waitForTimeout(400)
 await win.waitForTimeout(300)
+await shot('consolidate-open')
+log('dialog title now', await win.evaluate(() => document.querySelector('.xl-dialog-title')?.textContent))
 const cs = win.locator('.xl-dialog input[type=text], .xl-dialog input:not([type])')
 await cs.nth(0).fill('A61:B62')
 await win.getByRole('button', { name: 'Add' }).click()

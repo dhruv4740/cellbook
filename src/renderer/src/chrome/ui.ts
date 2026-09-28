@@ -157,3 +157,6 @@ export function cancelEdit(): void {
   setUi({ edit: null })
   store.setMode('Ready')
 }
+
+// Handle for automated UI checks (Playwright drives the built app and needs to read/open dialogs directly).
+;(globalThis as unknown as { __ui: { getUi: typeof getUi; setUi: typeof setUi } }).__ui = { getUi, setUi }
