@@ -285,6 +285,7 @@ export function evaluateCf(
 
 /** Adds a new rule to the sheet and triggers undoable updateLayout. */
 export function addCfRule(store: WorkbookStore, sheet: SheetState, rule: Omit<CfRule, 'id' | 'priority'>): void {
+  if (store.refuseIfProtected(sheet)) return
   store.updateLayout(sheet, 'Conditional Formatting', (l) => {
     const list = [...(l.conditionalFormats || [])]
     const priority = list.length + 1
@@ -296,6 +297,7 @@ export function addCfRule(store: WorkbookStore, sheet: SheetState, rule: Omit<Cf
 
 /** Clears conditional formatting rules from selection or whole sheet. */
 export function clearCfRules(store: WorkbookStore, sheet: SheetState, scope: 'selection' | 'sheet'): void {
+  if (store.refuseIfProtected(sheet)) return
   store.updateLayout(sheet, 'Clear Conditional Formatting', (l) => {
     if (scope === 'sheet') {
       l.conditionalFormats = []

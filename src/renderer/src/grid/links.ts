@@ -28,6 +28,7 @@ export async function followLink(link: HyperlinkData): Promise<void> {
 
 /** Insert Link dialog OK: sets the link (and the display text), one undo step. */
 export function setLink(sheet: SheetState, r: number, c: number, link: HyperlinkData | null, text?: string): void {
+  if (!store.allows(sheet, 'insertHyperlinks')) return
   store.transact(link ? 'Insert Hyperlink' : 'Remove Hyperlink', () => {
     if (text !== undefined && text !== store.getRaw(sheet, r, c) && !store.getRaw(sheet, r, c).startsWith('=')) store.setRaw(sheet, r, c, text)
     store.updateLayout(sheet, link ? 'Insert Hyperlink' : 'Remove Hyperlink', (l) => {

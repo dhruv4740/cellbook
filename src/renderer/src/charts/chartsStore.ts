@@ -15,18 +15,21 @@ export function readerFor(store: WorkbookStore, sheet: SheetState): CellReader {
 }
 
 export function insertChart(store: WorkbookStore, sheet: SheetState, spec: ChartSpec): void {
+  if (!store.allows(sheet, 'objects')) return
   store.updateLayout(sheet, 'Insert Chart', (l) => {
     l.charts = [...(l.charts ?? []), spec]
   })
 }
 
 export function deleteChart(store: WorkbookStore, sheet: SheetState, id: string): void {
+  if (!store.allows(sheet, 'objects')) return
   store.updateLayout(sheet, 'Delete Chart', (l) => {
     l.charts = (l.charts ?? []).filter((c) => c.id !== id)
   })
 }
 
 export function updateChart(store: WorkbookStore, sheet: SheetState, id: string, patch: Partial<ChartSpec>, label = 'Format Chart'): void {
+  if (!store.allows(sheet, 'objects')) return
   store.updateLayout(sheet, label, (l) => {
     l.charts = (l.charts ?? []).map((c) => (c.id === id ? { ...c, ...patch } : c))
   })
@@ -41,6 +44,7 @@ export function setChartRange(store: WorkbookStore, sheet: SheetState, id: strin
 }
 
 export function bringChartToFront(store: WorkbookStore, sheet: SheetState, id: string): void {
+  if (!store.allows(sheet, 'objects')) return
   store.updateLayout(sheet, 'Bring to Front', (l) => {
     const list = l.charts ?? []
     const chart = list.find((c) => c.id === id)
@@ -50,6 +54,7 @@ export function bringChartToFront(store: WorkbookStore, sheet: SheetState, id: s
 }
 
 export function sendChartToBack(store: WorkbookStore, sheet: SheetState, id: string): void {
+  if (!store.allows(sheet, 'objects')) return
   store.updateLayout(sheet, 'Send to Back', (l) => {
     const list = l.charts ?? []
     const chart = list.find((c) => c.id === id)

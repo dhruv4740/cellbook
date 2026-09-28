@@ -23,11 +23,18 @@ import { DefineNameDialog, NameManagerDialog, CreateFromSelectionDialog } from '
 import { HyperlinkDialog } from './HyperlinkDialog'
 import { SubtotalDialog } from './SubtotalDialog'
 import { PivotDialog } from './PivotDialog'
+import { PasswordPromptDialog, ProtectSheetDialog, ProtectWorkbookDialog } from './ProtectDialogs'
 import { MessageDialog, UnhideSheetDialog, MoveCopySheetDialog, SeriesDialog } from './SheetDialogs'
 
 export default function DialogHost() {
   const ui = useUi()
   const store = useStore()
+
+  // Excel's "protected sheet" message whenever the store refuses an edit.
+  useEffect(() => {
+    store.onProtectedEdit = (text) => setUi({ dialog: { kind: 'message', props: { text } } })
+    return () => { store.onProtectedEdit = undefined }
+  }, [store])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -128,6 +135,12 @@ export default function DialogHost() {
       return <ArrangeWindowsDialog onClose={close} />
     case 'message':
       return <MessageDialog text={String(d.props?.text ?? '')} onClose={close} />
+    case 'protectSheet':
+      return <ProtectSheetDialog sheetUid={(d.props?.sheetUid as number | undefined) ?? sheet.uid} onClose={close} />
+    case 'protectWorkbook':
+      return <ProtectWorkbookDialog onClose={close} />
+    case 'password':
+      return <PasswordPromptDialog title={String(d.props?.title)} verify={d.props?.verify as (pw: string) => boolean} onOk={d.props?.onOk as () => void} onClose={close} />
     case 'defineName':
       return <DefineNameDialog onClose={close} />
     case 'nameManager':

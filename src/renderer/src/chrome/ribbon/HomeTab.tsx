@@ -11,6 +11,7 @@ import { ChevronDown12Regular } from '@fluentui/react-icons'
 import { ColorMenu } from './ColorMenu'
 import * as cmds from '../../grid/commands'
 import { getSpecialRanges } from '../../dialogs/find'
+import { toggleSheetProtection } from '../../dialogs/ProtectDialogs'
 import { addCfRule, clearCfRules } from '../../format/conditional'
 import {
   ClipboardPaste24Regular, Cut20Regular, Copy20Regular, PaintBrush20Regular,
@@ -202,7 +203,7 @@ export default function HomeTab() {
       }))
     },
     'separator',
-    { label: '&Protect Sheet...', onClick: () => notAvailable('Protect Sheet') },
+    { label: store.active.layout.protection ? 'Unprotect S&heet...' : '&Protect Sheet...', onClick: () => toggleSheetProtection(store.active) },
     { label: '&Lock Cell', onClick: () => setStyle({ locked: !style.locked }, 'Lock Cell') },
     { label: 'Format C&ells...', shortcut: 'Ctrl+1', onClick: () => setUi({ dialog: { kind: 'formatCells', props: { tab: 'Number' } } }) }
   ]

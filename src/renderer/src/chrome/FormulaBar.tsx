@@ -31,10 +31,13 @@ export default function FormulaBar() {
     return rangeA1(rg)
   })()
 
-  const text = editing ? editing.text : store.getRaw(sheet, sel.active.r, sel.active.c)
+  // A cell with "Hidden" formatting on a protected sheet doesn't reveal its formula.
+  const formulaHidden = !!sheet.layout.protection && !!store.getStyle(sheet, sel.active.r, sel.active.c)?.hidden
+  const text = editing ? editing.text : formulaHidden ? '' : store.getRaw(sheet, sel.active.r, sel.active.c)
 
   const startEditFromBar = (initial?: string) => {
     if (!editing) {
+      if (!store.canEditCells(sheet, [{ r: sel.active.r, c: sel.active.c }])) return
       const raw = store.getRaw(sheet, sel.active.r, sel.active.c)
       setUi({ edit: { r: sel.active.r, c: sel.active.c, text: initial ?? raw, source: 'bar', mode: 'Edit' } })
       store.setMode('Edit')

@@ -195,6 +195,7 @@ export function CfNewRuleDialog({ store, editRule, onClose }: CfNewRuleDialogPro
     }
 
     if (editRule) {
+      if (store.refuseIfProtected(sheet)) return
       store.updateLayout(sheet, 'Edit Conditional Formatting Rule', (l) => {
         l.conditionalFormats = (l.conditionalFormats || []).map((r) =>
           r.id === editRule.id ? { ...finalRule, id: editRule.id, priority: editRule.priority } : r

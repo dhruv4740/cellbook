@@ -28,6 +28,7 @@ import { COLUMN_BAR_GALLERY, LINE_AREA_GALLERY, PIE_DOUGHNUT_GALLERY, SCATTER_BU
 import { insertChartFromSelection } from '../../charts/insertChart'
 import { openFile } from '../../io/fileOps'
 import { refreshAllPivots } from '../../data/pivot'
+import { toggleSheetProtection, toggleWorkbookProtection } from '../../dialogs/ProtectDialogs'
 
 function chartGalleryMenu(entries: GalleryEntry[]): MenuItem[] {
   return entries.map((e) => ({ label: e.label, icon: <ChartMultiple20Regular />, onClick: () => insertChartFromSelection(store, e) }))
@@ -289,8 +290,8 @@ export function ReviewTab() {
     ] },
     { label: 'Notes', big: [{ label: 'Notes', icon: <Note20Regular fontSize={28} />, menu: notesMenu }] },
     { label: 'Protect', big: [
-      { label: 'Protect Sheet', icon: <LockClosed20Regular fontSize={28} /> },
-      { label: 'Protect Workbook', icon: <LockClosed20Regular fontSize={28} /> },
+      { label: store.active.layout.protection ? 'Unprotect Sheet' : 'Protect Sheet', icon: <LockClosed20Regular fontSize={28} />, wide: true, onClick: () => toggleSheetProtection(store.active) },
+      { label: store.bookProtection ? 'Unprotect Workbook' : 'Protect Workbook', icon: <LockClosed20Regular fontSize={28} />, wide: true, onClick: () => toggleWorkbookProtection() },
       { label: 'Allow Edit Ranges', icon: <ShieldTask20Regular fontSize={28} /> },
       { label: 'Unshare Workbook', icon: <ShieldTask20Regular fontSize={28} /> }
     ] },

@@ -168,6 +168,7 @@ export function addDataValidation(
   sheet: SheetState,
   rule: Omit<DataValidationRule, 'id'>
 ): void {
+  if (store.refuseIfProtected(sheet)) return
   store.updateLayout(sheet, 'Data Validation', (l) => {
     const list = [...(l.dataValidations || [])]
     const id = 'dv_' + Math.random().toString(36).slice(2, 9)
@@ -182,6 +183,7 @@ export function clearDataValidations(
   sheet: SheetState,
   ranges: Range[]
 ): void {
+  if (store.refuseIfProtected(sheet)) return
   store.updateLayout(sheet, 'Clear Validation', (l) => {
     if (!l.dataValidations) return
     l.dataValidations = l.dataValidations.filter(

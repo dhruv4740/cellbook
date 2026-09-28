@@ -5,7 +5,8 @@ import { colName } from '../model/types'
 // wb.xlsx.writeBuffer() already produced, so a normal .xlsx save with no criteria and no macros
 // pays nothing beyond the unzip/rezip when there's actually something to patch.
 import { unzipSync, zipSync } from 'fflate'
-import type { AutoFilter, ChartSpec, DataValidationRule, SheetLayout } from '../model/types'
+import type { AutoFilter, CalcMode, ChartSpec, DataValidationRule, SheetLayout, SheetProtection, WorkbookProtection } from '../model/types'
+import { passwordAttrs, sheetProtectionXml } from '../model/protection'
 import { rangeA1 } from '../model/types'
 import { BLANK_TOKEN } from '../engine/filter'
 import { parseRelationships, resolveRelTarget } from './fastXlsxXml'
@@ -512,6 +513,45 @@ export function injectHyperlinks(zipBytes: Uint8Array, sheetLinks: (Record<strin
       files[relsPath] = enc.encode(rels)
     }
   })
+  const out: Record<string, Uint8Array> = {}
+  for (const [name, bytes] of Object.entries(files)) if (!name.endsWith('/')) out[name] = bytes
+  return zipSync(out, { level: 6 })
+}
+
+/** Writes sheet protection, workbook protection and the calculation mode - none of which exceljs can express faithfully
+ *  (it re-hashes passwords and inverts the option flags). Placement follows the schema: sheetProtection right after sheetData. */
+export function injectProtection(
+  zipBytes: Uint8Array,
+  sheetProt: (SheetProtection | undefined)[],
+  wbProt: WorkbookProtection | undefined,
+  calcMode: CalcMode | undefined
+): Uint8Array {
+  if (!sheetProt.some(Boolean) && !wbProt && (!calcMode || calcMode === 'auto')) return zipBytes
+  const files = unzipSync(zipBytes)
+  const dec = new TextDecoder('utf-8'), enc = new TextEncoder()
+  sheetProt.forEach((p, i) => {
+    if (!p) return
+    const path = `xl/worksheets/sheet${i + 1}.xml`
+    if (!files[path]) return
+    let xml = dec.decode(files[path])
+    xml = xml.replace(/<sheetProtection\b[^>]*\/>/, '')
+    const frag = sheetProtectionXml(p)
+    if (xml.includes('</sheetData>')) xml = xml.replace('</sheetData>', '</sheetData>' + frag)
+    else xml = xml.replace('<sheetData/>', '<sheetData/>' + frag)
+    files[path] = enc.encode(xml)
+  })
+  let wx = dec.decode(files['xl/workbook.xml'])
+  if (wbProt && (wbProt.lockStructure || wbProt.lockWindows)) {
+    const frag = `<workbookProtection${passwordAttrs(wbProt.password, 'workbook')}${wbProt.lockStructure ? ' lockStructure="1"' : ''}${wbProt.lockWindows ? ' lockWindows="1"' : ''}/>`
+    wx = wx.replace(/<workbookProtection\b[^>]*\/>/, '')
+    wx = wx.includes('<bookViews') ? wx.replace('<bookViews', frag + '<bookViews') : wx.replace('<sheets>', frag + '<sheets>')
+  }
+  if (calcMode && calcMode !== 'auto') {
+    const calc = calcMode === 'manual' ? 'calcMode="manual"' : 'calcMode="autoNoTable"'
+    if (/<calcPr\b/.test(wx)) wx = wx.replace(/<calcPr\b([^>]*?)\/>/, (_m, a: string) => `<calcPr${a.replace(/\s*calcMode="[^"]*"/, '')} ${calc}/>`)
+    else wx = wx.replace('</workbook>', `<calcPr ${calc}/></workbook>`)
+  }
+  files['xl/workbook.xml'] = enc.encode(wx)
   const out: Record<string, Uint8Array> = {}
   for (const [name, bytes] of Object.entries(files)) if (!name.endsWith('/')) out[name] = bytes
   return zipSync(out, { level: 6 })

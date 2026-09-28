@@ -5,7 +5,7 @@ import { HyperFormula, DetailedCellError } from 'hyperformula'
 import { useSyncExternalStore } from 'react'
 import {
   CellStyle, CellValue, Range, Selection, SheetLayout, cellKey, normRange,
-  DEFAULT_COL_WIDTH, DEFAULT_ROW_HEIGHT, MAX_ROWS, MAX_COLS, FilterCriteria, NoteData, CommentThread, rangeA1
+  DEFAULT_COL_WIDTH, DEFAULT_ROW_HEIGHT, MAX_ROWS, MAX_COLS, FilterCriteria, WorkbookProtection, CalcMode, SheetProtection, ProtectAllowKey, NoteData, CommentThread, rangeA1
 } from './types'
 import { formatValue, detectInputFormat, numericInput, FormattedValue } from '../format/numfmt'
 import { computeFilteredRows } from '../engine/filter'
@@ -37,6 +37,10 @@ export interface WorkbookData {
     layout?: Partial<SheetLayout>
   }[]
   activeSheet?: number
+  /** Review > Protect Workbook (structure / windows lock). */
+  protection?: WorkbookProtection
+  /** Formulas > Calculation Options; 'auto' when absent. */
+  calcMode?: CalcMode
   /** Workbook defined names (named ranges, print areas...). `ref` has no leading '='; `sheet` is
    *  the index of the sheet a local name belongs to (localSheetId). */
   names?: DefinedNameData[]
@@ -88,6 +92,12 @@ export class WorkbookStore {
   mode: 'Ready' | 'Enter' | 'Edit' | 'Point' = 'Ready'
   /** Defined names carried through load/save; ordinary ones are also live in the engine. */
   names: (DefinedNameData & { sheetUid?: number })[] = []
+  /** Review > Protect Workbook. */
+  bookProtection: WorkbookProtection | undefined
+  /** Formulas > Calculation Options. */
+  calcMode: CalcMode = 'auto'
+  /** The UI shows Excel's "protected sheet" message through this. */
+  onProtectedEdit?: (msg: string) => void
 
   onBroadcast?: (msg: SyncMessage) => void
   isApplyingRemote = false
@@ -246,6 +256,7 @@ export class WorkbookStore {
 
   /** Data > Filter / Ctrl+Shift+L: toggles an AutoFilter over the current region. */
   toggleAutoFilter(sheet: SheetState = this.active): void {
+    if (sheet.layout.protection) { this.deny(WorkbookStore.PROTECTED_MSG); return } // Excel can't add or remove a filter on a protected sheet
     const on = !sheet.layout.autoFilter
     this.updateLayout(sheet, on ? 'AutoFilter' : 'Remove Filter', (l) => {
       if (!on) {
@@ -262,6 +273,7 @@ export class WorkbookStore {
 
   /** Sets (or, with `null`, clears) one column's checked-values criteria. */
   setColumnFilter(sheet: SheetState, col: number, criteria: FilterCriteria | null): void {
+    if (sheet.layout.protection && !this.allows(sheet, 'autoFilter')) return
     this.updateLayout(sheet, criteria ? 'Filter' : 'Clear Filter', (l) => {
       if (!l.autoFilter) return
       if (criteria) l.autoFilter.columns[col] = criteria
@@ -272,6 +284,7 @@ export class WorkbookStore {
 
   /** Data > Clear: removes every column's criteria but keeps the AutoFilter dropdowns. */
   clearAllFilters(sheet: SheetState = this.active): void {
+    if (sheet.layout.protection && !this.allows(sheet, 'autoFilter')) return
     this.updateLayout(sheet, 'Clear Filter', (l) => {
       if (!l.autoFilter) return
       l.autoFilter.columns = {}
@@ -281,6 +294,7 @@ export class WorkbookStore {
 
   /** Data > Reapply: re-runs the current criteria against (possibly changed) data. */
   reapplyFilter(sheet: SheetState = this.active): void {
+    if (sheet.layout.protection && !this.allows(sheet, 'autoFilter')) return
     this.updateLayout(sheet, 'Reapply', (l) => this.recomputeAutoFilter(sheet, l))
   }
 
@@ -288,6 +302,7 @@ export class WorkbookStore {
   sortFilterRange(sheet: SheetState, col: number, order: 'asc' | 'desc'): void {
     const af = sheet.layout.autoFilter
     if (!af) return
+    if (sheet.layout.protection && (!this.allows(sheet, 'sort') || !this.canEditRange(sheet, af.range))) return
     const n = af.range
     const rows: { r: number; cells: { raw: string; style?: CellStyle }[] }[] = []
     for (let r = n.r1 + 1; r <= n.r2; r++) {
@@ -351,6 +366,7 @@ export class WorkbookStore {
 
   // ---------- Notes & Comments ----------
   setNote(sheet: SheetState, r: number, c: number, text: string, author = DEFAULT_AUTHOR): void {
+    if (sheet.layout.protection && !this.allows(sheet, 'objects')) return
     const key = cellKey(r, c)
     this.updateLayout(sheet, text.trim() ? 'Note' : 'Delete Note', (l) => {
       if (text.trim() === '') delete l.notes[key]
@@ -362,6 +378,7 @@ export class WorkbookStore {
   }
 
   addComment(sheet: SheetState, r: number, c: number, text: string, author = DEFAULT_AUTHOR): void {
+    if (sheet.layout.protection && !this.allows(sheet, 'objects')) return
     if (!text.trim()) return
     const key = cellKey(r, c)
     this.updateLayout(sheet, 'New Comment', (l) => {
@@ -369,6 +386,7 @@ export class WorkbookStore {
     })
   }
   replyToComment(sheet: SheetState, r: number, c: number, text: string, author = DEFAULT_AUTHOR): void {
+    if (sheet.layout.protection && !this.allows(sheet, 'objects')) return
     if (!text.trim()) return
     const key = cellKey(r, c)
     this.updateLayout(sheet, 'Reply', (l) => {
@@ -377,6 +395,7 @@ export class WorkbookStore {
     })
   }
   resolveComment(sheet: SheetState, r: number, c: number, resolved = true): void {
+    if (sheet.layout.protection && !this.allows(sheet, 'objects')) return
     const key = cellKey(r, c)
     this.updateLayout(sheet, resolved ? 'Resolve Thread' : 'Reopen Thread', (l) => {
       const t = l.comments[key]
@@ -384,6 +403,7 @@ export class WorkbookStore {
     })
   }
   deleteComment(sheet: SheetState, r: number, c: number): void {
+    if (sheet.layout.protection && !this.allows(sheet, 'objects')) return
     const key = cellKey(r, c)
     this.updateLayout(sheet, 'Delete Comment', (l) => { delete l.comments[key] })
   }
@@ -396,6 +416,60 @@ export class WorkbookStore {
       }
       l.notes = {}
     })
+  }
+
+  // ---------- protection ----------
+  static readonly PROTECTED_MSG = "The cell or chart you're trying to change is on a protected sheet. To make a change, unprotect the sheet. You might be prompted for a password."
+  static readonly BOOK_PROTECTED_MSG = "The workbook is protected, so its structure can't be changed. To make a change, unprotect the workbook. You might be prompted for a password."
+  private denying = false
+  private deny(msg: string): false {
+    if (!this.denying) {
+      this.denying = true
+      queueMicrotask(() => { this.denying = false })
+      this.onProtectedEdit?.(msg)
+    }
+    return false
+  }
+  /** True when the sheet isn't protected or the protection allows `key`; otherwise tells the user and returns false. */
+  allows(sheet: SheetState, key: ProtectAllowKey): boolean {
+    const p = sheet.layout.protection
+    return !p || p.allow[key] || this.deny(WorkbookStore.PROTECTED_MSG)
+  }
+  cellLocked(sheet: SheetState, r: number, c: number): boolean {
+    return sheet.styles.get(cellKey(r, c))?.locked !== false
+  }
+  /** False (after telling the user) if any of these cells is locked on a protected sheet. */
+  canEditCells(sheet: SheetState, cells: Iterable<{ r: number; c: number }>): boolean {
+    if (!sheet.layout.protection) return true
+    for (const x of cells) if (this.cellLocked(sheet, x.r, x.c)) return this.deny(WorkbookStore.PROTECTED_MSG)
+    return true
+  }
+  canEditRange(sheet: SheetState, rg: Range): boolean {
+    if (!sheet.layout.protection) return true
+    const n = this.clampToUsed(sheet, normRange(rg))
+    for (let r = n.r1; r <= n.r2; r++) for (let c = n.c1; c <= n.c2; c++) if (this.cellLocked(sheet, r, c)) return this.deny(WorkbookStore.PROTECTED_MSG)
+    return true
+  }
+  /** Sheet add/delete/rename/move/hide are refused while the workbook structure is locked. */
+  /** For commands Excel disables outright on a protected sheet (Conditional Formatting, Data Validation...). */
+  refuseIfProtected(sheet: SheetState): boolean {
+    return !!sheet.layout.protection && !this.deny(WorkbookStore.PROTECTED_MSG)
+  }
+  canChangeStructure(): boolean {
+    return !this.bookProtection?.lockStructure || this.deny(WorkbookStore.BOOK_PROTECTED_MSG)
+  }
+  /** Not undoable (like Excel): otherwise Undo could remove a password-protected sheet's protection. */
+  setSheetProtection(sheet: SheetState, prot: SheetProtection | null): void {
+    if (prot) sheet.layout = { ...sheet.layout, protection: prot }
+    else { const l = { ...sheet.layout }; delete l.protection; sheet.layout = l }
+    this.dirty = true
+    this.broadcastOp({ type: 'updateLayout', sheetName: sheet.name, label: prot ? 'Protect Sheet' : 'Unprotect Sheet', layout: structuredClone(sheet.layout) })
+    this.notify()
+  }
+  setBookProtection(p: WorkbookProtection | undefined): void {
+    this.bookProtection = p && (p.lockStructure || p.lockWindows) ? p : undefined
+    this.dirty = true
+    this.notify()
   }
 
   // ---------- undo machinery ----------
@@ -514,6 +588,7 @@ export class WorkbookStore {
 
   /** Sets a block of cells starting at (r,c). Rows of strings, as typed by the user. */
   setRangeRaw(sheet: SheetState, r: number, c: number, raws: string[][], label = 'Typing'): void {
+    if (sheet.layout.protection && !this.canEditRange(sheet, { r1: r, c1: c, r2: r + raws.length - 1, c2: c + Math.max(0, ...raws.map((x) => x.length)) - 1 })) return
     const before: { r: number; c: number; raw: string; style?: CellStyle }[] = []
     const after: { r: number; c: number; raw: string; style?: CellStyle }[] = []
     raws.forEach((row, i) =>
@@ -544,6 +619,7 @@ export class WorkbookStore {
 
   /** Writes full cell records (raw + style) — used by paste, fill and sort. */
   setCells(sheet: SheetState, cells: { r: number; c: number; raw: string; style?: CellStyle }[], label: string): void {
+    if (sheet.layout.protection && !this.canEditCells(sheet, cells)) return
     const before = cells.map((x) => ({ r: x.r, c: x.c, raw: this.getRaw(sheet, x.r, x.c), style: this.getStyle(sheet, x.r, x.c) }))
     const put = (list: typeof cells) =>
       this.batch(() => {
@@ -557,6 +633,10 @@ export class WorkbookStore {
   // ---------- formatting ----------
   /** Merges `patch` into the style of every cell in `ranges`. Use `undefined` values to clear keys. */
   applyStyle(sheet: SheetState, ranges: Range[], patch: Partial<CellStyle> | ((s: CellStyle, r: number, c: number) => CellStyle), label = 'Format Cells'): void {
+    if (sheet.layout.protection) {
+      if (!this.allows(sheet, 'formatCells')) return
+      if (typeof patch !== 'function' && ('locked' in patch || 'hidden' in patch)) { this.deny(WorkbookStore.PROTECTED_MSG); return }
+    }
     const before = new Map<string, CellStyle | undefined>()
     const after = new Map<string, CellStyle | undefined>()
     for (const rg of ranges) {
@@ -642,12 +722,15 @@ export class WorkbookStore {
     return sh.layout.hiddenRows?.[row] ? 2 : 0
   }
 
-  updateLayout(sheet: SheetState, label: string, fn: (l: SheetLayout) => void): void {
+  /** `need`: the protection permission this change requires on a protected sheet ('blocked' = never allowed). */
+  updateLayout(sheet: SheetState, label: string, fn: (l: SheetLayout) => void, need?: ProtectAllowKey | 'blocked'): void {
+    if (need && sheet.layout.protection && (need === 'blocked' ? !this.deny(WorkbookStore.PROTECTED_MSG) : !this.allows(sheet, need))) return
     const before = structuredClone(sheet.layout)
     const next = structuredClone(sheet.layout)
     fn(next)
     const rowsChanged = before.autoFilter?.filteredOutRows !== next.autoFilter?.filteredOutRows || JSON.stringify(before.hiddenRows) !== JSON.stringify(next.hiddenRows) || JSON.stringify(before.autoFilter?.filteredOutRows) !== JSON.stringify(next.autoFilter?.filteredOutRows)
-    const apply = (l: SheetLayout) => { sheet.layout = structuredClone(l); if (rowsChanged) this.touchVisibility() }
+    // Protection is never rolled back by Undo/Redo (they restore whole-layout snapshots).
+    const apply = (l: SheetLayout) => { const p = sheet.layout.protection; sheet.layout = structuredClone(l); if (p) sheet.layout.protection = p; else delete sheet.layout.protection; if (rowsChanged) this.touchVisibility() }
     this.commit(label, () => apply(next), () => apply(before))
     if (label !== 'Zoom' && label !== 'Freeze Panes') {
       this.broadcastOp({ type: 'updateLayout', sheetName: sheet.name, label, layout: structuredClone(next) })
@@ -655,10 +738,10 @@ export class WorkbookStore {
   }
 
   setColWidth(sheet: SheetState, cols: number[], px: number): void {
-    this.updateLayout(sheet, 'Column Width', (l) => cols.forEach((c) => (l.colWidths[c] = Math.max(0, px))))
+    this.updateLayout(sheet, 'Column Width', (l) => cols.forEach((c) => (l.colWidths[c] = Math.max(0, px))), 'formatColumns')
   }
   setRowHeight(sheet: SheetState, rows: number[], px: number): void {
-    this.updateLayout(sheet, 'Row Height', (l) => rows.forEach((r) => (l.rowHeights[r] = Math.max(0, px))))
+    this.updateLayout(sheet, 'Row Height', (l) => rows.forEach((r) => (l.rowHeights[r] = Math.max(0, px))), 'formatRows')
   }
 
   // ---------- structure (insert/delete rows & columns) ----------
@@ -675,7 +758,10 @@ export class WorkbookStore {
     const restore = (s: typeof before) => {
       this.hf.setSheetContent(this.hfId(sheet), s.content)
       sheet.styles = new Map(s.styles)
+      const p = sheet.layout.protection
       sheet.layout = structuredClone(s.layout)
+      if (p) sheet.layout.protection = p
+      else delete sheet.layout.protection
     }
     this.commit(label, () => restore(after), () => restore(before))
   }
@@ -714,7 +800,19 @@ export class WorkbookStore {
     shiftLayoutRefs(sheet.layout, axis, at, delta)
   }
 
+  /** Excel only deletes rows/columns on a protected sheet when every cell in them is unlocked. */
+  private canDeleteLine(sheet: SheetState, axis: 'r' | 'c', at: number, count: number): boolean {
+    if (!this.allows(sheet, axis === 'r' ? 'deleteRows' : 'deleteColumns')) return false
+    const used = this.usedRange(sheet)
+    if (!used) return true
+    for (let i = at; i < at + count; i++)
+      for (let j = 0; j <= (axis === 'r' ? used.c2 : used.r2); j++)
+        if (this.cellLocked(sheet, axis === 'r' ? i : j, axis === 'r' ? j : i)) return this.deny(WorkbookStore.PROTECTED_MSG)
+    return true
+  }
+
   insertRows(sheet: SheetState, at: number, count: number): void {
+    if (sheet.layout.protection && !this.allows(sheet, 'insertRows')) return
     this.structural(sheet, 'Insert Rows', () => {
       this.hf.addRows(this.hfId(sheet), [at, count])
       this.shiftStyles(sheet, 'r', at, count)
@@ -725,6 +823,7 @@ export class WorkbookStore {
     this.broadcastOp({ type: 'insertRows', sheetName: sheet.name, at, count })
   }
   deleteRows(sheet: SheetState, at: number, count: number): void {
+    if (sheet.layout.protection && !this.canDeleteLine(sheet, 'r', at, count)) return
     this.structural(sheet, 'Delete Rows', () => {
       this.hf.removeRows(this.hfId(sheet), [at, count])
       this.shiftStyles(sheet, 'r', at, -count)
@@ -735,6 +834,7 @@ export class WorkbookStore {
     this.broadcastOp({ type: 'deleteRows', sheetName: sheet.name, at, count })
   }
   insertCols(sheet: SheetState, at: number, count: number): void {
+    if (sheet.layout.protection && !this.allows(sheet, 'insertColumns')) return
     this.structural(sheet, 'Insert Columns', () => {
       this.hf.addColumns(this.hfId(sheet), [at, count])
       this.shiftStyles(sheet, 'c', at, count)
@@ -745,6 +845,7 @@ export class WorkbookStore {
     this.broadcastOp({ type: 'insertCols', sheetName: sheet.name, at, count })
   }
   deleteCols(sheet: SheetState, at: number, count: number): void {
+    if (sheet.layout.protection && !this.canDeleteLine(sheet, 'c', at, count)) return
     this.structural(sheet, 'Delete Columns', () => {
       this.hf.removeColumns(this.hfId(sheet), [at, count])
       this.shiftStyles(sheet, 'c', at, -count)
@@ -772,6 +873,7 @@ export class WorkbookStore {
   }
 
   addSheet(name = this.newSheetName(), index = this.activeIndex + 1): void {
+    if (!this.canChangeStructure()) return
     let s: SheetState | undefined
     const prevActive = this.activeIndex
     this.commit(
@@ -790,6 +892,7 @@ export class WorkbookStore {
   }
 
   deleteSheet(index: number): void {
+    if (!this.canChangeStructure()) return
     if (this.sheets.length <= 1) return
     const s = this.sheets[index]
     const content = this.hf.getSheetSerialized(this.hfId(s))
@@ -813,6 +916,7 @@ export class WorkbookStore {
 
   /** Returns an error message (Excel's wording) or null on success. */
   renameSheet(index: number, name: string): string | null {
+    if (!this.canChangeStructure()) return null
     const s = this.sheets[index]
     const trimmed = name.trim()
     if (!trimmed || trimmed.length > 31 || /[\\/?*[\]:]/.test(trimmed) || /^'|'$/.test(trimmed))
@@ -839,6 +943,7 @@ export class WorkbookStore {
   }
 
   moveSheet(from: number, to: number): void {
+    if (!this.canChangeStructure()) return
     if (from === to) return
     const move = (a: number, b: number) => {
       const active = this.sheets[this.activeIndex]
@@ -852,6 +957,7 @@ export class WorkbookStore {
 
   /** Home > Format > Hide & Unhide > Hide Sheet. Excel keeps at least one sheet visible. */
   hideSheet(index: number): string | null {
+    if (!this.canChangeStructure()) return null
     const s = this.sheets[index]
     if (!s || s.layout.sheetHidden) return null
     if (this.sheets.filter((o) => !o.layout.sheetHidden).length <= 1) return 'A workbook must contain at least one visible worksheet.'
@@ -868,6 +974,7 @@ export class WorkbookStore {
   }
 
   unhideSheet(index: number): void {
+    if (!this.canChangeStructure()) return
     const s = this.sheets[index]
     if (!s || !s.layout.sheetHidden) return
     const prevActive = this.activeIndex
@@ -888,6 +995,7 @@ export class WorkbookStore {
 
   /** Move or Copy dialog: duplicates sheet `index` (cells, formulas, styles, layout) at position `to`. */
   copySheet(index: number, to: number): void {
+    if (!this.canChangeStructure()) return
     const src = this.sheets[index]
     let base = src.name.replace(/ \(\d+\)$/, '')
     let n = 2
@@ -931,6 +1039,11 @@ export class WorkbookStore {
 
   // ---------- selection (not undoable) ----------
   setSelection(sel: Selection, sheet: SheetState = this.active): void {
+    const p = sheet.layout.protection
+    if (p && (!p.allow.selectLockedCells || !p.allow.selectUnlockedCells)) {
+      const locked = this.cellLocked(sheet, sel.active.r, sel.active.c)
+      if (locked ? !p.allow.selectLockedCells : !p.allow.selectUnlockedCells) return // Excel refuses to move onto those cells
+    }
     sheet.selection = sel
     this.notify()
   }
@@ -975,6 +1088,8 @@ export class WorkbookStore {
       if (v >= 0) this.activeIndex = v
       else this.sheets[0].layout.sheetHidden = undefined
     }
+    this.bookProtection = data.protection
+    this.calcMode = data.calcMode ?? 'auto'
     this.fileName = fileName
     this.filePath = filePath
     this.dirty = false
@@ -1101,6 +1216,8 @@ export class WorkbookStore {
     return {
       activeSheet: this.activeIndex,
       names: this.exportNames(),
+      protection: this.bookProtection,
+      calcMode: this.calcMode === 'auto' ? undefined : this.calcMode,
       sheets: this.sheets.map((s) => {
         const cells: WorkbookData['sheets'][number]['cells'] = {}
         const id = this.hfId(s)

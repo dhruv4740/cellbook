@@ -93,6 +93,28 @@ export interface PageSetup {
   headings?: boolean
 }
 
+/** Excel's password hash: SHA-512 (agile) for files saved by Excel 2013+, or the legacy 16-bit hash. */
+export interface PasswordHash { legacy?: string; hashValue?: string; saltValue?: string; spinCount?: number }
+
+export type ProtectAllowKey =
+  | 'selectLockedCells' | 'selectUnlockedCells' | 'formatCells' | 'formatColumns' | 'formatRows'
+  | 'insertColumns' | 'insertRows' | 'insertHyperlinks' | 'deleteColumns' | 'deleteRows'
+  | 'sort' | 'autoFilter' | 'pivotTables' | 'objects' | 'scenarios'
+
+/** Review > Protect Sheet. `allow[k]` is true when users may do k on the protected sheet. */
+export interface SheetProtection {
+  password?: PasswordHash
+  allow: Record<ProtectAllowKey, boolean>
+}
+
+export type CalcMode = 'auto' | 'autoNoTable' | 'manual'
+
+export interface WorkbookProtection {
+  password?: PasswordHash
+  lockStructure: boolean
+  lockWindows: boolean
+}
+
 export interface SheetLayout {
   colWidths: Record<number, number> // px, default DEFAULT_COL_WIDTH
   rowHeights: Record<number, number> // px, default DEFAULT_ROW_HEIGHT
@@ -108,6 +130,8 @@ export interface SheetLayout {
   sheetHidden?: 'hidden' | 'veryHidden'
   /** Page Layout settings used by Print / PDF and saved to the file. */
   pageSetup?: PageSetup
+  /** Set while the sheet is protected (Review > Protect Sheet). */
+  protection?: SheetProtection
   /** PivotTables whose output starts on this sheet (kept for Refresh; saved to .xlsx as values). */
   pivots?: import('../data/pivot').PivotDef[]
   autoFilter?: AutoFilter
