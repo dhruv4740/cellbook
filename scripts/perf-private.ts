@@ -120,9 +120,11 @@ async function run(n: number): Promise<void> {
   line('save: writeXlsx', t, (out.length / 1048576).toFixed(2) + ' MB')
   t = performance.now()
   const back = await readXlsx(out)
+  line('reopen: readXlsx', t)
+  t = performance.now()
   const s2 = new WorkbookStore()
   s2.load(back, 'perf.xlsx', undefined)
-  line('reopen: read + load', t)
+  line('reopen: store.load', t)
 
   t = performance.now()
   store.insertRows(sh, 5, 3)
