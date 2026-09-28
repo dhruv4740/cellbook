@@ -1,7 +1,7 @@
 // File menu operations: New, Open, Save, Save As, Close — Electron-backed, with a browser fallback.
 import { setUi } from '../chrome/ui'
 import { store } from '../model/store'
-import { readXlsx, writeXlsx } from './xlsx'
+import { readXlsx, writeXlsxOffThread as writeXlsx } from './xlsx'
 import { readCsv, writeCsv } from './csv'
 import { confirmSaveChanges } from './saveConfirm'
 import type { VbaProject } from './xlsxPostProcess'
@@ -199,9 +199,12 @@ async function loadFromBytes(data: Uint8Array, fileName: string, path: string | 
     currentVba = undefined
     store.load(readCsv(new TextDecoder('utf-8').decode(data)), stripExt(fileName), path)
   } else {
+    const t0 = performance.now()
     const wb = await readXlsx(data)
+    const t1 = performance.now()
     currentVba = wb.vbaProject
     store.load(wb, stripExt(fileName), path)
+    ;(globalThis as { __openTiming?: unknown }).__openTiming = { readMs: Math.round(t1 - t0), loadMs: Math.round(performance.now() - t1) }
   }
   setTitle()
   addRecentFile(fileName, path)
