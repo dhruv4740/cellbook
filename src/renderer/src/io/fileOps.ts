@@ -376,8 +376,12 @@ export function installFileShortcuts(): void {
   })
 
   // Multi-window view synchronization
+  // Edits are only sent to main when another window shows the same workbook (its view number is then above 0);
+  // serialising a big paste or sort for nobody cost hundreds of milliseconds.
+  let hasPeers = false
+  window.api?.onViewIndexChanged?.((idx) => { hasPeers = idx > 0 })
   store.onBroadcast = (msg) => {
-    window.api?.broadcastOp?.(msg)
+    if (hasPeers) window.api?.broadcastOp?.(msg)
   }
 
   window.api?.onRemoteOp?.((msg) => {
@@ -393,6 +397,7 @@ export function installFileShortcuts(): void {
   })
 
   window.api?.onInitView?.((payload) => {
+    hasPeers = payload.viewIndex > 0
     store.load(payload.data as any, payload.fileName, payload.filePath)
     setTitle()
   })

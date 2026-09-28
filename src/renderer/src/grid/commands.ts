@@ -55,35 +55,23 @@ function readRange(rg: Range, sheet: SheetState = store.active, skip?: Set<numbe
   return out
 }
 
-function toTSV(rg: Range): string {
+/** Plain text (tab/newline separated) and HTML (styled table) for a range, built in a single pass over the cells. */
+function clipboardStrings(rg: Range): { tsv: string; html: string } {
   const n = clampUsed(store.active, rg)
-  if (!n) return ''
-  const rows: string[] = []
-  const skip = skippedRows(store.active, n)
+  if (!n) return { tsv: '', html: '<table></table>' }
+  const sheet = store.active
+  const skip = skippedRows(sheet, n)
+  const lines: string[] = []
+  const htmlRows: string[] = []
   for (let r = n.r1; r <= n.r2; r++) {
     if (skip.has(r)) continue
     const cells: string[] = []
+    let tr = '<tr>'
     for (let c = n.c1; c <= n.c2; c++) {
-      const t = store.getDisplay(store.active, r, c).text
+      const t = store.getDisplay(sheet, r, c).text
       // Like Excel: a cell holding a tab, line break or quote is wrapped in quotes so it stays one cell.
       cells.push(/[\t\n"]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t)
-    }
-    rows.push(cells.join('\t'))
-  }
-  return rows.join('\n')
-}
-
-function toHTML(rg: Range): string {
-  const n = clampUsed(store.active, rg)
-  if (!n) return '<table></table>'
-  let html = '<table>'
-  const skip = skippedRows(store.active, n)
-  for (let r = n.r1; r <= n.r2; r++) {
-    if (skip.has(r)) continue
-    html += '<tr>'
-    for (let c = n.c1; c <= n.c2; c++) {
-      const style = store.getStyle(store.active, r, c)
-      const disp = store.getDisplay(store.active, r, c)
+      const style = store.getStyle(sheet, r, c)
       const css: string[] = []
       if (style?.bold) css.push('font-weight:bold')
       if (style?.italic) css.push('font-style:italic')
@@ -91,21 +79,21 @@ function toHTML(rg: Range): string {
       if (style?.fill) css.push('background-color:' + style.fill)
       // Excel's own markers: text stays text (keeps "00012"), line breaks stay inside the cell.
       // (only on text Excel would otherwise read as a number or date, so other cells keep General).
-      const v = store.getValue(store.active, r, c)
+      const v = store.getValue(sheet, r, c)
       if (typeof v === 'string' && /\d/.test(v) && /^[-+\d\s.,/:%₹$()E]+$/i.test(v)) css.push('mso-number-format:"\\@"')
-      const body = disp.text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\n/g, '<br style="mso-data-placement:same-cell;"/>')
-      html += `<td style='${css.join(';')}'>${body}</td>`
+      const body = t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\n/g, '<br style="mso-data-placement:same-cell;"/>')
+      tr += `<td style='${css.join(';')}'>${body}</td>`
     }
-    html += '</tr>'
+    lines.push(cells.join('\t'))
+    htmlRows.push(tr + '</tr>')
   }
-  return html + '</table>'
+  return { tsv: lines.join('\n'), html: '<table>' + htmlRows.join('') + '</table>' }
 }
 
 async function writeSystemClipboard(rg: Range): Promise<void> {
-  const tsv = toTSV(rg)
+  const { tsv, html } = clipboardStrings(rg)
   if (store.clipboard) store.clipboard.text = tsv
   try {
-    const html = toHTML(rg)
     if (window.api?.clipboardWrite) {
       await window.api.clipboardWrite({ text: tsv, html })
     } else if (navigator.clipboard && 'write' in navigator.clipboard && typeof ClipboardItem !== 'undefined') {
