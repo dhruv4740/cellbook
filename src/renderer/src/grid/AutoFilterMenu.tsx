@@ -16,6 +16,9 @@ interface Props {
   onClose: () => void
 }
 
+const ROW_H = 22 // fixed row height keeps the windowed list's maths exact
+const LIST_H = 180
+
 type TextOp = 'eq' | 'ne' | 'begins' | 'ends' | 'contains' | 'notContains'
 type NumOp = 'eq' | 'ne' | 'gt' | 'lt' | 'between' | 'aboveAvg' | 'belowAvg'
 
@@ -59,6 +62,10 @@ export function AutoFilterMenu({ sheet, col, x, y, onClose }: Props): React.Reac
   }, [x, y])
 
   const shown = allValues.filter((v) => v !== BLANK_TOKEN && v.toLowerCase().includes(search.toLowerCase()))
+  const [scrollTop, setScrollTop] = useState(0)
+  const headRows = 1 + (allValues.includes(BLANK_TOKEN) ? 1 : 0)
+  const firstShown = Math.max(0, Math.floor((scrollTop - headRows * ROW_H) / ROW_H) - 4)
+  const lastShown = Math.min(shown.length, firstShown + Math.ceil(LIST_H / ROW_H) + 10)
   const hasBlank = allValues.includes(BLANK_TOKEN)
   const allChecked = checked.size === allValues.length
   const someChecked = checked.size > 0 && !allChecked
@@ -120,14 +127,17 @@ export function AutoFilterMenu({ sheet, col, x, y, onClose }: Props): React.Reac
         <div className="xl-afmenu-search">
           <input placeholder="Search" value={search} onChange={(e) => setSearch(e.target.value)} />
         </div>
-        <div className="xl-afmenu-list">
+        {/* Only the visible slice of the value list is rendered: a column with 50,000 distinct values froze the UI. */}
+        <div className="xl-afmenu-list" onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}>
           <label className="xl-afmenu-check"><input type="checkbox" checked={allChecked} ref={(el) => { if (el) el.indeterminate = someChecked }} onChange={toggleAll} /> (Select All)</label>
           {hasBlank && (
             <label className="xl-afmenu-check"><input type="checkbox" checked={checked.has(BLANK_TOKEN)} onChange={() => toggleOne(BLANK_TOKEN)} /> (Blanks)</label>
           )}
-          {shown.map((v) => (
-            <label key={v} className="xl-afmenu-check"><input type="checkbox" checked={checked.has(v)} onChange={() => toggleOne(v)} /> {v}</label>
-          ))}
+          <div style={{ height: shown.length * ROW_H, position: 'relative' }}>
+            {shown.slice(firstShown, lastShown).map((v, i) => (
+              <label key={v} className="xl-afmenu-check" style={{ position: 'absolute', top: (firstShown + i) * ROW_H, left: 0, right: 0 }}><input type="checkbox" checked={checked.has(v)} onChange={() => toggleOne(v)} /> {v}</label>
+            ))}
+          </div>
         </div>
         <div className="xl-afmenu-footer">
           <button className="xl-btn primary" onClick={ok}>OK</button>
