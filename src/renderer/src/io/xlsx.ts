@@ -13,7 +13,7 @@ import {
 } from './xlsxShared'
 import { extractSection, parseAttrs, parseRelationships, resolveRelTarget } from './fastXlsxXml'
 import type { VbaProject } from './xlsxPostProcess'
-import { fixLegacyDrawingOrder, markDynamicArrays, injectDefinedNames, injectHyperlinks, injectOutline, injectProtection, postProcessXlsx } from './xlsxPostProcess'
+import { fixLegacyDrawingOrder, markDynamicArrays, injectDefinedNames, injectHyperlinks, injectOutline, injectPageSetup, injectProtection, postProcessXlsx } from './xlsxPostProcess'
 import { parseDataValidations } from './fastXlsx'
 
 const EXCEL_ERRORS = new Set(['#NULL!', '#DIV/0!', '#VALUE!', '#REF!', '#NAME?', '#NUM!', '#N/A', '#GETTING_DATA', '#SPILL!', '#CALC!'])
@@ -545,19 +545,6 @@ export async function writeXlsx(data: WorkbookData, vba?: VbaProject): Promise<U
       ws.mergeCells(m.r1 + 1, m.c1 + 1, m.r2 + 1, m.c2 + 1)
     }
     if (layout.sheetHidden) ws.state = layout.sheetHidden
-    if (layout.pageSetup) {
-      const p = layout.pageSetup
-      const m = p.margins === 'narrow' ? [0.25, 0.75] : p.margins === 'wide' ? [1, 1] : [0.7, 0.75]
-      ws.pageSetup = {
-        ...ws.pageSetup,
-        orientation: p.landscape ? 'landscape' : 'portrait',
-        paperSize: (p.pageSize === 'Letter' ? 1 : p.pageSize === 'Legal' ? 5 : p.pageSize === 'A4' ? 9 : undefined) as unknown as ExcelJS.PaperSize,
-        showGridLines: !!p.gridlines,
-        ...(p.fitColumns ? { fitToPage: true, fitToWidth: 1, fitToHeight: 0 } : {}),
-        margins: { left: m[0], right: m[0], top: m[1], bottom: m[1], header: 0.3, footer: 0.3 }
-      }
-      if (p.headings) (ws.pageSetup as { showRowColHeaders?: boolean }).showRowColHeaders = true
-    }
     if (layout.tabColor) {
       ws.properties.tabColor = { argb: hexToArgb(layout.tabColor) }
     }
@@ -683,7 +670,7 @@ export async function writeXlsx(data: WorkbookData, vba?: VbaProject): Promise<U
     : buf
   const linked = markDynamicArrays(fixLegacyDrawingOrder(injectHyperlinks(processed, data.sheets.map((sd) => sd.layout?.hyperlinks))))
   const named = data.names?.length ? injectDefinedNames(linked, data.names) : linked
-  return injectOutline(injectProtection(named, data.sheets.map((sd) => sd.layout?.protection), data.protection, data.calcMode), data.sheets.map((sd) => sd.layout))
+  return injectPageSetup(injectOutline(injectProtection(named, data.sheets.map((sd) => sd.layout?.protection), data.protection, data.calcMode), data.sheets.map((sd) => sd.layout)), data.sheets.map((sd) => sd.layout?.pageSetup))
 }
 
 // ---------- read (fast path) ----------

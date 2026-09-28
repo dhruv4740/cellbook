@@ -1,30 +1,28 @@
-// Builds the document File > Print and Export > PDF send to the printer: the sheet's cells with
-// their formatting (fonts, fills, borders, alignment, merges, conditional formats), skipping
-// hidden rows/columns, laid out for the chosen paper, orientation, margins and scaling.
+// Builds the document File > Print and Export > PDF send to the printer. Pages are laid out here, the way
+// Excel does (page setup: paper, margins, scale / fit, titles, breaks, order, headers & footers), so the
+// preview, the PDF and the paper all show the same pages.
 import { store, SheetState } from '../model/store'
-import { Range, normRange, CellStyle, BorderSide, colName } from '../model/types'
+import { Range, normRange, CellStyle, BorderSide, colName, PageSetup } from '../model/types'
 import { evaluateCf } from '../format/conditional'
+import { DEFAULT_PAPER, HfContext, HfRun, hfRuns, marginsOf, pageInches, paperOf, splitHf } from '../model/pageSetup'
+import { paginate, PrintPage } from './paginate'
 
 export interface PrintOptions {
   what: 'active' | 'workbook' | 'selection'
-  landscape: boolean
-  pageSize: 'A4' | 'Letter' | 'Legal'
-  margins: 'normal' | 'wide' | 'narrow'
-  scaling: 'none' | 'fitSheet' | 'fitColumns'
-  gridlines: boolean
-  headings: boolean
 }
-/** The print options a sheet's saved Page Layout settings imply. */
-export function optionsFor(sheet: SheetState): PrintOptions {
-  const p = sheet.layout.pageSetup ?? {}
-  return { ...DEFAULT_PRINT, landscape: !!p.landscape, pageSize: p.pageSize ?? 'A4', margins: p.margins ?? 'normal', scaling: p.fitColumns ? 'fitColumns' : 'none', gridlines: !!p.gridlines, headings: !!p.headings }
-}
-export const DEFAULT_PRINT: PrintOptions = { what: 'active', landscape: false, pageSize: 'A4', margins: 'normal', scaling: 'none', gridlines: false, headings: false }
+export const DEFAULT_PRINT: PrintOptions = { what: 'active' }
 
-const MARGINS = { normal: '0.75in 0.7in', wide: '1in 1in', narrow: '0.75in 0.25in' }
-const PAGE_W_IN = { A4: 8.27, Letter: 8.5, Legal: 8.5 }
-const PAGE_H_IN = { A4: 11.69, Letter: 11, Legal: 14 }
-const SIDE_IN = { normal: 0.7, wide: 1, narrow: 0.25 }
+export interface PrintDoc {
+  html: string
+  /** Paper size of the first printed sheet, in inches (after orientation). */
+  widthIn: number
+  heightIn: number
+  pageCount: number
+}
+
+/** Excel prints columns a little wider than their screen width (measured against Excel's page counts: ~3%). */
+const PRINT_COL_FACTOR = 1.03
+const pcw = (sheet: SheetState, c: number): number => store.colWidth(sheet, c) * PRINT_COL_FACTOR
 
 function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -37,7 +35,7 @@ function border(b?: BorderSide): string | undefined {
 }
 
 /** The range to print for a sheet: the print area / selection / used range. */
-function printRange(sheet: SheetState, what: PrintOptions['what']): Range | null {
+export function printRange(sheet: SheetState, what: PrintOptions['what']): Range | null {
   if (what === 'selection') {
     const n = normRange(sheet.selection.ranges[sheet.selection.ranges.length - 1])
     return store.clampToUsed(sheet, n)
@@ -56,30 +54,45 @@ function printRange(sheet: SheetState, what: PrintOptions['what']): Range | null
   return { r1: 0, c1: 0, r2: used.r2, c2: used.c2 }
 }
 
-function sheetTable(sheet: SheetState, rg: Range, o: PrintOptions): { html: string; widthPx: number } {
+let measureCtx: CanvasRenderingContext2D | null | undefined
+function textWidth(text: string, st: CellStyle | undefined): number {
+  if (measureCtx === undefined) measureCtx = typeof document !== 'undefined' ? document.createElement('canvas').getContext('2d') : null
+  if (!measureCtx) return text.length * 7
+  measureCtx.font = `${st?.italic ? 'italic ' : ''}${st?.bold ? 'bold ' : ''}${Math.round(((st?.fontSize ?? 11) * 96) / 72)}px ${st?.fontFamily ?? 'Calibri'}, sans-serif`
+  return measureCtx.measureText(text).width
+}
+
+function errorText(text: string, ps: PageSetup): string {
+  if (!/^#(DIV\/0!|N\/A|NAME\?|NULL!|NUM!|REF!|VALUE!|SPILL!|CALC!)$/.test(text)) return text
+  return ps.errors === 'blank' ? '' : ps.errors === 'dash' ? '--' : ps.errors === 'NA' ? '#N/A' : text
+}
+
+/** One page's cells as an HTML table: `rows`/`cols` are the visible line indexes to draw (titles first). */
+function pageTable(sheet: SheetState, rows: number[], cols: number[], ps: PageSetup): { html: string; w: number; h: number } {
   const l = sheet.layout
-  const rows: number[] = []
-  const cols: number[] = []
-  for (let r = rg.r1; r <= rg.r2; r++) if (!l.hiddenRows[r]) rows.push(r)
-  for (let c = rg.c1; c <= rg.c2; c++) if (!l.hiddenCols[c]) cols.push(c)
   const merges = l.merges.map(normRange)
   const covered = new Set<string>()
   const span = new Map<string, { rs: number; cs: number }>()
+  const rowSet = new Set(rows), colSet = new Set(cols)
   for (const m of merges) {
-    if (m.r2 < rg.r1 || m.r1 > rg.r2 || m.c2 < rg.c1 || m.c1 > rg.c2) continue
+    if (m.r2 < rows[0] || m.r1 > rows[rows.length - 1] || m.c2 < cols[0] || m.c1 > cols[cols.length - 1]) continue
     const rs = rows.filter((r) => r >= m.r1 && r <= m.r2).length
     const cs = cols.filter((c) => c >= m.c1 && c <= m.c2).length
-    span.set(`${m.r1},${m.c1}`, { rs, cs })
+    if (rowSet.has(m.r1) && colSet.has(m.c1)) span.set(`${m.r1},${m.c1}`, { rs, cs })
     for (let r = m.r1; r <= m.r2; r++) for (let c = m.c1; c <= m.c2; c++) if (r !== m.r1 || c !== m.c1) covered.add(`${r},${c}`)
   }
-  const widthPx = cols.reduce((a, c) => a + store.colWidth(sheet, c), 0) + (o.headings ? 40 : 0)
+  const hd = !!ps.headings
+  const HW = 40
+  const w = cols.reduce((a, c) => a + pcw(sheet, c), 0) + (hd ? HW : 0)
+  const h = rows.reduce((a, r) => a + store.rowHeight(sheet, r), 0) + (hd ? 20 : 0)
   const out: string[] = []
-  out.push(`<table class="sheet${o.gridlines ? ' grid' : ''}"><colgroup>${o.headings ? '<col style="width:40px">' : ''}${cols.map((c) => `<col style="width:${store.colWidth(sheet, c)}px">`).join('')}</colgroup>`)
-  if (o.headings) out.push(`<thead><tr><th></th>${cols.map((c) => `<th>${colName(c)}</th>`).join('')}</tr></thead>`)
+  out.push(`<table class="sheet${ps.gridlines && !ps.draft ? ' grid' : ''}"><colgroup>${hd ? `<col style="width:${HW}px">` : ''}${cols.map((c) => `<col style="width:${pcw(sheet, c)}px">`).join('')}</colgroup>`)
+  if (hd) out.push(`<thead><tr style="height:20px"><th></th>${cols.map((c) => `<th>${colName(c)}</th>`).join('')}</tr></thead>`)
   out.push('<tbody>')
   for (const r of rows) {
-    out.push(`<tr style="height:${store.rowHeight(sheet, r)}px">${o.headings ? `<th>${r + 1}</th>` : ''}`)
-    for (const c of cols) {
+    out.push(`<tr style="height:${store.rowHeight(sheet, r)}px">${hd ? `<th>${r + 1}</th>` : ''}`)
+    for (let ci = 0; ci < cols.length; ci++) {
+      const c = cols[ci]
       const k = `${r},${c}`
       if (covered.has(k)) continue
       const sp = span.get(k)
@@ -87,6 +100,7 @@ function sheetTable(sheet: SheetState, rg: Range, o: PrintOptions): { html: stri
       const cf = evaluateCf(store, sheet, r, c)
       const st: CellStyle = { ...base, ...(cf.style ?? {}) }
       const d = store.getDisplay(sheet, r, c)
+      const text = errorText(d.text, ps)
       const css: string[] = []
       const bg = cf.colorScale || st.fill
       if (bg) css.push(`background:${bg}`)
@@ -97,8 +111,8 @@ function sheetTable(sheet: SheetState, rg: Range, o: PrintOptions): { html: stri
       if (d.color || st.color) css.push(`color:${d.color ?? st.color}`)
       if (st.fontFamily) css.push(`font-family:'${st.fontFamily}',Calibri,sans-serif`)
       if (st.fontSize) css.push(`font-size:${st.fontSize}pt`)
-      const h = st.hAlign && st.hAlign !== 'general' ? (st.hAlign === 'centerContinuous' ? 'center' : st.hAlign === 'distributed' ? 'justify' : st.hAlign) : d.align ?? 'left'
-      css.push(`text-align:${h}`)
+      const h2 = st.hAlign && st.hAlign !== 'general' ? (st.hAlign === 'centerContinuous' ? 'center' : st.hAlign === 'distributed' ? 'justify' : st.hAlign) : d.align ?? 'left'
+      css.push(`text-align:${h2}`)
       css.push(`vertical-align:${st.vAlign === 'top' ? 'top' : st.vAlign === 'middle' ? 'middle' : 'bottom'}`)
       if (st.wrap) css.push('white-space:pre-wrap')
       if (st.indent) css.push(`padding-left:${3 + st.indent * 9}px`)
@@ -110,61 +124,172 @@ function sheetTable(sheet: SheetState, rg: Range, o: PrintOptions): { html: stri
         if (bb) css.push(`border-bottom:${bb}`)
         if (ll) css.push(`border-left:${ll}`)
       }
-      const attrs = (sp && sp.rs > 1 ? ` rowspan="${sp.rs}"` : '') + (sp && sp.cs > 1 ? ` colspan="${sp.cs}"` : '')
-      out.push(`<td${attrs}${css.length ? ` style="${css.join(';')}"` : ''}>${esc(d.text)}</td>`)
+      // Left-aligned text that doesn't fit runs on into the empty cells to its right, like Excel.
+      let cs = sp && sp.cs > 1 ? sp.cs : 1
+      if (!sp && text && !st.wrap && h2 === 'left' && typeof store.getValue(sheet, r, c) !== 'number') {
+        let need = textWidth(text, st) + 6 - pcw(sheet, c)
+        let j = ci + 1
+        while (need > 0 && j < cols.length && !covered.has(`${r},${cols[j]}`) && store.getRaw(sheet, r, cols[j]) === '' && !l.merges.some((m) => { const n = normRange(m); return r >= n.r1 && r <= n.r2 && cols[j] >= n.c1 && cols[j] <= n.c2 })) {
+          need -= pcw(sheet, cols[j]); cs++; j++
+        }
+        if (cs > 1) { for (let q = ci + 1; q < ci + cs; q++) covered.add(`${r},${cols[q]}`); css.push('overflow:visible') }
+      }
+      const attrs = (sp && sp.rs > 1 ? ` rowspan="${sp.rs}"` : '') + (cs > 1 ? ` colspan="${cs}"` : '')
+      out.push(`<td${attrs}${css.length ? ` style="${css.join(';')}"` : ''}>${esc(text)}</td>`)
     }
     out.push('</tr>')
   }
   out.push('</tbody></table>')
-  return { html: out.join(''), widthPx }
+  return { html: out.join(''), w, h }
 }
 
-/** A complete HTML document for printing / PDF, or null when there is nothing to print. */
-export function buildPrintHtml(o: PrintOptions): string | null {
+function runsHtml(runs: HfRun[], sizeMul: number): string {
+  return runs.map((r) => {
+    const css: string[] = []
+    if (r.bold) css.push('font-weight:bold')
+    if (r.italic) css.push('font-style:italic')
+    const deco = [r.underline ? 'underline' : '', r.strike ? 'line-through' : ''].filter(Boolean).join(' ')
+    if (deco) css.push(`text-decoration:${deco}${r.underline === 'double' ? ' double' : ''}`)
+    if (r.font) css.push(`font-family:'${r.font}'`)
+    if (r.size) css.push(`font-size:${(r.size * sizeMul).toFixed(2)}pt`)
+    if (r.color) css.push(`color:${r.color}`)
+    if (r.sup) css.push('vertical-align:super;font-size:0.7em')
+    if (r.sub) css.push('vertical-align:sub;font-size:0.7em')
+    return `<span${css.length ? ` style="${css.join(';')}"` : ''}>${esc(r.text).replace(/\n/g, '<br>')}</span>`
+  }).join('')
+}
+
+/** Which header/footer string applies to a page (first page / even / odd). */
+export function hfFor(ps: PageSetup, pageInSheet: number, pageNumber: number, kind: 'Header' | 'Footer'): string {
+  const hf = ps.hf
+  if (!hf) return ''
+  const pick = (k: 'odd' | 'even' | 'first'): string | undefined => hf[`${k}${kind}` as keyof typeof hf] as string | undefined
+  if (hf.differentFirst && pageInSheet === 0) return pick('first') ?? ''
+  if (hf.differentOddEven && pageNumber % 2 === 0) return pick('even') ?? ''
+  return pick('odd') ?? ''
+}
+
+interface SheetPages { sheet: SheetState; ps: PageSetup; pages: PrintPage[]; scale: number; rg: Range }
+
+export function layoutSheet(sheet: SheetState, what: PrintOptions['what'], firstNumber?: number): SheetPages | null {
+  const rg = printRange(sheet, what)
+  if (!rg) return null
+  const ps: PageSetup = sheet.layout.pageSetup ?? {}
+  const m = marginsOf(ps)
+  const pg = pageInches(ps)
+  const titles = store.printTitles(sheet)
+  const l = sheet.layout
+  const p = paginate({
+    range: rg,
+    colPx: (c) => (l.hiddenCols[c] ? 0 : pcw(sheet, c)),
+    rowPx: (r) => (l.hiddenRows[r] ? 0 : store.rowHeight(sheet, r)),
+    areaW: Math.max(0.5, pg.w - m.left - m.right), areaH: Math.max(0.5, pg.h - m.top - m.bottom),
+    scale: ps.scale ?? 100,
+    fit: ps.fitToPage ? { w: ps.fitToWidth ?? 1, h: ps.fitToHeight ?? 1 } : undefined,
+    titleRows: titles.rows, titleCols: titles.cols,
+    rowBreaks: ps.rowBreaks ?? [], colBreaks: ps.colBreaks ?? [],
+    order: ps.pageOrder === 'overThenDown' ? 'overThenDown' : 'downThenOver',
+    firstPageNumber: firstNumber ?? ps.firstPageNumber
+  })
+  return { sheet, ps, pages: p.pages, scale: p.scale, rg }
+}
+
+/** A complete HTML document for printing / PDF (or, with `preview`, a scrollable stack of pages). */
+export function buildPrint(o: PrintOptions, preview = false): PrintDoc | null {
   const sheets = o.what === 'workbook' ? store.sheets.filter((s) => !s.layout.sheetHidden) : [store.active]
-  const parts: string[] = []
-  let maxW = 0
+  const laid: SheetPages[] = []
+  let next = 1
   for (const sh of sheets) {
-    const rg = printRange(sh, o.what)
-    if (!rg) continue
-    const t = sheetTable(sh, rg, o)
-    maxW = Math.max(maxW, t.widthPx)
-    parts.push(`<section>${t.html}</section>`)
+    const sp = layoutSheet(sh, o.what, sh.layout.pageSetup?.firstPageNumber ?? next)
+    if (!sp || !sp.pages.length) continue
+    laid.push(sp)
+    next += sp.pages.length
   }
-  if (!parts.length) return null
-  const pageWIn = (o.landscape ? PAGE_H_IN : PAGE_W_IN)[o.pageSize] - 2 * SIDE_IN[o.margins]
-  const pageWPx = pageWIn * 96
-  const zoom = o.scaling !== 'none' && maxW > pageWPx ? pageWPx / maxW : 1
-  return `<!doctype html><html><head><meta charset="utf-8"><style>
-@page { size: ${o.pageSize} ${o.landscape ? 'landscape' : 'portrait'}; margin: ${MARGINS[o.margins]}; }
-html, body { margin: 0; }
-body { font: 11pt Calibri, 'Segoe UI', Arial, sans-serif; color: #000; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-section { zoom: ${zoom.toFixed(4)}; }
-section + section { break-before: page; }
+  if (!laid.length) return null
+  const total = next - 1
+  const file = (store.fileName || 'Book1')
+  const now = new Date()
+  const css: string[] = []
+  const body: string[] = []
+  let first: { w: number; h: number } | undefined
+  laid.forEach((sp, si) => {
+    const { sheet, ps } = sp
+    const pg = pageInches(ps)
+    first ??= { w: pg.w, h: pg.h }
+    const m = marginsOf(ps)
+    const l = sheet.layout
+    const titles = store.printTitles(sheet)
+    css.push(`@page s${si} { size: ${pg.w}in ${pg.h}in; margin: 0 }`)
+    const rowsOf = (a: number, b: number): number[] => { const out: number[] = []; for (let r = a; r <= b; r++) if (!l.hiddenRows[r]) out.push(r); return out }
+    const colsOf = (a: number, b: number): number[] => { const out: number[] = []; for (let c = a; c <= b; c++) if (!l.hiddenCols[c]) out.push(c); return out }
+    const s = sp.scale / 100
+    const areaW = (pg.w - m.left - m.right) * 96, areaH = (pg.h - m.top - m.bottom) * 96
+    sp.pages.forEach((p, pi) => {
+      const rows = [...(p.repeatRows && titles.rows ? rowsOf(titles.rows[0], titles.rows[1]) : []), ...rowsOf(p.r1, p.r2)]
+      const cols = [...(p.repeatCols && titles.cols ? colsOf(titles.cols[0], titles.cols[1]) : []), ...colsOf(p.c1, p.c2)]
+      if (!rows.length || !cols.length) return
+      const t = pageTable(sheet, rows, cols, ps)
+      const cw = t.w * s, ch = t.h * s
+      const offX = ps.centerH ? Math.max(0, (areaW - cw) / 2) : 0
+      const offY = ps.centerV ? Math.max(0, (areaH - ch) / 2) : 0
+      const hfCtx: HfContext = { page: p.number, pages: total, sheet: sheet.name, file, path: store.filePath ?? '', now }
+      const mul = ps.hf?.scaleWithDoc === false ? 1 : s
+      const align = ps.hf?.alignWithMargins === false ? { l: 0, r: 0 } : { l: m.left, r: m.right }
+      const hfBlock = (kind: 'Header' | 'Footer'): string => {
+        const code = hfFor(ps, pi, p.number, kind)
+        if (!code) return ''
+        const parts = splitHf(code)
+        const cell = (side: 'left' | 'center' | 'right'): string => parts[side] ? `<div class="hf-${side}">${runsHtml(hfRuns(parts[side], hfCtx), mul)}</div>` : ''
+        const pos = kind === 'Header' ? `top:${m.header}in` : `bottom:${m.footer}in`
+        return `<div class="hf" style="${pos};left:${align.l}in;right:${align.r}in;font-size:${(11 * mul).toFixed(2)}pt">${cell('left')}${cell('center')}${cell('right')}</div>`
+      }
+      body.push(`<div class="page s${si}${ps.blackAndWhite ? ' bw' : ''}" style="page:s${si};width:${pg.w}in;height:${pg.h}in">`
+        + hfBlock('Header')
+        + `<div class="content" style="left:${m.left}in;top:${m.top}in;width:${pg.w - m.left - m.right}in;height:${pg.h - m.top - m.bottom}in">`
+        + `<div style="position:absolute;left:${offX}px;top:${offY}px;width:${t.w}px;transform:scale(${s});transform-origin:0 0">${t.html}</div></div>`
+        + hfBlock('Footer') + '</div>')
+    })
+  })
+  const html = `<!doctype html><html><head><meta charset="utf-8"><style>
+${css.join('\n')}
+html, body { margin: 0; padding: 0; }
+body { font: 11pt Calibri, 'Segoe UI', Arial, sans-serif; color: #000; -webkit-print-color-adjust: exact; print-color-adjust: exact; ${preview ? 'background:#e6e6e6;padding:8px 0;' : ''} }
+.page { position: relative; overflow: hidden; background: #fff; ${preview ? 'margin:0 auto 12px;box-shadow:0 1px 4px rgba(0,0,0,.35);' : 'break-after: page;'} }
+.page:last-child { break-after: auto; }
+.content { position: absolute; overflow: hidden; }
+.hf { position: absolute; display: flex; justify-content: space-between; align-items: flex-end; white-space: pre; line-height: 1.2; }
+.hf-left { flex: 1; text-align: left; } .hf-center { flex: 1; text-align: center; } .hf-right { flex: 1; text-align: right; }
 table.sheet { border-collapse: collapse; table-layout: fixed; }
 table.sheet td { padding: 0 3px; overflow: hidden; white-space: pre; line-height: 1.15; }
 table.sheet.grid td { outline: 0.5px solid #c0c0c0; outline-offset: -0.5px; }
 table.sheet th { background: #f2f2f2; border: 0.5px solid #bfbfbf; font-weight: normal; font-size: 9pt; }
-thead { display: table-header-group; }
-tr { break-inside: avoid; }
-</style></head><body>${parts.join('')}</body></html>`
+.bw td, .bw th { color: #000 !important; background: transparent !important; }
+</style></head><body>${body.join('')}</body></html>`
+  return { html, widthIn: first?.w ?? 8.27, heightIn: first?.h ?? 11.69, pageCount: total }
+}
+
+/** Kept for callers that only need the document HTML. */
+export function buildPrintHtml(o: PrintOptions, preview = false): string | null {
+  return buildPrint(o, preview)?.html ?? null
 }
 
 /** Prints or exports; returns an error message to show, or null. */
 export async function runPrint(o: PrintOptions, mode: 'print' | 'pdf'): Promise<string | null> {
-  const html = buildPrintHtml(o)
-  if (!html) return 'There is nothing to print.'
+  const doc = buildPrint(o)
+  if (!doc) return 'There is nothing to print.'
   if (!window.api?.printDocument) {
     // Browser build: print through a hidden frame.
     const f = document.createElement('iframe')
     f.style.cssText = 'position:fixed;width:0;height:0;border:0'
     document.body.appendChild(f)
-    f.srcdoc = html
+    f.srcdoc = doc.html
     await new Promise((r) => (f.onload = r))
     f.contentWindow?.print()
     setTimeout(() => f.remove(), 1000)
     return null
   }
-  const res = await window.api.printDocument({ html, mode, landscape: o.landscape, pageSize: o.pageSize, defaultName: store.fileName || 'Book1' })
+  const res = await window.api.printDocument({ html: doc.html, mode, widthIn: doc.widthIn, heightIn: doc.heightIn, defaultName: store.fileName || 'Book1' })
   return res === true || res === null ? null : res
 }
+
+export { DEFAULT_PAPER, paperOf }

@@ -20,6 +20,8 @@ import { GenericTab, GGroup } from './GenericTab'
 import { useStore, store } from '../../model/store'
 import { useUi, setUi, getUi, notAvailable } from '../ui'
 import { PageSetup } from '../../model/types'
+import { PAPER_SIZES, paperOf, marginPresetOf, fitOf } from '../../model/pageSetup'
+import { canRemovePageBreak, insertPageBreak, openPageSetup, removePageBreak, resetPageBreaks, setFitPages, setMarginPreset, updatePageSetup } from '../../grid/pageSetupCommands'
 import { selectionRef } from '../../dialogs/NameDialogs'
 import { FUNCTION_CATEGORIES, RECENTLY_USED } from './functionCategories'
 import { MenuItem } from '../../components/Menu'
@@ -71,7 +73,7 @@ export function InsertTab() {
     { label: 'Comments', big: [{ label: 'Comment', icon: <CommentAdd20Regular fontSize={28} />, onClick: () => { const a = store.active.selection.active; setUi({ commentPanel: { r: a.r, c: a.c } }) } }] },
     { label: 'Text', big: [
       { label: 'Text Box', icon: <TextboxAlignTopLeft20Regular fontSize={28} /> },
-      { label: 'Header & Footer', icon: <PanelLeftText20Regular fontSize={28} /> },
+      { label: 'Header & Footer', icon: <PanelLeftText20Regular fontSize={28} />, onClick: () => openPageSetup('Header/Footer') },
       { label: 'WordArt', icon: <SignatureFilled fontSize={28} /> },
       { label: 'Signature Line', icon: <SignatureFilled fontSize={28} /> },
       { label: 'Object', icon: <MathSymbols20Regular fontSize={28} /> }
@@ -90,36 +92,49 @@ export function PageLayoutTab() {
   useUi()
   const layout = store.active.layout
   const ps = layout.pageSetup ?? {}
-  const setPs = (p: Partial<PageSetup>) => store.updateLayout(store.active, 'Page Setup', (l) => (l.pageSetup = { ...l.pageSetup, ...p }))
+  const setPs = (p: Partial<PageSetup>) => updatePageSetup(p)
   const hasPrintArea = store.names.some((n) => /^_xlnm\.Print_Area$/i.test(n.name) && n.sheetUid === store.active.uid)
+  const fit = fitOf(ps)
+  const fitMenu = (axis: 'w' | 'h'): MenuItem[] => [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => ({
+    label: n === 0 ? 'Automatic' : `${n} page${n > 1 ? 's' : ''}`,
+    checked: (fit.on ? (axis === 'w' ? fit.w : fit.h) : 0) === n,
+    onClick: () => setFitPages(axis, n)
+  }))
   const groups: GGroup[] = [
     { label: 'Themes', big: [{ label: 'Themes', icon: <PenSparkle20Regular fontSize={28} /> }] },
     { label: 'Page Setup', rows: [
       [
-        { label: 'Margins', icon: <ArrowMoveInward20Regular />, menu: (['normal', 'wide', 'narrow'] as const).map((m) => ({ label: m[0].toUpperCase() + m.slice(1), checked: (ps.margins ?? 'normal') === m, onClick: () => setPs({ margins: m }) })) },
-        { label: 'Orientation', icon: <DocumentPageBreak20Regular />, menu: [
-          { label: 'Portrait', checked: !ps.landscape, onClick: () => setPs({ landscape: false }) },
-          { label: 'Landscape', checked: !!ps.landscape, onClick: () => setPs({ landscape: true }) }
+        { label: 'Margins', icon: <ArrowMoveInward20Regular />, menu: [
+          ...(['normal', 'wide', 'narrow'] as const).map((m) => ({ label: m[0].toUpperCase() + m.slice(1), checked: marginPresetOf(ps) === m, onClick: () => setMarginPreset(m) })),
+          { label: 'Custom Margins...', checked: marginPresetOf(ps) === 'custom', onClick: () => openPageSetup('Margins') }
         ] },
-        { label: 'Size', icon: <TableSimple20Regular />, menu: (['A4', 'Letter', 'Legal'] as const).map((z) => ({ label: z, checked: (ps.pageSize ?? 'A4') === z, onClick: () => setPs({ pageSize: z }) })) }
+        { label: 'Orientation', icon: <DocumentPageBreak20Regular />, menu: [
+          { label: 'Portrait', checked: !ps.landscape, onClick: () => updatePageSetup({ landscape: false }, 'Orientation') },
+          { label: 'Landscape', checked: !!ps.landscape, onClick: () => updatePageSetup({ landscape: true }, 'Orientation') }
+        ] },
+        { label: 'Size', icon: <TableSimple20Regular />, menu: [
+          ...PAPER_SIZES.map((z) => ({ label: `${z.name} (${z.wIn} x ${z.hIn} in)`, checked: paperOf(ps).code === z.code, onClick: () => updatePageSetup({ paperSize: z.code }, 'Paper Size') })),
+          { label: 'More Paper Sizes...', onClick: () => openPageSetup('Page') }
+        ] }
       ],
       [
         { label: 'Print Area', icon: <Print20Regular />, menu: [
           { label: '&Set Print Area', onClick: () => store.setPrintArea(store.active, selectionRef().replace(/^=/, '')) },
           { label: '&Clear Print Area', disabled: !hasPrintArea, onClick: () => store.setPrintArea(store.active, null) }
         ] },
-        { label: 'Breaks', icon: <SplitHorizontal20Regular /> },
-        { label: 'Background', icon: <ImageAdd20Regular /> }
+        { label: 'Breaks', icon: <SplitHorizontal20Regular />, menu: [
+          { label: 'Insert Page Break', onClick: insertPageBreak },
+          { label: 'Remove Page Break', disabled: !canRemovePageBreak(), onClick: removePageBreak },
+          { label: 'Reset All Page Breaks', disabled: !(ps.rowBreaks?.length || ps.colBreaks?.length), onClick: resetPageBreaks }
+        ] },
+        { label: 'Background', icon: <ImageAdd20Regular />, onClick: () => notAvailable('Sheet Background') }
       ],
-      [{ label: 'Print Titles', icon: <TableFreezeRow20Regular /> }]
-    ], launcher: true, onLauncher: () => setUi({ backstage: true, backstageTab: 'print' }) },
+      [{ label: 'Print Titles', icon: <TableFreezeRow20Regular />, onClick: () => openPageSetup('Sheet') }]
+    ], launcher: true, onLauncher: () => openPageSetup('Page') },
     { label: 'Scale to Fit', rows: [
-      [{ label: 'Width', icon: <PageFit20Regular />, menu: [
-        { label: 'Automatic', checked: !ps.fitColumns, onClick: () => setPs({ fitColumns: false }) },
-        { label: '1 page', checked: !!ps.fitColumns, onClick: () => setPs({ fitColumns: true }) }
-      ] }],
-      [{ label: 'Height', icon: <PageFit20Regular />, menu: [{ label: 'Automatic', checked: true, onClick: () => {} }] }],
-      [{ label: 'Scale', icon: <ZoomFit20Regular />, onClick: () => setUi({ backstage: true, backstageTab: 'print' }) }]
+      [{ label: 'Width', icon: <PageFit20Regular />, menu: fitMenu('w') }],
+      [{ label: 'Height', icon: <PageFit20Regular />, menu: fitMenu('h') }],
+      [{ label: 'Scale', icon: <ZoomFit20Regular />, onClick: () => openPageSetup('Page') }]
     ] },
     { label: 'Sheet Options', rows: [
       [{ label: 'Gridlines: View', icon: <GridDots20Regular />, active: layout.showGridlines, onClick: () => store.updateLayout(store.active, 'Gridlines', (l) => (l.showGridlines = !l.showGridlines)) }],

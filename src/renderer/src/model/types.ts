@@ -84,13 +84,37 @@ export interface CommentThread {
   replies: CommentReply[]
 }
 
+/** Page Layout / Page Setup, saved in the file (worksheet pageSetup, pageMargins, printOptions, headerFooter, breaks). */
 export interface PageSetup {
   landscape?: boolean
-  pageSize?: 'A4' | 'Letter' | 'Legal'
-  margins?: 'normal' | 'wide' | 'narrow'
-  fitColumns?: boolean
+  /** Excel paper size code (9 = A4, 1 = Letter, 5 = Legal...), see model/pageSetup.ts. */
+  paperSize?: number
+  /** Inches; missing sides use the Normal preset. */
+  margins?: { left?: number; right?: number; top?: number; bottom?: number; header?: number; footer?: number }
+  /** Adjust to N% of normal size (10-400) when fitToPage is off. */
+  scale?: number
+  /** Fit to N pages wide by N tall; 0 = automatic. Only used when fitToPage is set. */
+  fitToPage?: boolean
+  fitToWidth?: number
+  fitToHeight?: number
   gridlines?: boolean
   headings?: boolean
+  blackAndWhite?: boolean
+  draft?: boolean
+  centerH?: boolean
+  centerV?: boolean
+  pageOrder?: 'overThenDown'
+  firstPageNumber?: number
+  comments?: 'atEnd' | 'asDisplayed'
+  errors?: 'blank' | 'dash' | 'NA'
+  /** Header & footer strings in Excel's code language (&L &C &R &P &N ...). */
+  hf?: {
+    oddHeader?: string; oddFooter?: string; evenHeader?: string; evenFooter?: string; firstHeader?: string; firstFooter?: string
+    differentOddEven?: boolean; differentFirst?: boolean; scaleWithDoc?: boolean; alignWithMargins?: boolean
+  }
+  /** Manual page breaks: 0-based index of the first row / column of the page that follows the break. */
+  rowBreaks?: number[]
+  colBreaks?: number[]
 }
 
 /** Excel's password hash: SHA-512 (agile) for files saved by Excel 2013+, or the legacy 16-bit hash. */

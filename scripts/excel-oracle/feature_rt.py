@@ -55,5 +55,37 @@ def case_outline():
         return res
     print(json.dumps(with_excel(cellbook_write(data, 'rt-outline'), fn)))
 
+def case_pages():
+    """Page counts / scale / breaks: Cellbook's paginator vs Excel's, for several page setups on the same data."""
+    cells = {}
+    for r in range(120):
+        for c in range(14): cells['%d,%d' % (r, c)] = {'raw': 'r%dc%d' % (r, c)}
+    lay = {'colWidths': {}, 'rowHeights': {}, 'merges': [], 'frozen': {'rows': 0, 'cols': 0}, 'showGridlines': True, 'showHeadings': True, 'zoom': 100, 'notes': {}, 'comments': {}}
+    setups = {
+        'default': {'paperSize': 9},
+        'letterLandscape': {'paperSize': 1, 'landscape': True},
+        'scale60': {'paperSize': 9, 'scale': 60},
+        'fit1x1': {'paperSize': 9, 'fitToPage': True, 'fitToWidth': 1, 'fitToHeight': 1},
+        'fit1xAuto': {'paperSize': 9, 'fitToPage': True, 'fitToWidth': 1, 'fitToHeight': 0},
+        'fit2x2': {'paperSize': 8, 'fitToPage': True, 'fitToWidth': 2, 'fitToHeight': 2},
+        'wideMargins': {'paperSize': 9, 'margins': {'left': 1, 'right': 1, 'top': 1, 'bottom': 1, 'header': 0.5, 'footer': 0.5}},
+        'breaks': {'paperSize': 9, 'rowBreaks': [10, 50], 'colBreaks': [5]},
+        'overThenDown': {'paperSize': 9, 'pageOrder': 'overThenDown'},
+    }
+    data = {'sheets': [{'name': k, 'cells': cells, 'layout': dict(lay, pageSetup=v)} for k, v in setups.items()]}
+    x = cellbook_write(data, 'rt-pages')
+    ours = json.loads(subprocess.run('npx vite-node scripts/excel-oracle/pages_io.ts "%s"' % os.path.join(OUT, 'rt-pages.json'), cwd=ROOT, shell=True, capture_output=True, text=True, check=True).stdout)
+    def fn(xl, wb):
+        res = {}
+        for k in setups:
+            ws = wb.Worksheets(k)
+            try: n = ws.PageSetup.Pages.Count
+            except Exception as e: n = 'err %s' % e
+            try: hb = [ws.HPageBreaks(i).Location.Row - 1 for i in range(1, ws.HPageBreaks.Count + 1)]
+            except Exception: hb = None
+            res[k] = dict(excelPages=n, ourPages=ours[k]['pages'], ourScale=ours[k]['scale'], excelHBreaks=hb, ourHBreaks=ours[k]['hbreaks'], excelZoom=ws.PageSetup.Zoom)
+        return res
+    for k, v in with_excel(x, fn).items(): print(k, json.dumps(v))
+
 if __name__ == '__main__':
     globals()['case_' + sys.argv[1]]()

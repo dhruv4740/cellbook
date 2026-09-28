@@ -592,7 +592,7 @@ ipcMain.handle('shell:openLink', async (_e, target: string): Promise<true | stri
 
 // File > Print / Export PDF: the renderer builds a print document of the sheet; main renders it in a
 // hidden window and either opens the system print dialog or saves a PDF.
-ipcMain.handle('print:run', async (e, opts: { html: string; mode: 'print' | 'pdf'; landscape: boolean; pageSize: 'A4' | 'Letter' | 'Legal'; defaultName: string }): Promise<true | string | null> => {
+ipcMain.handle('print:run', async (e, opts: { html: string; mode: 'print' | 'pdf'; widthIn: number; heightIn: number; defaultName: string }): Promise<true | string | null> => {
   const owner = BrowserWindow.fromWebContents(e.sender) ?? undefined
   const tmp = join(app.getPath('temp'), `cellbook-print-${process.pid}-${Date.now()}.html`)
   const pw = new BrowserWindow({ show: false, webPreferences: { javascript: false, sandbox: true } })
@@ -604,12 +604,12 @@ ipcMain.handle('print:run', async (e, opts: { html: string; mode: 'print' | 'pdf
         ? await dialog.showSaveDialog(owner, { defaultPath: opts.defaultName.replace(/\.[^.]+$/, '') + '.pdf', filters: [{ name: 'PDF', extensions: ['pdf'] }] })
         : await dialog.showSaveDialog({ defaultPath: opts.defaultName + '.pdf' })
       if (target.canceled || !target.filePath) return null
-      const pdf = await pw.webContents.printToPDF({ landscape: opts.landscape, pageSize: opts.pageSize, printBackground: true, preferCSSPageSize: true })
+      const pdf = await pw.webContents.printToPDF({ pageSize: { width: opts.widthIn, height: opts.heightIn }, printBackground: true, preferCSSPageSize: true })
       await fs.writeFile(target.filePath, pdf)
       return true
     }
     return await new Promise<true | string | null>((resolve) => {
-      pw.webContents.print({ silent: false, printBackground: true, landscape: opts.landscape, pageSize: opts.pageSize }, (ok, reason) => {
+      pw.webContents.print({ silent: false, printBackground: true, landscape: false, pageSize: { width: Math.round(opts.widthIn * 25400), height: Math.round(opts.heightIn * 25400) } }, (ok, reason) => {
         resolve(ok ? true : reason === 'cancelled' || reason === 'Print job canceled' ? null : reason || 'Printing failed.')
       })
     })
