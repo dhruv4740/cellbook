@@ -211,7 +211,8 @@ export async function paste(kind: PasteKind = 'all'): Promise<void> {
   let clip = store.clipboard
   const sysText = await readSystemClipboardText()
   // Something new was copied in another app since our Copy: Excel drops its own clipboard then too.
-  if (clip && sysText !== null && clip.text !== undefined && norm(sysText) !== norm(clip.text)) {
+  // (An empty system clipboard - blocked by clipboard-protection software, say - is not "something else was copied".)
+  if (clip && sysText && clip.text !== undefined && norm(sysText) !== norm(clip.text)) {
     store.clipboard = clip = null
     store.notify()
   }
