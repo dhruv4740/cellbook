@@ -1,5 +1,6 @@
 // Excel's AutoFilter column dropdown: Sort commands, Clear Filter, Text/Number Filters submenus,
 // a search box and the (Select All)/(Blanks)/value checklist, with OK/Cancel.
+import { runMaybeBusy } from '../chrome/ui'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { store, SheetState } from '../model/store'
@@ -90,8 +91,8 @@ export function AutoFilterMenu({ sheet, col, x, y, onClose }: Props): React.Reac
     onClose()
   }
   function sort(order: 'asc' | 'desc'): void {
-    store.sortFilterRange(sheet, col, order)
     onClose()
+    runMaybeBusy((af.range.r2 - af.range.r1 + 1) * (af.range.c2 - af.range.c1 + 1), 'Sorting...', () => store.sortFilterRange(sheet, col, order))
   }
   function applyCondition(matches: (v: string) => boolean): void {
     store.setColumnFilter(sheet, col, { selected: allValues.filter(matches) })

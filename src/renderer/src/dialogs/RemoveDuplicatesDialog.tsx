@@ -1,3 +1,4 @@
+import { runMaybeBusy } from '../chrome/ui'
 import { useState } from 'react'
 import { Dialog } from '../components/Dialog'
 import { WorkbookStore } from '../model/store'
@@ -52,10 +53,11 @@ export function RemoveDuplicatesDialog({ store, onClose }: RemoveDuplicatesDialo
 
   const handleOk = () => {
     if (selectedCols.length === 0) return
-    const res = removeDuplicates(store, sheet, range, selectedCols, hasHeaders)
-    setResultMsg(
-      `${res.removedCount} duplicate values found and removed; ${res.remainingCount} unique values remain.`
-    )
+    const run = (): void => {
+      const res = removeDuplicates(store, sheet, range, selectedCols, hasHeaders)
+      setResultMsg(`${res.removedCount} duplicate values found and removed; ${res.remainingCount} unique values remain.`)
+    }
+    runMaybeBusy((range.r2 - range.r1 + 1) * (range.c2 - range.c1 + 1), 'Removing duplicates...', run)
   }
 
   return (

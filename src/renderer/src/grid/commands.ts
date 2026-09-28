@@ -2,7 +2,7 @@
 // Commands that act on the active sheet's current selection. Called from the grid (keyboard,
 // right-click menus) and from the ribbon, so both stay consistent.
 import { store, SheetState } from '../model/store'
-import { setUi, getUi } from '../chrome/ui'
+import { setUi, getUi, runMaybeBusy} from '../chrome/ui'
 import { CellStyle, Range, normRange, colName, MAX_ROWS, MAX_COLS, parseA1 } from '../model/types'
 import { shiftFormula } from '../engine/shiftFormula'
 import { generateSeries } from '../engine/autofill'
@@ -503,10 +503,10 @@ export function sortSelection(order: 'asc' | 'desc'): void {
             }
             const activeCol = sheet.selection.active.c
             const hasHeaders = detectHeaders(store, sheet, target)
-            sortRange(store, sheet, target, {
+            runMaybeBusy(cellCount(target), 'Sorting...', () => sortRange(store, sheet, target, {
               hasHeaders,
               levels: [{ columnIndex: activeCol, sortOn: 'values', order }]
-            })
+            }))
           }
         }
       }
@@ -516,11 +516,13 @@ export function sortSelection(order: 'asc' | 'desc'): void {
 
   const activeCol = sheet.selection.active.c
   const hasHeaders = detectHeaders(store, sheet, n)
-  sortRange(store, sheet, n, {
+  runMaybeBusy(cellCount(n), 'Sorting...', () => sortRange(store, sheet, n, {
     hasHeaders,
     levels: [{ columnIndex: activeCol, sortOn: 'values', order }]
-  })
+  }))
 }
+
+const cellCount = (r: Range): number => (r.r2 - r.r1 + 1) * (r.c2 - r.c1 + 1)
 
 // ---------- fill ----------
 export function fill(direction: 'down' | 'right' | 'up' | 'left'): void {

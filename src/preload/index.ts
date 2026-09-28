@@ -1,10 +1,17 @@
-import { contextBridge, ipcRenderer, webUtils } from 'electron'
+import { contextBridge, ipcRenderer, webFrame, webUtils } from 'electron'
 
 export interface WinListEntry { id: number; title: string; current: boolean }
 export interface WinState { fileName: string; filePath: string | null; dirty: boolean }
 export interface OpenPathPayload { path: string; data: Uint8Array }
 
 const api = {
+  /** Review > Spelling: Electron's built-in spellchecker for this window's language. */
+  spell: {
+    isMisspelled: (word: string): boolean => webFrame.isWordMisspelled(word),
+    suggestions: (word: string): string[] => webFrame.getWordSuggestions(word),
+    addWord: (word: string): Promise<boolean> => ipcRenderer.invoke('spell:addWord', word),
+    languages: (): Promise<string[]> => ipcRenderer.invoke('spell:languages')
+  },
   /** Windows region (e.g. en-IN), which Excel uses for dates and digit grouping. */
   regionLocale: process.argv.find((a) => a.startsWith('--cellbook-region='))?.slice('--cellbook-region='.length),
   windowControl: (action: 'minimize' | 'maximize' | 'close') => ipcRenderer.invoke('window:control', action),
