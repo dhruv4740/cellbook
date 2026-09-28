@@ -1,0 +1,24 @@
+{
+ "data": [
+  ["apple", 1, 10, 1], ["Apple", 2, "5", 2], ["banana", 3, 5, 3], ["apricot", 4, null, 4],
+  ["cherry", 5, 5, 5], ["APPLE", 6, true, 6], ["", 7, "abc", 7], [null, 8, 0, 8],
+  ["a1", 9, 1, 9], ["5", 10, 5, 10], [5, 11, "1", 11], ["banana", 12, 7.5, 12]
+ ],
+ "formulas": [
+  "COUNTIF(A1:A12,\"apple\")", "COUNTIF(A1:A12,\"APPLE\")", "COUNTIF(A1:A12,\"app*\")", "COUNTIF(A1:A12,\"?pple\")", "COUNTIF(A1:A12,\"<>apple\")",
+  "COUNTIF(A1:A12,\"=apple\")", "COUNTIF(A1:A12,\"\")", "COUNTIF(A1:A12,\"=\")", "COUNTIF(A1:A12,\"<>\")", "COUNTIF(A1:A12,5)", "COUNTIF(A1:A12,\"5\")",
+  "COUNTIF(A1:A12,\">a\")", "COUNTIF(A1:A12,\"a*\")", "COUNTIF(A1:A12,\"*an*\")", "COUNTIF(A1:A12,\"a?\")",
+  "COUNTIF(C1:C12,\">4\")", "COUNTIF(C1:C12,\">=5\")", "COUNTIF(C1:C12,\"<5\")", "COUNTIF(C1:C12,5)", "COUNTIF(C1:C12,\"1\")", "COUNTIF(C1:C12,TRUE)", "COUNTIF(C1:C12,\"<>5\")",
+  "COUNTIF(C1:C12,\"abc\")", "COUNTIF(C1:C12,0)", "COUNTIF(B1:B12,\">\"&B3)", "COUNTIF(A:A,\"apple\")", "COUNTIF(C1:C12,\">7.5\")",
+  "COUNTIFS(A1:A12,\"apple\",B1:B12,\">1\")", "COUNTIFS(A1:A12,\"a*\",C1:C12,\">=5\")", "COUNTIFS(A1:A12,\"banana\",B1:B12,\">0\",D1:D12,\"<>12\")", "COUNTIFS(A1:A12,\"apple\",B1:B3,\">1\")",
+  "SUMIF(A1:A12,\"apple\",B1:B12)", "SUMIF(B1:B12,\">4\")", "SUMIF(B1:B12,\">4\",D1:D12)", "SUMIF(C1:C12,\">=5\")", "SUMIF(A1:A12,\"a*\",C1:C12)", "SUMIF(A1:A12,\"nomatch\",B1:B12)", "SUMIF(C1:C12,5)", "SUMIF(C1:C12,\"5\",B1:B12)",
+  "SUMIFS(B1:B12,A1:A12,\"a*\",C1:C12,\">1\")", "SUMIFS(D1:D12,A1:A12,\"banana\")", "SUMIFS(B1:B12,A1:A12,\"apple\",C1:C12,\"5\")", "SUMIFS(C1:C12,A1:A12,\"?pple\")", "SUMIFS(B1:B12,A1:A11,\"apple\")",
+  "AVERAGEIF(A1:A12,\"apple\",B1:B12)", "AVERAGEIF(A1:A12,\"nomatch\",B1:B12)", "AVERAGEIF(C1:C12,\">=5\")", "AVERAGEIFS(B1:B12,A1:A12,\"banana\")", "AVERAGEIFS(B1:B12,A1:A12,\"zzz\")",
+  "MAXIFS(B1:B12,A1:A12,\"apple\")", "MINIFS(B1:B12,A1:A12,\"banana\")", "MAXIFS(B1:B12,A1:A12,\"zzz\")", "MINIFS(C1:C12,B1:B12,\">3\")", "MAXIFS(C1:C12,A1:A12,\"a*\")",
+  "XLOOKUP(\"banana\",A1:A12,B1:B12)", "XLOOKUP(\"BANANA\",A1:A12,B1:B12)", "XLOOKUP(\"zzz\",A1:A12,B1:B12)", "XLOOKUP(\"zzz\",A1:A12,B1:B12,\"none\")", "XLOOKUP(\"banana\",A1:A12,B1:B12,\"none\",0,-1)",
+  "XLOOKUP(5,A1:A12,B1:B12)", "XLOOKUP(\"5\",A1:A12,B1:B12)", "XLOOKUP(5,D1:D12,B1:B12)", "XLOOKUP(6.5,D1:D12,B1:B12,\"x\",-1)", "XLOOKUP(6.5,D1:D12,B1:B12,\"x\",1)", "XLOOKUP(\"ap*\",A1:A12,B1:B12,\"x\",2)",
+  "XLOOKUP(\"cherry\",A1:A12,B1:C12)", "XLOOKUP(\"apple\",A1:A12,C1:C12)", "XLOOKUP(\"apricot\",A1:A12,C1:C12,\"x\")", "XLOOKUP(3,B1:B12,A1:A12)", "XLOOKUP(\"apple\",A1:A12,B1:B11)",
+  "INDEX(B1:B12,3)", "INDEX(B1:C12,2,2)", "INDEX(B1:C12,4,2)", "INDEX(C1:C12,4)", "SUM(INDEX(B1:C12,0,2))", "SUM(INDEX(B1:C12,2,0))", "INDEX(B1:B12,13)", "INDEX(B1:C12,2,3)", "INDEX(A1:D1,3)", "INDEX(A1:A12,7)&\"x\"",
+  "SUMPRODUCT(INDEX(B1:C12,0,1)*1)", "MATCH(\"banana\",A1:A12,0)", "VLOOKUP(\"cherry\",A1:D12,4,FALSE)"
+ ]
+}
