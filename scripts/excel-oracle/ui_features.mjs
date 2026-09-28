@@ -102,7 +102,7 @@ await set(60, 0, 'a'); await set(60, 1, '1'); await set(61, 0, 'b'); await set(6
 await set(60, 3, 'a'); await set(60, 4, '10'); await set(61, 3, 'b'); await set(61, 4, '20')
 await sel(70, 0)
 await tab('Data')
-await win.getByText('Data Tools', { exact: true }).filter({ visible: true }).first().click(); await win.waitForTimeout(300); await shot('datatools-popup'); await win.locator('.xl-group-popup').getByText('Consolidate').click(); await win.waitForTimeout(400)
+await win.getByLabel('Consolidate').filter({ visible: true }).first().click(); await win.waitForTimeout(400)
 await win.waitForTimeout(300)
 await shot('consolidate-open')
 log('dialog title now', await win.evaluate(() => document.querySelector('.xl-dialog-title')?.textContent))
