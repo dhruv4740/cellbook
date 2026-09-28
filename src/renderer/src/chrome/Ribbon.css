@@ -53,7 +53,7 @@
 .xl-stacksplit-label { white-space: nowrap; }
 .xl-stacksplit-caret { border: none; background: transparent; width: 14px; display: flex; align-items: center; justify-content: center; cursor: default; color: #444; flex: none; }
 
-.xl-small-btn { display: flex; align-items: center; gap: 4px; border: 1px solid transparent; background: transparent; padding: 2px 4px; border-radius: 3px; cursor: default; font: inherit; font-size: 12px; color: var(--text); height: 22px; flex: none; overflow: hidden; }
+.xl-small-btn { display: flex; align-items: center; gap: 4px; border: 1px solid transparent; background: transparent; padding: 2px 3px; border-radius: 3px; cursor: default; font: inherit; font-size: 12px; color: var(--text); height: 22px; flex: none; overflow: hidden; }
 .xl-small-btn:hover, .xl-small-btn.active { background: #e0f0e8; border-color: #bfe0cd; }
 .xl-small-btn:disabled { opacity: 0.4; }
 .xl-small-icon { position: relative; display: flex; align-items: center; }
@@ -124,3 +124,19 @@ body.xl-keytips-commands .xl-ribbon-body .xl-split-main,
 body.xl-keytips-commands .xl-ribbon-body .xl-small-split-main,
 body.xl-keytips-commands .xl-ribbon-groups { overflow: visible; }
 body.xl-keytips-commands .xl-ribbon-body .xl-keytip-badge { z-index: 7000; }
+
+/* Checkbox / combo / spinner controls that sit in ribbon groups (Page Layout, View) */
+.xl-rb-check { display: flex; align-items: center; gap: 6px; height: 22px; font-size: 12px; color: var(--text); cursor: default; padding: 0 4px; white-space: nowrap; }
+.xl-rb-check input { margin: 0; width: 13px; height: 13px; accent-color: var(--xl-green); }
+.xl-rb-check.disabled { opacity: 0.45; }
+.xl-rb-head { font-size: 12px; color: var(--text); height: 22px; display: flex; align-items: center; padding: 0 4px; }
+.xl-rb-field { display: flex; align-items: center; gap: 4px; height: 22px; font-size: 12px; color: var(--text); white-space: nowrap; padding: 0 4px; }
+.xl-rb-field > span:first-child { width: 42px; }
+.xl-rb-field select, .xl-rb-field input, .xl-rb-select { height: 20px; font: inherit; font-size: 12px; border: 1px solid #c8c6c4; background: #fff; border-radius: 2px; padding: 0 2px; }
+.xl-rb-field select { width: 84px; }
+.xl-rb-field input { width: 52px; }
+.xl-big-btn[style*="width"] .xl-big-label { max-width: none; }
+
+.xl-stacksplit:not(:has(.xl-stacksplit-label)) { width: auto; }
+
+.xl-small-icon svg { width: 16px; height: 16px; }
