@@ -11,6 +11,7 @@ import { formatValue, detectInputFormat, numericInput, FormattedValue } from '..
 import { computeFilteredRows } from '../engine/filter'
 import { shiftFormula } from '../engine/shiftFormula'
 import { expandLet } from '../engine/let'
+import { patchHyperFormulaGraph, instrumentHf } from '../engine/hfPatches'
 import { DEFAULT_AUTHOR, defaultLayout } from './defaults'
 import type { StoreOp, SyncMessage } from './sync'
 import { applySyncMessage } from './sync'
@@ -66,6 +67,7 @@ import { shiftLayoutRefs, shiftRange } from './shiftLayout'
 import { registerExtraFunctions, BOOLEAN_NAMES, setRowVisibility } from '../engine/extraFunctions'
 import { DATE_FORMATS } from '../engine/locale'
 registerExtraFunctions()
+patchHyperFormulaGraph()
 
 const HF_CONFIG = {
   maxRows: 1048576,
@@ -73,6 +75,7 @@ const HF_CONFIG = {
   licenseKey: 'gpl-v3',
   undoLimit: 0,
   useArrayArithmetic: true,
+  useColumnIndex: true,
   dateFormats: DATE_FORMATS,
   timeFormats: ['hh:mm', 'hh:mm:ss.sss'],
   currencySymbol: ['$'],
@@ -144,7 +147,7 @@ export class WorkbookStore {
   }
 
   constructor() {
-    this.hf = HyperFormula.buildEmpty(HF_CONFIG, BOOLEAN_NAMES)
+    this.hf = instrumentHf(HyperFormula.buildEmpty(HF_CONFIG, BOOLEAN_NAMES))
     this.addSheetRaw('Sheet1', 0)
   }
 
@@ -1160,7 +1163,7 @@ export class WorkbookStore {
       this.sheets.push(s)
     })
     this.hf.destroy()
-    this.hf = data.sheets.length ? HyperFormula.buildFromSheets(contents, HF_CONFIG, BOOLEAN_NAMES) : HyperFormula.buildEmpty(HF_CONFIG, BOOLEAN_NAMES)
+    this.hf = instrumentHf(data.sheets.length ? HyperFormula.buildFromSheets(contents, HF_CONFIG, BOOLEAN_NAMES) : HyperFormula.buildEmpty(HF_CONFIG, BOOLEAN_NAMES))
     // Local names are tracked by sheet identity so moving/deleting sheets can't reassign them.
     this.names = (data.names ?? []).map((n) => ({ ...n, sheetUid: n.sheet !== undefined ? this.sheets[n.sheet]?.uid : undefined }))
     this.registerNames()

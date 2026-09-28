@@ -1,0 +1,55 @@
+// Performance patch for HyperFormula's dependency graph.
+//
+// When many formulas share one range (VLOOKUP(x, $A$2:$B$50000, ...) down a column), HyperFormula re-adds an edge from
+// every cell of that range to the shared range vertex for EACH formula: O(rows) per formula, O(rows^2) to load or fill
+// a lookup column (5,000 lookups took 5 s, 50,000 would take minutes). The vertex is wired completely when it is first
+// created, so for a range that already exists we only need the edge from the range to the new formula.
+import { HyperFormula } from 'hyperformula'
+import { bumpAggEpoch } from './fastAgg'
+
+let patched = false
+export function patchHyperFormulaGraph(): void {
+  if (patched) return
+  patched = true
+  try {
+    const probe: any = HyperFormula.buildEmpty({ licenseKey: 'gpl-v3' })
+    const proto = Object.getPrototypeOf(probe.dependencyGraph)
+    const orig = proto.processCellDependencies
+    if (typeof orig !== 'function') return
+    proto.processCellDependencies = function (this: any, deps: any[], endVertex: any): void {
+      let rest: any[] | null = null
+      for (let i = 0; i < deps.length; i++) {
+        const dep = deps[i]
+        if (dep && dep.start && dep.end && typeof dep.isFinite === 'function' && dep.isFinite()) {
+          const rv = this.getRange(dep.start, dep.end)
+          if (rv !== undefined && rv.idInGraph !== undefined && endVertex.idInGraph !== undefined && this.graph.hasNode(rv)) {
+            this.graph.addEdge(rv.idInGraph, endVertex.idInGraph)
+            continue
+          }
+        }
+        if (rest === null) rest = []
+        rest.push(dep)
+      }
+      if (rest !== null && rest.length) orig.call(this, rest, endVertex)
+    }
+    probe.destroy()
+  } catch { /* unpatched HyperFormula is only slower */ }
+}
+
+const MUTATORS = [
+  'setCellContents', 'setSheetContent', 'addSheet', 'removeSheet', 'renameSheet', 'clearSheet', 'addRows', 'removeRows', 'addColumns', 'removeColumns',
+  'moveCells', 'moveRows', 'moveColumns', 'paste', 'cut', 'rebuildAndRecalculate', 'batch', 'undo', 'redo', 'resumeEvaluation'
+]
+/** Makes every engine mutation start a new cache epoch for the fast aggregate functions (see fastAgg.ts). */
+export function instrumentHf(hf: HyperFormula): HyperFormula {
+  const h = hf as any
+  for (const m of MUTATORS) {
+    const orig = h[m]
+    if (typeof orig !== 'function') continue
+    h[m] = function (...args: unknown[]) {
+      bumpAggEpoch()
+      try { return orig.apply(hf, args) } finally { bumpAggEpoch() }
+    }
+  }
+  return hf
+}
