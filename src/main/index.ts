@@ -524,6 +524,8 @@ ipcMain.handle('file:saveAs', async (e, defaultName: string) => {
 })
 
 // System clipboard through main: navigator.clipboard in the renderer can stall on permission checks.
+ipcMain.handle('spell:addWord', (e, word: string) => e.sender.session.addWordToSpellCheckerDictionary(word))
+ipcMain.handle('spell:languages', (e) => e.sender.session.getSpellCheckerLanguages())
 ipcMain.handle('clipboard:readText', () => clipboard.readText())
 ipcMain.handle('clipboard:readHTML', async () => {
   try {

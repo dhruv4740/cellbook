@@ -5,6 +5,8 @@ import { store } from '../model/store'
 import { validateInput } from '../data/dataValidation'
 
 export interface UiState {
+  /** Label of a long-running command ("Sorting..."): shows the hourglass cursor and the status bar text. */
+  busy?: string | null
   backstage: boolean // File tab open
   ribbonTab: string // 'Home', 'Insert', ...
   ribbonCollapsed: boolean
@@ -160,3 +162,25 @@ export function cancelEdit(): void {
 
 // Handle for automated UI checks (Playwright drives the built app and needs to read/open dialogs directly).
 ;(globalThis as unknown as { __ui: { getUi: typeof getUi; setUi: typeof setUi } }).__ui = { getUi, setUi }
+
+/**
+ * Runs a heavy synchronous command after giving the UI one frame to show the hourglass cursor and status text
+ * (the work itself blocks the thread, like Excel's own long sorts and recalculations).
+ */
+export async function runBusy<T>(label: string, fn: () => T): Promise<T> {
+  document.body.classList.add('xl-busy')
+  setUi({ busy: label })
+  await new Promise<void>((r) => requestAnimationFrame(() => setTimeout(r, 0)))
+  try {
+    return fn()
+  } finally {
+    document.body.classList.remove('xl-busy')
+    setUi({ busy: null })
+  }
+}
+
+/** Small jobs run at once (and keep commands synchronous); big ones show the busy state first. */
+export function runMaybeBusy(cells: number, label: string, fn: () => void): void {
+  if (cells < 100_000 || typeof document === 'undefined') fn()
+  else void runBusy(label, fn)
+}

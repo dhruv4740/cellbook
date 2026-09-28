@@ -1,3 +1,4 @@
+import { runMaybeBusy } from '../chrome/ui'
 import { useState } from 'react'
 import { Dialog } from '../components/Dialog'
 import { WorkbookStore } from '../model/store'
@@ -84,12 +85,12 @@ export function SortDialog({ store, onClose }: SortDialogProps) {
   }
 
   const handleOk = () => {
-    sortRange(store, sheet, range, {
+    onClose()
+    runMaybeBusy((range.r2 - range.r1 + 1) * (range.c2 - range.c1 + 1), 'Sorting...', () => sortRange(store, sheet, range, {
       hasHeaders,
       caseSensitive,
       levels
-    })
-    onClose()
+    }))
   }
 
   return (
