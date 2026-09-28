@@ -10,6 +10,7 @@ import {
 import { formatValue, detectInputFormat, numericInput, FormattedValue } from '../format/numfmt'
 import { computeFilteredRows } from '../engine/filter'
 import { shiftFormula } from '../engine/shiftFormula'
+import { expandLet } from '../engine/let'
 import { DEFAULT_AUTHOR, defaultLayout } from './defaults'
 import type { StoreOp, SyncMessage } from './sync'
 import { applySyncMessage } from './sync'
@@ -172,6 +173,21 @@ export class WorkbookStore {
   // ---------- reads ----------
   /** Text the formula bar shows / the editor starts with. */
   getRaw(sheet: SheetState, r: number, c: number): string {
+    const raw = this.engineRaw(sheet, r, c)
+    const e = this.letSrc.get(`${sheet.uid}:${r},${c}`)
+    return e && e.expanded === raw ? e.orig : raw
+  }
+
+  /** LET formulas as the engine holds them (expanded), keyed by cell. */
+  private letSrc = new Map<string, { orig: string; expanded: string }>()
+  private toEngine(sheet: SheetState, r: number, c: number, raw: string): string {
+    const key = `${sheet.uid}:${r},${c}`
+    const x = raw.charCodeAt(0) === 61 ? expandLet(raw) : null
+    if (x === null) { this.letSrc.delete(key); return raw }
+    this.letSrc.set(key, { orig: raw, expanded: x })
+    return x
+  }
+  private engineRaw(sheet: SheetState, r: number, c: number): string {
     const addr = { sheet: this.hfId(sheet), row: r, col: c }
     const f = this.hf.getCellFormula(addr)
     if (f !== undefined) return f
@@ -561,7 +577,7 @@ export class WorkbookStore {
 
   // ---------- cell contents ----------
   private writeRaw(sheet: SheetState, r: number, c: number, raw: string): void {
-    this.hf.setCellContents({ sheet: this.hfId(sheet), row: r, col: c }, raw === '' ? null : raw)
+    this.hf.setCellContents({ sheet: this.hfId(sheet), row: r, col: c }, raw === '' ? null : this.toEngine(sheet, r, c, raw))
   }
   /** Writes many cells. HyperFormula's per-call bookkeeping inside a batch grows with the batch, so
    *  thousands of single-cell calls go quadratic; a dense block is written as one 2-D call instead. */
@@ -584,10 +600,10 @@ export class WorkbookStore {
     for (const x of list) set[(x.r - r1) * w + (x.c - c1)] = true
     for (let i = 0; i < h; i++) {
       const row: (string | null)[] = new Array(w)
-      for (let j = 0; j < w; j++) row[j] = set[i * w + j] ? null : this.getRaw(sheet, r1 + i, c1 + j) || null
+      for (let j = 0; j < w; j++) row[j] = set[i * w + j] ? null : this.engineRaw(sheet, r1 + i, c1 + j) || null
       grid.push(row)
     }
-    for (const x of list) grid[x.r - r1][x.c - c1] = x.raw === '' ? null : x.raw
+    for (const x of list) grid[x.r - r1][x.c - c1] = x.raw === '' ? null : this.toEngine(sheet, x.r, x.c, x.raw)
     this.hf.setCellContents({ sheet: id, row: r1, col: c1 }, grid)
   }
   private writeStyle(sheet: SheetState, r: number, c: number, style: CellStyle | undefined): void {
@@ -1134,7 +1150,7 @@ export class WorkbookStore {
         const cell = sd.cells[k]
         const comma = k.indexOf(',')
         const r = +k.slice(0, comma), c = +k.slice(comma + 1)
-        if (cell.raw) (rows[r] ??= [])[c] = cell.raw
+        if (cell.raw) (rows[r] ??= [])[c] = this.toEngine(s, r, c, cell.raw)
         if (cell.style && Object.keys(cell.style).length) s.styles.set(k, cell.style)
       }
       // HyperFormula wants no holes in the outer array.
@@ -1333,6 +1349,8 @@ export class WorkbookStore {
               if (typeof val === 'number') raw = String(val)
               else if (typeof val === 'boolean') raw = val ? 'TRUE' : 'FALSE'
             }
+            const le = this.letSrc.get(`${s.uid}:${r},${c}`)
+            if (le && le.expanded === raw) raw = le.orig
             const cell: { raw: string; value?: CellValue; spill?: string } = { raw }
             if (raw.startsWith('=')) {
               cell.value = this.getValue(s, r, c)
