@@ -1214,6 +1214,13 @@ export default function Grid() {
           setListMenuPos({ x: hostR.left + rect.x, y: hostR.top + rect.y + rect.h })
           e.preventDefault(); return
         }
+        // On a filter header cell Alt+Down opens that column's filter menu, as in Excel.
+        const af = sheet.layout.autoFilter
+        if (af && a0.r === af.range.r1 && a0.c >= af.range.c1 && a0.c <= af.range.c2) {
+          const hostRect = hostRef.current!.getBoundingClientRect()
+          setFilterMenu({ col: a0.c, x: hostRect.left + cellScreenX(a0.c), y: hostRect.top + cellScreenY(af.range.r1) + rowsAxis.size(af.range.r1) * z })
+          e.preventDefault(); return
+        }
         const values = cmd.pickListValues()
         if (values.length) {
           const a = sheet.selection.active
