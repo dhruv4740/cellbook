@@ -776,24 +776,66 @@ export class WorkbookStore {
 
   // ---------- structure (insert/delete rows & columns) ----------
   /** Snapshot-based undo: captures the sheet's contents, styles and layout before and after. */
-  private structural(sheet: SheetState, label: string, fn: () => void): void {
-    const snap = () => ({
-      content: this.hf.getSheetSerialized(this.hfId(sheet)),
-      styles: new Map(sheet.styles),
-      layout: structuredClone(sheet.layout)
-    })
-    const before = snap()
-    fn()
-    const after = snap()
-    const restore = (s: typeof before) => {
-      this.hf.setSheetContent(this.hfId(sheet), s.content)
+  /**
+   * Insert/delete rows or columns. The engine op is applied directly and undone by its inverse (remove/add), which
+   * keeps undo as fast as the edit; deleting also snapshots the sheet so undo can restore the deleted cells and any
+   * formulas that lost their references (only the cells that differ are rewritten).
+   */
+  private structural(sheet: SheetState, label: string, op: { kind: 'insert' | 'delete'; dim: 'r' | 'c'; at: number; count: number }, shiftLayout: () => void): void {
+    const id = this.hfId(sheet)
+    const before = { styles: new Map(sheet.styles), layout: structuredClone(sheet.layout) }
+    const content = op.kind === 'delete' ? (this.hf.getSheetSerialized(id) as (string | number | boolean | null)[][]) : null
+    const engine = (add: boolean): void => {
+      const span: [number, number] = [op.at, op.count]
+      if (op.dim === 'r') add ? this.hf.addRows(id, span) : this.hf.removeRows(id, span)
+      else add ? this.hf.addColumns(id, span) : this.hf.removeColumns(id, span)
+    }
+    engine(op.kind === 'insert')
+    shiftLayout()
+    const after = { styles: new Map(sheet.styles), layout: structuredClone(sheet.layout) }
+    const restore = (s: typeof before): void => {
       sheet.styles = new Map(s.styles)
       const p = sheet.layout.protection
       sheet.layout = structuredClone(s.layout)
       if (p) sheet.layout.protection = p
       else delete sheet.layout.protection
     }
-    this.commit(label, () => restore(after), () => restore(before))
+    let first = true
+    this.commit(
+      label,
+      () => {
+        if (first) { first = false; return }
+        engine(op.kind === 'insert')
+        restore(after)
+      },
+      () => {
+        engine(op.kind === 'delete')
+        if (content) this.restoreContent(id, content)
+        restore(before)
+      }
+    )
+  }
+
+  /** Rewrites only the rows of the sheet whose content differs from `target`. */
+  private restoreContent(id: number, target: (string | number | boolean | null)[][]): void {
+    const cur = this.hf.getSheetSerialized(id) as (string | number | boolean | null)[][]
+    const rows = Math.max(cur.length, target.length)
+    const width = Math.max(0, ...target.map((r) => r.length), ...cur.map((r) => r.length))
+    const differs = (r: number): boolean => {
+      const a = cur[r] ?? [], b = target[r] ?? []
+      for (let c = 0; c < width; c++) if ((a[c] ?? null) !== (b[c] ?? null)) return true
+      return false
+    }
+    this.hf.batch(() => {
+      for (let r = 0; r < rows; r++) {
+        if (!differs(r)) continue
+        let end = r
+        while (end + 1 < rows && differs(end + 1)) end++
+        const block = Array.from({ length: end - r + 1 }, (_, k) => Array.from({ length: width }, (_, c) => (target[r + k]?.[c] ?? null) as never))
+        this.hf.setCellContents({ sheet: id, row: r, col: 0 }, block)
+        r = end
+      }
+    })
   }
 
   private shiftKeys<T>(map: Record<number, T>, at: number, delta: number): Record<number, T> {
@@ -859,8 +901,7 @@ export class WorkbookStore {
 
   insertRows(sheet: SheetState, at: number, count: number): void {
     if (sheet.layout.protection && !this.allows(sheet, 'insertRows')) return
-    this.structural(sheet, 'Insert Rows', () => {
-      this.hf.addRows(this.hfId(sheet), [at, count])
+    this.structural(sheet, 'Insert Rows', { kind: 'insert', dim: 'r', at, count }, () => {
       this.shiftStyles(sheet, 'r', at, count)
       this.shiftMerges(sheet, 'r', at, count)
       sheet.layout.rowHeights = this.shiftKeys(sheet.layout.rowHeights, at, count)
@@ -871,8 +912,7 @@ export class WorkbookStore {
   }
   deleteRows(sheet: SheetState, at: number, count: number): void {
     if (sheet.layout.protection && !this.canDeleteLine(sheet, 'r', at, count)) return
-    this.structural(sheet, 'Delete Rows', () => {
-      this.hf.removeRows(this.hfId(sheet), [at, count])
+    this.structural(sheet, 'Delete Rows', { kind: 'delete', dim: 'r', at, count }, () => {
       this.shiftStyles(sheet, 'r', at, -count)
       this.shiftMerges(sheet, 'r', at, -count)
       sheet.layout.rowHeights = this.shiftKeys(sheet.layout.rowHeights, at, -count)
@@ -883,8 +923,7 @@ export class WorkbookStore {
   }
   insertCols(sheet: SheetState, at: number, count: number): void {
     if (sheet.layout.protection && !this.allows(sheet, 'insertColumns')) return
-    this.structural(sheet, 'Insert Columns', () => {
-      this.hf.addColumns(this.hfId(sheet), [at, count])
+    this.structural(sheet, 'Insert Columns', { kind: 'insert', dim: 'c', at, count }, () => {
       this.shiftStyles(sheet, 'c', at, count)
       this.shiftMerges(sheet, 'c', at, count)
       sheet.layout.colWidths = this.shiftKeys(sheet.layout.colWidths, at, count)
@@ -895,8 +934,7 @@ export class WorkbookStore {
   }
   deleteCols(sheet: SheetState, at: number, count: number): void {
     if (sheet.layout.protection && !this.canDeleteLine(sheet, 'c', at, count)) return
-    this.structural(sheet, 'Delete Columns', () => {
-      this.hf.removeColumns(this.hfId(sheet), [at, count])
+    this.structural(sheet, 'Delete Columns', { kind: 'delete', dim: 'c', at, count }, () => {
       this.shiftStyles(sheet, 'c', at, -count)
       this.shiftMerges(sheet, 'c', at, -count)
       sheet.layout.colWidths = this.shiftKeys(sheet.layout.colWidths, at, -count)
