@@ -9,6 +9,9 @@ import {
   DEFAULT_COL_WIDTH, DEFAULT_ROW_HEIGHT, MAX_ROWS, MAX_COLS
 } from '../model/types'
 import { buildAxis, Axis } from './axis'
+import { outlineRuns, maxLevel } from '../model/outline'
+import { drawGutter, hitGutter, gutterSizes, GutterGeo } from './outlineGutter'
+import { showOutlineLevel, toggleRun, outlineCommand } from './outlineCommands'
 import { Menu, MenuItem, useMenu } from '../components/Menu'
 import { Dialog } from '../components/Dialog'
 import * as cmd from './commands'
@@ -165,8 +168,13 @@ export default function Grid() {
     () => buildAxis(sheet.layout.rowHeights, sheet.layout.hiddenRows, DEFAULT_ROW_HEIGHT, MAX_ROWS),
     [sheet, sheet.layout.rowHeights, sheet.layout.hiddenRows, ui]
   )
-  const rowHeaderW = showHead ? Math.max(CORNER_W_MIN, 10 + String(Math.max(100, extent.rows)).length * 8) * z : 0
-  const headerH = showHead ? HEADER_H * z : 0
+  const rowDepth = useMemo(() => maxLevel(sheet.layout, 'row'), [sheet.layout.rowLevels])
+  const colDepth = useMemo(() => maxLevel(sheet.layout, 'col'), [sheet.layout.colLevels])
+  const { gutterL, gutterT } = gutterSizes(rowDepth, colDepth, showHead, ui.outlineHidden)
+  const rowRuns = useMemo(() => outlineRuns(sheet.layout, 'row'), [sheet.layout.rowLevels, sheet.layout.hiddenRows, sheet.layout.outline])
+  const colRuns = useMemo(() => outlineRuns(sheet.layout, 'col'), [sheet.layout.colLevels, sheet.layout.hiddenCols, sheet.layout.outline])
+  const rowHeaderW = gutterL + (showHead ? Math.max(CORNER_W_MIN, 10 + String(Math.max(100, extent.rows)).length * 8) * z : 0)
+  const headerH = gutterT + (showHead ? HEADER_H * z : 0)
   const frozen = sheet.layout.frozen
   const frozenW = colsAxis.totalSize(frozen.cols) * z
   const frozenH = rowsAxis.totalSize(frozen.rows) * z
@@ -584,8 +592,8 @@ export default function Grid() {
     if (showHead) {
       // corner
       ctx.fillStyle = '#f5f5f5'
-      ctx.fillRect(0, 0, rowHeaderW, headerH)
-      ctx.strokeStyle = '#d4d4d4'; ctx.strokeRect(0.5, 0.5, rowHeaderW - 1, headerH - 1)
+      ctx.fillRect(gutterL, gutterT, rowHeaderW - gutterL, headerH - gutterT)
+      ctx.strokeStyle = '#d4d4d4'; ctx.strokeRect(gutterL + 0.5, gutterT + 0.5, rowHeaderW - gutterL - 1, headerH - gutterT - 1)
       ctx.beginPath()
       ctx.fillStyle = '#616161'
       ctx.moveTo(rowHeaderW - 8, headerH - 4); ctx.lineTo(rowHeaderW - 3, headerH - 4); ctx.lineTo(rowHeaderW - 3, headerH - 9)
@@ -596,13 +604,13 @@ export default function Grid() {
         for (const { c, x, w } of cols) {
           const isSel = selectedCols.has(c) && !wholeColSel
           ctx.fillStyle = isSel ? '#d3f0e0' : '#f5f5f5'
-          ctx.fillRect(x, 0, w, headerH)
+          ctx.fillRect(x, gutterT, w, headerH - gutterT)
           ctx.strokeStyle = '#d4d4d4'
-          ctx.beginPath(); ctx.moveTo(x + w - 0.5, 0); ctx.lineTo(x + w - 0.5, headerH); ctx.stroke()
+          ctx.beginPath(); ctx.moveTo(x + w - 0.5, gutterT); ctx.lineTo(x + w - 0.5, headerH); ctx.stroke()
           ctx.font = `${isSel ? '600 ' : ''}${Math.round(11 * z)}px "Segoe UI", sans-serif`
           ctx.fillStyle = isSel ? '#107c41' : '#616161'
           ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
-          ctx.fillText(colName(c), x + w / 2, headerH / 2 + 1)
+          ctx.fillText(colName(c), x + w / 2, gutterT + (headerH - gutterT) / 2 + 1)
           if (isSel) { ctx.strokeStyle = '#107c41'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x, headerH - 1); ctx.lineTo(x + w, headerH - 1); ctx.stroke() }
         }
       }
@@ -616,19 +624,20 @@ export default function Grid() {
           const isSel = selectedRows.has(r) && !wholeRowSel
           const isFilteredRow = filterActive && af!.range && r > af!.range.r1 && r <= af!.range.r2 && !sheet.layout.hiddenRows[r]
           ctx.fillStyle = isSel ? '#d3f0e0' : '#f5f5f5'
-          ctx.fillRect(0, y, rowHeaderW, h)
+          ctx.fillRect(gutterL, y, rowHeaderW - gutterL, h)
           ctx.strokeStyle = '#d4d4d4'
-          ctx.beginPath(); ctx.moveTo(0, y + h - 0.5); ctx.lineTo(rowHeaderW, y + h - 0.5); ctx.stroke()
+          ctx.beginPath(); ctx.moveTo(gutterL, y + h - 0.5); ctx.lineTo(rowHeaderW, y + h - 0.5); ctx.stroke()
           ctx.font = `${isSel ? '600 ' : ''}${Math.round(11 * z)}px "Segoe UI", sans-serif`
           ctx.fillStyle = isSel ? '#107c41' : isFilteredRow ? '#1a73c9' : '#616161'
           ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
-          ctx.fillText(String(r + 1), rowHeaderW / 2, y + h / 2 + 1)
+          ctx.fillText(String(r + 1), gutterL + (rowHeaderW - gutterL) / 2, y + h / 2 + 1)
           if (isSel) { ctx.strokeStyle = '#107c41'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(rowHeaderW - 1, y); ctx.lineTo(rowHeaderW - 1, y + h); ctx.stroke() }
         }
       }
       drawRowHeaders(frozen.rows, extent.rows, scroll.y, headerH + frozenH, size.h - headerH - frozenH)
       if (frozen.rows > 0) drawRowHeaders(0, frozen.rows, 0, headerH, frozenH)
     }
+    drawGutter(ctx, gutterGeo())
     ctx.restore()
   })
 
@@ -812,6 +821,14 @@ export default function Grid() {
     return null
   }
 
+  function gutterGeo(): GutterGeo {
+    return {
+      gutterL, gutterT, headerH, rowHeaderW, showHead, size, rowRuns, colRuns, rowDepth, colDepth,
+      rowY: (i) => cellScreenY(i), colX: (i) => cellScreenX(i),
+      summaryBelow: sheet.layout.outline?.summaryBelow !== false, summaryRight: sheet.layout.outline?.summaryRight !== false
+    }
+  }
+
   const linkClick = useRef<{ r: number; c: number; t: number } | null>(null)
   function onMouseDown(e: React.MouseEvent): void {
     if (e.button === 2) return
@@ -835,6 +852,13 @@ export default function Grid() {
       return
     }
     editorRef.current?.blur()
+
+    // outline gutter: level buttons and [-]/[+]; the rest of the gutter is inert
+    if (gutterL > 0 || gutterT > 0) {
+      const hit = hitGutter(gutterGeo(), x, y)
+      if (hit) { if (hit.kind === 'level') showOutlineLevel(hit.axis, hit.n); else toggleRun(hit.axis, hit.run); return }
+      if (x < gutterL || y < gutterT) return
+    }
 
     // select-all corner
     if (showHead && x < rowHeaderW && y < headerH) { cmd.selectAll(); return }
@@ -1158,6 +1182,8 @@ export default function Grid() {
     const mod = e.ctrlKey || e.metaKey
     if (!editing) {
       const extending = e.shiftKey || getUi().selectMode !== 'none'
+      if (e.altKey && e.shiftKey && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) { outlineCommand(e.key === 'ArrowRight' ? 'group' : 'ungroup'); e.preventDefault(); return }
+      if (mod && !e.shiftKey && e.key === '8') { setUi({ outlineHidden: !getUi().outlineHidden }); e.preventDefault(); return }
       // ---- Scroll Lock: arrows scroll the viewport, active cell doesn't move ----
       if (getUi().scrollLock && !mod && (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
         const el = scrollRef.current

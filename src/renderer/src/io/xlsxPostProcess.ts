@@ -7,6 +7,7 @@ import { colName } from '../model/types'
 import { unzipSync, zipSync } from 'fflate'
 import type { AutoFilter, CalcMode, ChartSpec, DataValidationRule, SheetLayout, SheetProtection, WorkbookProtection } from '../model/types'
 import { passwordAttrs, sheetProtectionXml } from '../model/protection'
+import { outlineRuns } from '../model/outline'
 import { rangeA1 } from '../model/types'
 import { BLANK_TOKEN } from '../engine/filter'
 import { parseRelationships, resolveRelTarget } from './fastXlsxXml'
@@ -552,6 +553,35 @@ export function injectProtection(
     else wx = wx.replace('</workbook>', `<calcPr ${calc}/></workbook>`)
   }
   files['xl/workbook.xml'] = enc.encode(wx)
+  const out: Record<string, Uint8Array> = {}
+  for (const [name, bytes] of Object.entries(files)) if (!name.endsWith('/')) out[name] = bytes
+  return zipSync(out, { level: 6 })
+}
+
+/** Writes Excel's `collapsed` flags on the summary rows/columns of collapsed groups (and nowhere else). */
+export function injectOutline(zipBytes: Uint8Array, layouts: (Partial<SheetLayout> | undefined)[]): Uint8Array {
+  if (!layouts.some((l) => l && (l.rowLevels || l.colLevels))) return zipBytes
+  const files = unzipSync(zipBytes)
+  const dec = new TextDecoder('utf-8'), enc = new TextEncoder()
+  layouts.forEach((l, i) => {
+    if (!l || (!l.rowLevels && !l.colLevels)) return
+    const path = `xl/worksheets/sheet${i + 1}.xml`
+    if (!files[path]) return
+    let xml = dec.decode(files[path])
+    xml = xml.replace(/(<(?:row|col)\b[^>]*?) collapsed="1"/g, '$1')
+    const full = { colWidths: {}, rowHeights: {}, hiddenRows: {}, hiddenCols: {}, merges: [], frozen: { rows: 0, cols: 0 }, showGridlines: true, showHeadings: true, zoom: 100, notes: {}, comments: {}, ...l } as SheetLayout
+    for (const run of outlineRuns(full, 'row')) {
+      if (!run.collapsed || run.summary < 0) continue
+      const n = run.summary + 1
+      xml = xml.replace(new RegExp(`<row r="${n}"(?=[ >/])`), `<row r="${n}" collapsed="1"`)
+    }
+    for (const run of outlineRuns(full, 'col')) {
+      if (!run.collapsed || run.summary < 0) continue
+      const n = run.summary + 1
+      xml = xml.replace(new RegExp(`<col min="${n}" max="${n}"(?=[ >/])`), `<col min="${n}" max="${n}" collapsed="1"`)
+    }
+    files[path] = enc.encode(xml)
+  })
   const out: Record<string, Uint8Array> = {}
   for (const [name, bytes] of Object.entries(files)) if (!name.endsWith('/')) out[name] = bytes
   return zipSync(out, { level: 6 })

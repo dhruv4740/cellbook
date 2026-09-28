@@ -39,5 +39,21 @@ def case_protection():
         return res
     print(json.dumps(with_excel(cellbook_write(data, 'rt-protection'), fn), indent=1))
 
+def case_outline():
+    cells = {'%d,0' % r: {'raw': str(r + 1)} for r in range(10)}
+    lay = {'rowLevels': {'1': 1, '2': 2, '3': 1}, 'hiddenRows': {'1': True, '2': True, '3': True}, 'colLevels': {'2': 1, '3': 1}, 'hiddenCols': {'2': True, '3': True},
+           'colWidths': {}, 'rowHeights': {}, 'merges': [], 'frozen': {'rows': 0, 'cols': 0}, 'showGridlines': True, 'showHeadings': True, 'zoom': 100, 'notes': {}, 'comments': {}}
+    data = {'sheets': [{'name': 'O', 'cells': cells, 'layout': lay},
+                       {'name': 'Above', 'cells': cells, 'layout': dict(lay, outline={'summaryBelow': False}, hiddenRows={}, hiddenCols={})}]}
+    def fn(xl, wb):
+        ws = wb.Worksheets('O')
+        res = dict(levels=[ws.Rows(r).OutlineLevel for r in range(1, 7)], hidden=[int(ws.Rows(r).Hidden) for r in range(1, 7)],
+                   colLevels=[ws.Columns(c).OutlineLevel for c in range(1, 6)], colHidden=[int(ws.Columns(c).Hidden) for c in range(1, 6)],
+                   summaryRow=ws.Outline.SummaryRow, showDetailRow5=ws.Rows(5).ShowDetail, showDetailCol5=ws.Columns(5).ShowDetail)
+        a = wb.Worksheets('Above'); res['aboveSummaryRow'] = a.Outline.SummaryRow
+        ws.Outline.ShowLevels(3, 3); res['afterShowAll'] = [int(ws.Rows(r).Hidden) for r in range(1, 7)]
+        return res
+    print(json.dumps(with_excel(cellbook_write(data, 'rt-outline'), fn)))
+
 if __name__ == '__main__':
     globals()['case_' + sys.argv[1]]()

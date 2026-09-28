@@ -4,7 +4,7 @@ import { shiftFormula } from '../engine/shiftFormula'
 import ExcelJS from 'exceljs'
 import { unzipSync } from 'fflate'
 import type { CellStyle, BorderLineStyle, BorderSide, FilterCriteria, SheetLayout, Range, NoteData, CommentThread, CfRule } from '../model/types'
-import { DEFAULT_ROW_HEIGHT, rangeA1, parseA1 } from '../model/types'
+import { DEFAULT_COL_WIDTH, DEFAULT_ROW_HEIGHT, rangeA1, parseA1 } from '../model/types'
 import type { WorkbookData } from '../model/store'
 import { DEFAULT_AUTHOR, defaultLayout } from '../model/defaults'
 import {
@@ -13,7 +13,7 @@ import {
 } from './xlsxShared'
 import { extractSection, parseAttrs, parseRelationships, resolveRelTarget } from './fastXlsxXml'
 import type { VbaProject } from './xlsxPostProcess'
-import { fixLegacyDrawingOrder, markDynamicArrays, injectDefinedNames, injectHyperlinks, injectProtection, postProcessXlsx } from './xlsxPostProcess'
+import { fixLegacyDrawingOrder, markDynamicArrays, injectDefinedNames, injectHyperlinks, injectOutline, injectProtection, postProcessXlsx } from './xlsxPostProcess'
 import { parseDataValidations } from './fastXlsx'
 
 const EXCEL_ERRORS = new Set(['#NULL!', '#DIV/0!', '#VALUE!', '#REF!', '#NAME?', '#NUM!', '#N/A', '#GETTING_DATA', '#SPILL!', '#CALC!'])
@@ -519,6 +519,28 @@ export async function writeXlsx(data: WorkbookData, vba?: VbaProject): Promise<U
       // so the hidden flag round-trips through the file.
       if (row.height === undefined) row.height = pxToPt(layout.rowHeights[+r] ?? DEFAULT_ROW_HEIGHT)
     }
+    // Group levels. ExcelJS derives `collapsed` wrongly, so injectOutline() rewrites those flags afterwards.
+    for (const [r, n] of Object.entries(layout.rowLevels ?? {})) {
+      const row = ws.getRow(+r + 1)
+      row.outlineLevel = n
+      if (!row.hasValues && row.height === undefined) row.height = pxToPt(layout.rowHeights[+r] ?? DEFAULT_ROW_HEIGHT)
+    }
+    for (const [c, n] of Object.entries(layout.colLevels ?? {})) {
+      const col = ws.getColumn(+c + 1)
+      col.outlineLevel = n
+      if (col.width === undefined) col.width = pxToColWidth(layout.colWidths[+c] ?? DEFAULT_COL_WIDTH)
+    }
+    ws.properties.outlineLevelRow = Math.max(0, ...Object.values(layout.rowLevels ?? {}))
+    ws.properties.outlineLevelCol = Math.max(0, ...Object.values(layout.colLevels ?? {}))
+    for (const r of Object.keys(layout.collapsedRows ?? {})) {
+      const row = ws.getRow(+r + 1)
+      if (!row.hasValues && row.height === undefined) row.height = pxToPt(layout.rowHeights[+r] ?? DEFAULT_ROW_HEIGHT)
+    }
+    for (const c of Object.keys(layout.collapsedCols ?? {})) {
+      const col = ws.getColumn(+c + 1)
+      if (col.width === undefined) col.width = pxToColWidth(layout.colWidths[+c] ?? DEFAULT_COL_WIDTH)
+    }
+    if (layout.outline) ws.properties.outlineProperties = { summaryBelow: layout.outline.summaryBelow !== false, summaryRight: layout.outline.summaryRight !== false }
     for (const m of layout.merges) {
       ws.mergeCells(m.r1 + 1, m.c1 + 1, m.r2 + 1, m.c2 + 1)
     }
@@ -661,7 +683,7 @@ export async function writeXlsx(data: WorkbookData, vba?: VbaProject): Promise<U
     : buf
   const linked = markDynamicArrays(fixLegacyDrawingOrder(injectHyperlinks(processed, data.sheets.map((sd) => sd.layout?.hyperlinks))))
   const named = data.names?.length ? injectDefinedNames(linked, data.names) : linked
-  return injectProtection(named, data.sheets.map((sd) => sd.layout?.protection), data.protection, data.calcMode)
+  return injectOutline(injectProtection(named, data.sheets.map((sd) => sd.layout?.protection), data.protection, data.calcMode), data.sheets.map((sd) => sd.layout))
 }
 
 // ---------- read (fast path) ----------
