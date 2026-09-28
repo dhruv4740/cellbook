@@ -32,6 +32,22 @@ export function patchHyperFormulaGraph(): void {
       }
       if (rest !== null && rest.length) orig.call(this, rest, endVertex)
     }
+    // Parsing raw text (number? date? percentage? boolean?) dominates bulk writes such as sorting; the same strings recur
+    // constantly (station codes, statuses), so remember the parse result per string.
+    const cp = Object.getPrototypeOf(probe._cellContentParser)
+    const origParse = cp.parse
+    const caches = new WeakMap<object, Map<string, unknown>>()
+    cp.parse = function (this: object, content: unknown): unknown {
+      if (typeof content !== 'string' || content.length > 64 || content.charCodeAt(0) === 61) return origParse.call(this, content)
+      let m = caches.get(this)
+      if (!m) caches.set(this, (m = new Map()))
+      const hit = m.get(content)
+      if (hit !== undefined) return hit
+      const res = origParse.call(this, content)
+      if (m.size > 200_000) m.clear()
+      m.set(content, res)
+      return res
+    }
     probe.destroy()
   } catch { /* unpatched HyperFormula is only slower */ }
 }
