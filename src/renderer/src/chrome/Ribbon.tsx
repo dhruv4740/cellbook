@@ -82,7 +82,7 @@ export default function Ribbon() {
       </div>
       {!ui.ribbonCollapsed && (
         <div className="xl-ribbon-body">
-          <div className="xl-ribbon-groups" ref={groupsRef}>
+          <div className="xl-ribbon-groups" ref={groupsRef} key={ui.ribbonTab}>
             <RibbonScaleProvider key={ui.ribbonTab} containerRef={groupsRef}>
               {ui.ribbonTab === 'Home' && <HomeTab />}
               {ui.ribbonTab === 'Insert' && <InsertTab />}

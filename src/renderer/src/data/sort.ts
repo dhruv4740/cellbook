@@ -223,43 +223,39 @@ export function sortRange(
 
   if (startRow >= n.r2) return // Nothing or only 1 row to sort
 
+  const levels = options.levels.length > 0 ? options.levels : [{ columnIndex: n.c1, sortOn: 'values', order: 'asc' as const }]
+  const read = store.rawReader(sheet, (n.r2 - startRow + 1) * (n.c2 - n.c1 + 1))
   const rows: RowItem[] = []
   for (let r = startRow; r <= n.r2; r++) {
     const cells: RowItem['cells'] = []
-    for (let c = n.c1; c <= n.c2; c++) {
-      cells.push({
-        col: c,
-        raw: store.getRaw(sheet, r, c),
-        value: store.getValue(sheet, r, c),
-        style: store.getStyle(sheet, r, c)
-      })
-    }
+    for (let c = n.c1; c <= n.c2; c++) cells.push({ col: c, raw: read(r, c), value: undefined, style: store.getStyle(sheet, r, c) })
     rows.push({ origRow: r, cells })
   }
-
-  const levels = options.levels.length > 0 ? options.levels : [{ columnIndex: n.c1, sortOn: 'values', order: 'asc' as const }]
-
-  rows.sort((rowA, rowB) => {
-    for (const lvl of levels) {
-      if (lvl.sortOn === 'cellColor') {
-        const styleA = rowA.cells.find((c) => c.col === lvl.columnIndex)?.style?.fill || ''
-        const styleB = rowB.cells.find((c) => c.col === lvl.columnIndex)?.style?.fill || ''
-        const cmp = styleA.localeCompare(styleB)
-        if (cmp !== 0) return lvl.order === 'asc' ? cmp : -cmp
-      } else if (lvl.sortOn === 'fontColor') {
-        const styleA = rowA.cells.find((c) => c.col === lvl.columnIndex)?.style?.color || ''
-        const styleB = rowB.cells.find((c) => c.col === lvl.columnIndex)?.style?.color || ''
-        const cmp = styleA.localeCompare(styleB)
+  // Sort keys are looked up once per row and level, not once per comparison.
+  const keys = levels.map((lvl) => {
+    const idx = lvl.columnIndex - n.c1
+    return rows.map((row) => {
+      if (lvl.sortOn === 'cellColor') return row.cells[idx]?.style?.fill || ''
+      if (lvl.sortOn === 'fontColor') return row.cells[idx]?.style?.color || ''
+      return store.getValue(sheet, row.origRow, lvl.columnIndex)
+    })
+  })
+  const order = rows.map((_, i) => i)
+  order.sort((ia, ib) => {
+    for (let li = 0; li < levels.length; li++) {
+      const lvl = levels[li]
+      if (lvl.sortOn === 'cellColor' || lvl.sortOn === 'fontColor') {
+        const cmp = String(keys[li][ia]).localeCompare(String(keys[li][ib]))
         if (cmp !== 0) return lvl.order === 'asc' ? cmp : -cmp
       } else {
-        const valA = rowA.cells.find((c) => c.col === lvl.columnIndex)?.value
-        const valB = rowB.cells.find((c) => c.col === lvl.columnIndex)?.value
-        const cmp = compareValues(valA, valB, lvl.order, options.caseSensitive)
+        const cmp = compareValues(keys[li][ia], keys[li][ib], lvl.order, options.caseSensitive)
         if (cmp !== 0) return cmp
       }
     }
-    return rowA.origRow - rowB.origRow // stable sort fallback
+    return ia - ib // stable
   })
+  const sortedRows = order.map((i) => rows[i])
+  rows.splice(0, rows.length, ...sortedRows)
 
   // Apply new sorted order in a single transaction
   store.transact('Sort', () => {
