@@ -135,7 +135,7 @@ log('Ctrl+C 20000 x 21', (Date.now() - t) + ' ms')
 await win.evaluate(() => globalThis.store.setSelection({ ranges: [{ r1: 0, c1: 26, r2: 0, c2: 26 }], active: { r: 0, c: 26 } }))
 t = Date.now()
 await win.keyboard.press('Control+v')
-for (let i = 0; i < 600; i++) { const done = await win.evaluate(() => globalThis.store.getRaw(globalThis.store.active, 19999, 46) !== ''); if (done) break; await win.waitForTimeout(50) }
+for (let i = 0; i < 600; i++) { const done = await win.evaluate(() => globalThis.store.getRaw(globalThis.store.active, 19999, 26) !== ''); if (done) break; await win.waitForTimeout(50) }
 log('Ctrl+V 20000 x 21', (Date.now() - t) + ' ms')
 await win.keyboard.press('Control+z')
 await win.waitForTimeout(100)
