@@ -195,11 +195,21 @@ export default function Grid() {
   useLayoutEffect(() => {
     const el = hostRef.current
     if (!el) return
-    const ro = new ResizeObserver(() => setSize({ w: el.clientWidth, h: el.clientHeight }))
+    // The drawable area excludes the native scrollbars (like Excel's), so the canvas never paints over them.
+    const measure = (): void => { const sc = scrollRef.current ?? el; setSize({ w: sc.clientWidth, h: sc.clientHeight }) }
+    const ro = new ResizeObserver(measure)
     ro.observe(el)
-    setSize({ w: el.clientWidth, h: el.clientHeight })
+    if (scrollRef.current) ro.observe(scrollRef.current)
+    measure()
     return () => ro.disconnect()
   }, [])
+
+  // Scrollbars appear/disappear when the scrollable extent changes (zoom, hidden rows, growing sheet): re-measure then too.
+  useLayoutEffect(() => {
+    const sc = scrollRef.current
+    if (!sc) return
+    setSize((cur) => (cur.w === sc.clientWidth && cur.h === sc.clientHeight ? cur : { w: sc.clientWidth, h: sc.clientHeight }))
+  }, [sizerW, sizerH])
 
   const onScroll = useCallback(() => {
     const el = scrollRef.current
