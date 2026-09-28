@@ -1,6 +1,7 @@
 // Renders whichever dialog ui.dialog names, and owns the dialog keyboard shortcuts.
 // Kept separate from App so store changes re-render only this component, not the whole window.
 import { PageSetupDialog } from './PageSetupDialog'
+import { AdvancedFilterDialog, GoalSeekDialog, GoalSeekStatusDialog, ConsolidateDialog } from './DataToolDialogs'
 import { useEffect, useRef } from 'react'
 import { setUi, useUi, getUi } from '../chrome/ui'
 import { formatAsTable } from '../grid/commands'
@@ -143,6 +144,14 @@ export default function DialogHost() {
       return <OutlineSettingsDialog onClose={close} />
     case 'protectSheet':
       return <ProtectSheetDialog sheetUid={(d.props?.sheetUid as number | undefined) ?? sheet.uid} onClose={close} />
+    case 'advancedFilter':
+      return <AdvancedFilterDialog onClose={close} />
+    case 'goalSeek':
+      return <GoalSeekDialog onClose={close} />
+    case 'goalSeekStatus':
+      return <GoalSeekStatusDialog text={String(d.props?.text)} target={String(d.props?.target)} current={String(d.props?.current)} onOk={close} onCancel={() => { close(); (d.props?.onCancel as () => void)() }} />
+    case 'consolidate':
+      return <ConsolidateDialog onClose={close} />
     case 'pageSetup':
       return <PageSetupDialog initialTab={d.props?.tab as never} onClose={close} />
     case 'protectWorkbook':

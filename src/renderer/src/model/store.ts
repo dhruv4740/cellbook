@@ -311,6 +311,7 @@ export class WorkbookStore {
   clearAllFilters(sheet: SheetState = this.active): void {
     if (sheet.layout.protection && !this.allows(sheet, 'autoFilter')) return
     this.updateLayout(sheet, 'Clear Filter', (l) => {
+      if (l.advFilter) { for (const r of l.advFilter.hidden) delete l.hiddenRows[r]; delete l.advFilter }
       if (!l.autoFilter) return
       l.autoFilter.columns = {}
       this.recomputeAutoFilter(sheet, l)

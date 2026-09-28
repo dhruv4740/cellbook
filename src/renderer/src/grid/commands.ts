@@ -8,6 +8,7 @@ import { shiftFormula } from '../engine/shiftFormula'
 import { generateSeries } from '../engine/autofill'
 import { adjustDecimals } from '../format/decimals'
 import { seriesValues, SeriesType, DateUnit } from '../engine/series'
+import { flashFill } from '../data/flashFill'
 import { sortRange, detectHeaders, hasAdjacentData, findCurrentRegion } from '../data/sort'
 
 export type PasteKind = 'all' | 'values' | 'formulas' | 'formats' | 'transpose' | 'noBorders' | 'columnWidths' | 'link'
@@ -1131,4 +1132,31 @@ export function applyBorderPreset(kind: string): void {
       }, 'Borders')
     }
   })
+}
+
+/** Data > Flash Fill / Ctrl+E: fills the active column below the typed examples by pattern. */
+export function flashFillSelection(): void {
+  const sheet = store.active
+  const { r, c } = sheet.selection.active
+  const region = (col: number): Range | null => (col >= 0 && col < MAX_COLS && store.getRaw(sheet, r, col) !== '' ? store.currentRegion(sheet, r, col) : null)
+  // Sources are the columns of the adjoining data block: left of the target, else right of it.
+  const src: number[] = []
+  let rows: Range | null = null
+  const left = region(c - 1)
+  if (left) { rows = left; for (let k = left.c1; k < c; k++) src.push(k) }
+  else {
+    const right = region(c + 1)
+    if (right) { rows = right; for (let k = c + 1; k <= right.c2; k++) src.push(k) }
+  }
+  if (!rows || !src.length) return
+  const r1 = rows.r1, r2 = rows.r2
+  const data: string[][] = [], targets: string[] = []
+  for (let rr = r1; rr <= r2; rr++) {
+    data.push(src.map((k) => store.getDisplay(sheet, rr, k).text))
+    targets.push(store.getRaw(sheet, rr, c))
+  }
+  const out = flashFill(data, targets)
+  if (!out) return
+  const cells = out.map((v, i) => (v === null ? null : { r: r1 + i, c, raw: v })).filter((x): x is { r: number; c: number; raw: string } => x !== null)
+  if (cells.length) store.setCells(sheet, cells, 'Flash Fill')
 }
