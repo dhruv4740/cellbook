@@ -2,7 +2,7 @@
 
 **Scope: only the Windows desktop (Electron) app matters.** Test and verify there; the web build (`npm run web`) is not a target.
 
-Checks on the latest commit: typecheck clean, 368 unit tests pass (also with `CELLBOOK_FAST_WRITE_MIN=0`, which forces the
+Checks on the latest commit: typecheck clean, 373 unit tests pass (also with `CELLBOOK_FAST_WRITE_MIN=0`, which forces the
 fast file writer on every workbook), `npm run build` passes. Excel-compatibility results from the Windows + real Excel run
 are in `docs/excel-check/RESULTS.md`; the oracle scripts in `scripts/excel-oracle/` drive the installed Excel over COM.
 
@@ -13,7 +13,10 @@ are in `docs/excel-check/RESULTS.md`; the oracle scripts in `scripts/excel-oracl
   notes, threaded comments, links, names, conditional formatting, data validation, filters, charts, page setup,
   headers/footers, print titles, page breaks, sheet/workbook protection (with Excel's password hashes), row/column
   groups, calculation mode.
-- **Formulas:** 153/155 everyday formulas match real Excel (see RESULTS.md). SUBTOTAL/AGGREGATE honour filters and
+- **Formulas:** 153/155 everyday formulas match real Excel (see RESULTS.md); 148 lookup / statistics cases match with 0 differences
+  (`scripts/excel-oracle/func_oracle.py`). Also XMATCH, TAKE, DROP, CHOOSECOLS/ROWS, TOCOL/TOROW, SORTBY, MUNIT, MINVERSE, MDETERM,
+  FREQUENCY, TREND, FORECAST(.LINEAR), INTERCEPT, PERCENTRANK, NUMBERVALUE, TYPE, VALUETOTEXT (the spilling ones need literal sizes;
+  not yet: TEXTSPLIT, WRAPROWS/COLS, EXPAND, RANDARRAY, LAMBDA/MAP/REDUCE/SCAN/BYROW/BYCOL, CELL, INFO). SUBTOTAL/AGGREGATE honour filters and
   skip nested subtotals. COUNTIF(S), SUMIF(S), AVERAGEIF(S), MAXIFS, MINIFS, VLOOKUP, HLOOKUP, MATCH, XLOOKUP and INDEX
   run on a hash index (83+35 cases checked against real Excel, 0 differences). LET and INDIRECT (A1 text references) work.
 - **Home:** clipboard (Paste options, Paste Special), font, Fill/Font colour palettes, borders, alignment, orientation,
@@ -62,7 +65,10 @@ outline and text, are not editable.
 
 ## Known limitations
 
-- Excel tables load as ordinary ranges (formulas keep working); Format as Table is formatting + filter, not a table object.
+- Excel tables are kept on save (name, range, style, banding, filter) and painted like Excel's built-in styles (approximate colours); formulas
+  use plain ranges instead of structured references. Format as Table in Cellbook is still formatting + filter, not a table object.
+- Large pictures live inside the sheet layout as base64, so every layout change (and each undo step) copies them; many big images make
+  layout edits slower and use more memory.
 - Manual calculation keeps formula results stale like Excel, but the engine still recalculates in the background, so it
   does not make edits faster.
 - INDIRECT returns values only (no reference semantics, e.g. inside OFFSET or as a range argument to ROW).
