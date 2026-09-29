@@ -430,8 +430,8 @@ export function ViewTab() {
       { label: 'Sheet View actions', icon: null, custom: sheetViewRow }
     ]] },
     { label: 'Workbook Views', items: [
-      { label: 'Normal', icon: big(TableSimple20Regular), width: 44, active: true },
-      { label: 'Page Break Preview', icon: big(DocumentPageBreak20Regular), width: 62, onClick: () => notAvailable('Page Break Preview') },
+      { label: 'Normal', icon: big(TableSimple20Regular), width: 44, active: ui.viewMode === 'normal', onClick: () => setUi({ viewMode: 'normal' }) },
+      { label: 'Page Break Preview', icon: big(DocumentPageBreak20Regular), width: 62, active: ui.viewMode === 'pageBreak', onClick: () => setUi({ viewMode: 'pageBreak' }) },
       [
         { label: 'Page Layout', icon: <PageFit20Regular />, onClick: () => setUi({ backstage: true, backstageTab: 'print' }) },
         { label: 'Custom Views', icon: <AppsListDetail20Regular />, onClick: () => notAvailable('Custom Views') }

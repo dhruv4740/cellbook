@@ -35,6 +35,8 @@ export interface UiState {
   traceArrows: import('../data/trace').TraceState | null
   /** Formulas > Watch Window: whether it's showing, and the cells it watches. */
   watchOpen: boolean
+  /** View > Normal / Page Break Preview. */
+  viewMode: 'normal' | 'pageBreak'
   watchItems: { sheetUid: number; r: number; c: number }[]
   /** F8/Shift+F8: keyboard "Extend Selection" / "Add to Selection" mode (shown on the status bar;
    *  while active, arrow keys extend/add to the selection without needing Shift held down). */
@@ -60,7 +62,7 @@ export interface UiState {
 let state: UiState = {
   backstage: false, ribbonTab: 'Home', ribbonCollapsed: false, hideFormulaBar: false, dialog: null,
   formatPainter: null, edit: null, noteEditor: null, commentPanel: null, selectedChart: null, selectedPicture: null,
-  formulasVisible: false, validationCircles: null, traceArrows: null, watchOpen: false, watchItems: [], selectMode: 'none', backstageTab: null, scrollLock: false, endMode: false,
+  formulasVisible: false, validationCircles: null, traceArrows: null, watchOpen: false, viewMode: 'normal', watchItems: [], selectMode: 'none', backstageTab: null, scrollLock: false, endMode: false,
   groupedSheets: null, pickList: null, toast: null, outlineHidden: false
 }
 const listeners = new Set<() => void>()
