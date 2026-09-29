@@ -1,6 +1,7 @@
 // Excel functions HyperFormula lacks. Registered once, before any HyperFormula instance is built.
 import { formatValue } from '../format/numfmt'
 import { registerFastAggregates } from './fastAgg'
+import { registerMoreFunctions } from './moreFunctions'
 import { FunctionPlugin, FunctionArgumentType, HyperFormula, SimpleRangeValue, CellError, ErrorType } from 'hyperformula'
 type InterpreterValue = any
 
@@ -357,6 +358,7 @@ export function registerExtraFunctions(): void {
   HyperFormula.registerFunctionPlugin(ExcelFixPlugin, { enGB: fixNames, enUS: fixNames } as any)
   HyperFormula.registerFunctionPlugin(SubtotalPlugin, { enGB: { SUBTOTAL: 'SUBTOTAL', AGGREGATE: 'AGGREGATE' }, enUS: { SUBTOTAL: 'SUBTOTAL', AGGREGATE: 'AGGREGATE' } } as any)
   registerFastAggregates()
+  registerMoreFunctions()
   HyperFormula.registerFunctionPlugin(IndirectPlugin, { enGB: { INDIRECT: 'INDIRECT' }, enUS: { INDIRECT: 'INDIRECT' } } as any)
   HyperFormula.registerFunctionPlugin(ExtraTextPlugin, { enGB: { CONCAT: 'CONCAT', TEXTJOIN: 'TEXTJOIN' }, enUS: { CONCAT: 'CONCAT', TEXTJOIN: 'TEXTJOIN' } } as any)
 }
