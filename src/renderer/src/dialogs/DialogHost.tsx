@@ -25,6 +25,7 @@ import { DefineNameDialog, NameManagerDialog, CreateFromSelectionDialog } from '
 import { HyperlinkDialog } from './HyperlinkDialog'
 import { SparklineDialog } from './SparklineDialog'
 import { SpellingDialog } from './SpellingDialog'
+import { EvaluateFormulaDialog } from './EvaluateFormulaDialog'
 import { DataTableDialog, ScenarioManagerDialog } from './WhatIfDialogs'
 import { SubtotalDialog } from './SubtotalDialog'
 import { PivotDialog } from './PivotDialog'
@@ -175,6 +176,8 @@ export default function DialogHost() {
       return <DataTableDialog onClose={close} />
     case 'scenarioManager':
       return <ScenarioManagerDialog onClose={close} />
+    case 'evaluateFormula':
+      return <EvaluateFormulaDialog onClose={close} />
     case 'spelling':
       return <SpellingDialog onClose={close} />
     case 'sparkline':
