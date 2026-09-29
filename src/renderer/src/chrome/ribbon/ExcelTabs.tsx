@@ -268,7 +268,7 @@ export function FormulasTab() {
     { label: 'Defined Names', items: [
       { label: 'Name Manager', icon: big(TableSettings20Regular), width: 58, shortcut: 'Ctrl+F3', onClick: () => setUi({ dialog: { kind: 'nameManager' } }) },
       [
-        { label: 'Define Name', icon: <TableSettings20Regular />, menu: [{ label: 'Define Name...', onClick: () => setUi({ dialog: { kind: 'defineName' } }) }, { label: 'Apply Names...', onClick: () => notAvailable('Apply Names') }], onClick: () => setUi({ dialog: { kind: 'defineName' } }) },
+        { label: 'Define Name', icon: <TableSettings20Regular />, menu: [{ label: 'Define Name...', onClick: () => setUi({ dialog: { kind: 'defineName' } }) }, { label: 'Apply Names...', onClick: () => setUi({ dialog: { kind: 'applyNames' } }) }], onClick: () => setUi({ dialog: { kind: 'defineName' } }) },
         { label: 'Use in Formula', icon: <MathFormula20Regular />, menu: useInFormula },
         { label: 'Create from Selection', icon: <TableSimple20Regular />, shortcut: 'Ctrl+Shift+F3', onClick: () => setUi({ dialog: { kind: 'createNames' } }) }
       ]

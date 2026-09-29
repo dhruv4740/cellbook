@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { Dialog } from '../components/Dialog'
 import { store, useStore } from '../model/store'
 import { colName, normRange } from '../model/types'
+import { applicableNames, applyNames } from '../data/applyNames'
 
 function quoteSheet(n: string): string {
   return /^[A-Za-z_][A-Za-z0-9_.]*$/.test(n) ? n : `'${n.replace(/'/g, "''")}'`
@@ -126,6 +127,30 @@ export function CreateFromSelectionDialog({ onClose }: { onClose: () => void }) 
       <label style={{ display: 'block' }}><input type="checkbox" checked={top} onChange={(e) => setTop(e.target.checked)} /> Top row</label>
       <label style={{ display: 'block' }}><input type="checkbox" checked={left} onChange={(e) => setLeft(e.target.checked)} /> Left column</label>
       {err && <div style={{ color: '#a4262c', fontSize: 12, marginTop: 8 }}>{err}</div>}
+    </Dialog>
+  )
+}
+
+/** Formulas > Define Name > Apply Names: pick the names to substitute into formulas. */
+export function ApplyNamesDialog({ onClose }: { onClose: () => void }) {
+  const list = applicableNames()
+  const [picked, setPicked] = useState<string[]>([])
+  const [msg, setMsg] = useState('')
+  const ok = () => {
+    if (!picked.length) return onClose()
+    const n = applyNames(store.active, picked)
+    if (n) onClose(); else setMsg('No references to those names were found in this sheet’s formulas.')
+  }
+  return (
+    <Dialog title="Apply Names" width={320} onCancel={onClose} onOk={ok}>
+      <div style={{ fontSize: 12 }}>
+        <div>Apply names:</div>
+        <select multiple size={8} style={{ width: '100%' }} value={picked} onChange={(e) => setPicked(Array.from(e.target.selectedOptions).map((o) => o.value))}>
+          {list.map((n) => <option key={n.name} value={n.name}>{n.name}</option>)}
+        </select>
+        {!list.length && <div style={{ color: '#666', marginTop: 6 }}>There are no names that refer to a cell or range.</div>}
+        {msg && <div style={{ color: '#a4262c', marginTop: 6 }}>{msg}</div>}
+      </div>
     </Dialog>
   )
 }
