@@ -46,6 +46,8 @@ export interface WorkbookData {
   protection?: WorkbookProtection
   /** Formulas > Calculation Options; 'auto' when absent. */
   calcMode?: CalcMode
+  /** The workbook's Normal-style font when it isn't Calibri 11 (kept so a save doesn't reset it). */
+  defaultFont?: { name: string; size: number }
   /** Workbook defined names (named ranges, print areas...). `ref` has no leading '='; `sheet` is
    *  the index of the sheet a local name belongs to (localSheetId). */
   names?: DefinedNameData[]
@@ -109,6 +111,7 @@ export class WorkbookStore {
   bookProtection: WorkbookProtection | undefined
   /** Formulas > Calculation Options. */
   calcMode: CalcMode = 'auto'
+  defaultFont?: { name: string; size: number }
   /** Manual mode: formula results as of the last calculation. Excel leaves them stale until F9. */
   private frozen: Map<string, { f: string; v: CellValue }> | null = null
   /** Manual mode: something changed since the last calculation (the status bar shows "Calculate"). */
@@ -1282,6 +1285,7 @@ export class WorkbookStore {
     }
     this.bookProtection = data.protection
     this.calcMode = data.calcMode ?? 'auto'
+    this.defaultFont = data.defaultFont
     this.frozen = null
     this.calcPending = false
     if (this.calcMode === 'manual') this.freezeValues()
@@ -1442,6 +1446,7 @@ export class WorkbookStore {
       names: this.exportNames(),
       protection: this.bookProtection,
       calcMode: this.calcMode === 'auto' ? undefined : this.calcMode,
+      defaultFont: this.defaultFont,
       sheets: this.sheets.map((s) => {
         const cells: WorkbookData['sheets'][number]['cells'] = {}
         const id = this.hfId(s)
