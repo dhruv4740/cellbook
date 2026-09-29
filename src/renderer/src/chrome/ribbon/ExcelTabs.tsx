@@ -20,6 +20,8 @@ import { useStore, store } from '../../model/store'
 import { useUi, setUi, getUi, notAvailable, showToast } from '../ui'
 import { findInvalidCells } from '../../data/dataValidation'
 import { traceStep, removeArrows } from '../../data/trace'
+import { nextErrorCell } from '../../data/errorCheck'
+import { colName } from '../../model/types'
 import { selectionRef } from '../../dialogs/NameDialogs'
 import { FUNCTION_CATEGORIES, RECENTLY_USED } from './functionCategories'
 import { MenuItem } from '../../components/Menu'
@@ -32,6 +34,13 @@ import { autoOutline, clearAllOutlines, outlineCommand } from '../../grid/outlin
 import { PAPER_SIZES, paperOf, marginPresetOf, fitOf } from '../../model/pageSetup'
 import { canRemovePageBreak, insertPageBreak, openPageSetup, removePageBreak, resetPageBreaks, setFitPages, setMarginPreset, setScale, updatePageSetup } from '../../grid/pageSetupCommands'
 
+function errorCheck(): void {
+  const sh = store.active
+  const hit = nextErrorCell(sh)
+  if (!hit) { setUi({ dialog: { kind: 'message', props: { text: 'The error check is complete for the entire sheet.' } } }); return }
+  store.setSelection({ ranges: [{ r1: hit.r, c1: hit.c, r2: hit.r, c2: hit.c }], active: { r: hit.r, c: hit.c } })
+  showToast(`${colName(hit.c)}${hit.r + 1}: ${hit.kind}`)
+}
 function circleInvalid(): void {
   const sh = store.active
   const cells = findInvalidCells(store, sh)
@@ -270,7 +279,7 @@ export function FormulasTab() {
       ],
       [
         { label: 'Show Formulas', icon: <ClipboardTextLtr20Regular />, shortcut: 'Ctrl+`', active: ui.formulasVisible, onClick: () => setUi({ formulasVisible: !getUi().formulasVisible }) },
-        { label: 'Error Checking', icon: <ShieldTask20Regular />, menu: na('Error Checking') },
+        { label: 'Error Checking', icon: <ShieldTask20Regular />, onClick: () => errorCheck() },
         { label: 'Evaluate Formula', icon: <Beaker20Regular />, onClick: () => notAvailable('Evaluate Formula') }
       ],
       { label: 'Watch Window', icon: big(Eye20Regular), width: 52, onClick: () => notAvailable('Watch Window') }

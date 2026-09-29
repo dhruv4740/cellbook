@@ -24,6 +24,7 @@ import { NoteBox, NoteTooltip, CommentBox, closeNoteEditor, closeCommentPanel } 
 import { evaluateCf } from '../format/conditional'
 import { linkAt, followLink } from './links'
 import { sparkValues, drawSparkline } from '../data/sparklines'
+import { cellErrorKind } from '../data/errorCheck'
 import { renderPivot } from '../data/pivot'
 import { getValidationForCell, getListItems, validateInput } from '../data/dataValidation'
 import {
@@ -377,6 +378,10 @@ export default function Grid() {
       if (editingHere) return
       const disp = ui.formulasVisible ? { text: store.getRaw(sheet, r, c), color: undefined, align: 'left' as const } : store.getDisplay(sheet, r, c)
       if (!disp.text) return
+      if (cellErrorKind(sheet, r, c)) {
+        ctx.fillStyle = '#21a366'
+        ctx.beginPath(); ctx.moveTo(x + 1, y + 1); ctx.lineTo(x + 1 + 6 * z, y + 1); ctx.lineTo(x + 1, y + 1 + 6 * z); ctx.closePath(); ctx.fill()
+      }
       ctx.font = fontString(style, z)
       ctx.fillStyle = style?.color ?? disp.color ?? '#000000'
       const hAlign = style?.hAlign && style.hAlign !== 'general' ? style.hAlign : (disp.align ?? 'left')
