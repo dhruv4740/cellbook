@@ -1386,6 +1386,7 @@ export default function Grid() {
       if (e.key === 'F1' && e.altKey && e.shiftKey) { store.addSheet(); e.preventDefault(); return }
       // ---- Alt+F1: embedded chart of the default type (clustered column) from the selection ----
       if (e.key === 'F1' && e.altKey && !e.shiftKey && !mod) { insertChartFromSelection(store, COLUMN_BAR_GALLERY[0]); e.preventDefault(); return }
+      if (e.key === 'F7' && !mod && !e.altKey && !e.shiftKey) { setUi({ dialog: { kind: 'spelling' } }); e.preventDefault(); return }
       // ---- F9 / Shift+F9 / Ctrl+Alt+F9: calculate now / active sheet / everything ----
       if (e.key === 'F9' && !(mod && !e.altKey)) { if (e.shiftKey) store.recalculateSheet(); else store.recalculate(); e.preventDefault(); return }
       // ---- Shift+F3: Insert Function ----
