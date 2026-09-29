@@ -106,7 +106,7 @@ class MorePlugin extends FunctionPlugin {
     PERCENTRANK: { method: 'percentrank', parameters: [RANGE, NUM, optNum(3)] },
     'PERCENTRANK.INC': { method: 'percentrank', parameters: [RANGE, NUM, optNum(3)] },
     NUMBERVALUE: { method: 'numbervalue', parameters: [{ argumentType: A.STRING }, { argumentType: A.STRING, optionalArg: true, defaultValue: '.' }, { argumentType: A.STRING, optionalArg: true, defaultValue: ',' }] },
-    TYPE: { method: 'typeOf', parameters: [ANY] },
+    TYPE: { method: 'typeOf', parameters: [{ argumentType: A.SCALAR }] }, // SCALAR (like ISERROR) lets error values through
     VALUETOTEXT: { method: 'valuetotext', parameters: [ANY, optNum(0)] }
   }
 
@@ -291,6 +291,8 @@ class MorePlugin extends FunctionPlugin {
     })
   }
   typeOf(ast: Any, state: Any): Any {
+    const a = ast.args?.[0]
+    if (a?.start && a?.end && (a.start.row !== a.end.row || a.start.col !== a.end.col)) return 64 // a multi-cell range is an array
     return this.runFunction(ast.args, state, this.metadata('TYPE'), (v: unknown) => {
       if (v instanceof SimpleRangeValue) return 64
       if (v instanceof CellError) return 16
