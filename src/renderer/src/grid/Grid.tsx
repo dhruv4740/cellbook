@@ -26,6 +26,7 @@ import { evaluateCf } from '../format/conditional'
 import { linkAt, followLink } from './links'
 import { sparkValues, drawSparkline } from '../data/sparklines'
 import { cellErrorKind } from '../data/errorCheck'
+import { layoutSheet } from '../io/print'
 import { renderPivot } from '../data/pivot'
 import { getValidationForCell, getListItems, validateInput } from '../data/dataValidation'
 import {
@@ -563,6 +564,31 @@ export default function Grid() {
           ctx.strokeRect(x + 1, y + 1, Math.max(0, w - 2), Math.max(0, h - 2))
         })
       })
+    }
+    // View > Page Break Preview: grey outside the print area, "Page N" watermarks, blue page breaks
+    if (ui.viewMode === 'pageBreak') {
+      const lay = layoutSheet(sheet, 'active')
+      if (lay) {
+        const { rg, pages } = lay
+        const X = (c: number): number => cellScreenX(c), Y = (r: number): number => cellScreenY(r)
+        const x1 = X(rg.c1), x2 = X(rg.c2 + 1), y1 = Y(rg.r1), y2 = Y(rg.r2 + 1)
+        ctx.fillStyle = 'rgba(150,150,150,0.45)'
+        ctx.fillRect(rowHeaderW, headerH, size.w - rowHeaderW, Math.max(0, y1 - headerH))
+        ctx.fillRect(rowHeaderW, y2, size.w - rowHeaderW, Math.max(0, size.h - y2))
+        ctx.fillRect(rowHeaderW, y1, Math.max(0, x1 - rowHeaderW), Math.max(0, y2 - y1))
+        ctx.fillRect(x2, y1, Math.max(0, size.w - x2), Math.max(0, y2 - y1))
+        ctx.font = `bold ${Math.round(72 * z)}px Calibri, sans-serif`
+        ctx.fillStyle = 'rgba(120,120,120,0.28)'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+        for (const p of pages) ctx.fillText(`Page ${p.number}`, (X(p.c1) + X(p.c2 + 1)) / 2, (Y(p.r1) + Y(p.r2 + 1)) / 2)
+        const manualR = new Set(sheet.layout.pageSetup?.rowBreaks ?? []), manualC = new Set(sheet.layout.pageSetup?.colBreaks ?? [])
+        ctx.strokeStyle = '#1f5fd8'; ctx.lineWidth = 1.5
+        const seenC = new Set<number>(), seenR = new Set<number>()
+        for (const p of pages) {
+          if (p.c1 > rg.c1 && !seenC.has(p.c1)) { seenC.add(p.c1); ctx.setLineDash(manualC.has(p.c1) ? [] : [6, 4]); ctx.beginPath(); ctx.moveTo(X(p.c1), y1); ctx.lineTo(X(p.c1), y2); ctx.stroke() }
+          if (p.r1 > rg.r1 && !seenR.has(p.r1)) { seenR.add(p.r1); ctx.setLineDash(manualR.has(p.r1) ? [] : [6, 4]); ctx.beginPath(); ctx.moveTo(x1, Y(p.r1)); ctx.lineTo(x2, Y(p.r1)); ctx.stroke() }
+        }
+        ctx.setLineDash([]); ctx.lineWidth = 2.5; ctx.strokeRect(x1, y1, x2 - x1, y2 - y1)
+      }
     }
     // Trace Precedents / Dependents arrows
     if (ui.traceArrows && ui.traceArrows.sheetUid === sheet.uid) {
