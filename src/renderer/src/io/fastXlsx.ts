@@ -10,7 +10,7 @@ import { resolveStructuredRefs, type TableDef } from '../engine/structuredRefs'
 import type { BorderSide, CellStyle, CfRule, HyperlinkData, CommentThread, DataValidationRule, DvAllowType, DvErrorStyle, DvOperator, FilterCriteria, NoteData, PageSetup, Range, SheetLayout, CalcMode, SparklineDef } from '../model/types'
 import { parseA1 } from '../model/types'
 import type { ScenarioDef } from '../model/types'
-import { isMediaPart, parseDrawingPictures } from './xlsxPictures'
+import { isMediaPart, parseDrawingObjects } from './xlsxPictures'
 import { parseSheetProtection } from '../model/protection'
 import { parsePageSetupXml } from './pageSetupXml'
 import type { WorkbookData, DefinedNameData } from '../model/store'
@@ -215,8 +215,9 @@ export function parseXlsx(bytes: Uint8Array): WorkbookData & { vbaProject?: VbaP
     if (dvs.length) layout.dataValidations = dvs
     const charts = parseDrawingMlCharts(files, dec, path, xml, parsed.colWidths, parsed.rowHeights)
     if (charts.length) layout.charts = charts
-    const pictures = parseDrawingPictures(files, dec, path, xml, parsed.colWidths, parsed.rowHeights)
-    if (pictures.length) layout.pictures = pictures
+    const objects = parseDrawingObjects(files, dec, path, xml, parsed.colWidths, parsed.rowHeights)
+    if (objects.pictures.length) layout.pictures = objects.pictures
+    if (objects.shapes.length) layout.shapes = objects.shapes
 
     sheets.push({ name: def.name, cells: parsed.cells, layout })
   }

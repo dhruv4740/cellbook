@@ -22,6 +22,7 @@ import { findInvalidCells } from '../../data/dataValidation'
 import { traceStep, removeArrows } from '../../data/trace'
 import { nextErrorCell } from '../../data/errorCheck'
 import { pickPictureFiles } from '../../data/pictures'
+import { insertShape, SHAPE_LABELS } from '../../data/shapes'
 import { colName } from '../../model/types'
 import { selectionRef } from '../../dialogs/NameDialogs'
 import { FUNCTION_CATEGORIES, RECENTLY_USED } from './functionCategories'
@@ -79,7 +80,7 @@ export function InsertTab() {
     { label: 'Illustrations', items: [
       { label: 'Pictures', icon: big(ImageAdd20Regular), menu: [{ label: 'This Device...', onClick: () => pickPictureFiles() }, { label: 'Stock Images...', onClick: () => notAvailable('Stock Images') }, { label: 'From Online Sources...', onClick: () => notAvailable('Online Pictures') }] },
       [
-        { label: 'Shapes', icon: <Shapes20Regular />, menu: na('Shapes') },
+        { label: 'Shapes', icon: <Shapes20Regular />, menu: (['rect', 'roundRect', 'ellipse', 'triangle', 'diamond', 'rightArrow', 'line', 'arrow', 'textbox'] as const).map((k) => ({ label: SHAPE_LABELS[k], onClick: () => insertShape(k) })) },
         { label: 'Icons', icon: <Sparkle20Regular />, onClick: () => notAvailable('Icons') },
         { label: '3D Models', icon: <Cube20Regular />, menu: na('3D Models') }
       ],
@@ -119,7 +120,7 @@ export function InsertTab() {
     { label: 'Links', items: [{ label: 'Link', icon: big(Link20Regular), shortcut: 'Ctrl+K', onClick: () => setUi({ dialog: { kind: 'hyperlink' } }) }] },
     { label: 'Comments', items: [{ label: 'Comment', icon: big(CommentAdd20Regular), width: 58, onClick: () => { const a = store.active.selection.active; setUi({ commentPanel: { r: a.r, c: a.c } }) } }] },
     { label: 'Text', items: [{ label: 'Text', icon: big(TextboxAlignTopLeft20Regular), menu: [
-      { label: 'Text Box', icon: <TextboxAlignTopLeft20Regular />, onClick: () => notAvailable('Text Box') },
+      { label: 'Text Box', icon: <TextboxAlignTopLeft20Regular />, onClick: () => insertShape('textbox') },
       { label: 'Header & Footer', icon: <PanelLeftText20Regular />, onClick: () => openPageSetup('Header/Footer') },
       { label: 'WordArt', onClick: () => notAvailable('WordArt') },
       { label: 'Signature Line', onClick: () => notAvailable('Signature Line') },
@@ -127,7 +128,7 @@ export function InsertTab() {
     ] }] },
     { label: 'Symbols', items: [{ label: 'Symbols', icon: big(MathSymbols20Regular), menu: [
       { label: 'Equation', icon: <MathFormula20Regular />, onClick: () => notAvailable('Equation') },
-      { label: 'Symbol', icon: <MathSymbols20Regular />, onClick: () => notAvailable('Symbol') }
+      { label: 'Symbol', icon: <MathSymbols20Regular />, onClick: () => setUi({ dialog: { kind: 'symbol' } }) }
     ] }] }
   ]
   return <GenericTab groups={groups} />

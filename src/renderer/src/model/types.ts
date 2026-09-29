@@ -177,6 +177,8 @@ export interface SheetLayout {
   sparklines?: SparklineDef[]
   /** Insert > Pictures: floating images (bottom of the list is drawn first). */
   pictures?: PictureDef[]
+  /** Insert > Shapes / Text Box. */
+  shapes?: ShapeDef[]
   /** Data > What-If Analysis > Scenario Manager. */
   scenarios?: ScenarioDef[]
   /** Floating chart objects on this sheet. Optional so existing layouts still typecheck. */
@@ -440,6 +442,30 @@ export interface ScenarioDef {
   cells: { r: number; c: number }[]
   values: string[]
   comment?: string
+}
+
+export type ShapeKind = 'rect' | 'roundRect' | 'ellipse' | 'triangle' | 'diamond' | 'rightArrow' | 'line' | 'arrow' | 'textbox'
+
+export interface ShapeDef {
+  id: string
+  name: string
+  kind: ShapeKind
+  anchor: { r: number; c: number; dx: number; dy: number }
+  width: number
+  height: number
+  /** Fill colour (#rrggbb); absent = no fill. */
+  fill?: string
+  /** Outline colour; absent = no outline. */
+  line?: string
+  lineWidth?: number
+  text?: string
+  color?: string
+  fontSize?: number
+  bold?: boolean
+  italic?: boolean
+  align?: 'l' | 'ctr' | 'r'
+  /** Lines: runs bottom-left to top-right instead of top-left to bottom-right. */
+  flipV?: boolean
 }
 
 export interface PictureDef {
