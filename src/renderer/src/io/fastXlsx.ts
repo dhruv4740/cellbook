@@ -199,6 +199,10 @@ export function parseXlsx(bytes: Uint8Array): WorkbookData & { vbaProject?: VbaP
 
     for (const t of parseTables(files, dec, path, def.name)) {
       tables.push(t.def)
+      layout.tables = [...(layout.tables ?? []), {
+        name: t.def.name, r1: t.def.r1, c1: t.def.c1, r2: t.def.r2, c2: t.def.c2, headerRows: t.def.headerRows, totalsRows: t.def.totalsRows,
+        ...(t.style ? { style: t.style } : {}), rowStripes: t.rowStripes, colStripes: t.colStripes, firstCol: t.firstCol, lastCol: t.lastCol, filter: !!t.autoFilterXml
+      }]
       // A table's filter lives in the table part, not the sheet; keep it as the sheet's AutoFilter.
       if (t.autoFilterXml && !layout.autoFilter) {
         const range = { r1: t.def.r1, c1: t.def.c1, r2: t.def.r2 - t.def.totalsRows, c2: t.def.c2 }
@@ -300,11 +304,11 @@ function parseSparklines(xml: string, sheetName: string): SparklineDef[] {
   return out
 }
 
-function parseTables(files: Record<string, Uint8Array>, dec: TextDecoder, sheetPath: string, sheetName: string): { def: TableDef; autoFilterXml?: string }[] {
+function parseTables(files: Record<string, Uint8Array>, dec: TextDecoder, sheetPath: string, sheetName: string): { def: TableDef; autoFilterXml?: string; style?: string; rowStripes?: boolean; colStripes?: boolean; firstCol?: boolean; lastCol?: boolean }[] {
   const dir = sheetPath.split('/').slice(0, -1).join('/')
   const relsBytes = files[dir + '/_rels/' + (sheetPath.split('/').pop() ?? '') + '.rels']
   if (!relsBytes) return []
-  const out: { def: TableDef; autoFilterXml?: string }[] = []
+  const out: { def: TableDef; autoFilterXml?: string; style?: string; rowStripes?: boolean; colStripes?: boolean; firstCol?: boolean; lastCol?: boolean }[] = []
   for (const rel of parseRelationships(dec.decode(relsBytes))) {
     if (!/\/table$/.test(rel.type)) continue
     const bytes = files[resolveRelTarget(sheetPath, rel.target)]
@@ -321,7 +325,14 @@ function parseTables(files: Record<string, Uint8Array>, dec: TextDecoder, sheetP
         name: decodeXmlEntities(a.displayName ?? a.name ?? ''), sheet: sheetName, ...range,
         headerRows: a.headerRowCount === '0' ? 0 : 1, totalsRows: a.totalsRowCount ? parseInt(a.totalsRowCount, 10) : 0, columns
       },
-      autoFilterXml: /<autoFilter\b[^>]*\/>|<autoFilter\b[\s\S]*?<\/autoFilter>/.exec(xml)?.[0]
+      autoFilterXml: /<autoFilter\b[^>]*\/>|<autoFilter\b[\s\S]*?<\/autoFilter>/.exec(xml)?.[0],
+      ...(() => {
+        const si = /<tableStyleInfo\b([^>]*?)\/?>/.exec(xml)
+        if (!si) return {}
+        const s = parseAttrs(si[1], 0, si[1].length)
+        const on = (v: string | undefined): boolean => v === '1' || v === 'true'
+        return { style: s.name, rowStripes: on(s.showRowStripes), colStripes: on(s.showColumnStripes), firstCol: on(s.showFirstColumn), lastCol: on(s.showLastColumn) }
+      })()
     })
   }
   return out

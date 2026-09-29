@@ -94,6 +94,12 @@ export function shiftLayoutRefs(l: SheetLayout, axis: Axis, at: number, delta: n
       l.autoFilter = af
     }
   }
+  if (l.tables) {
+    l.tables = l.tables.flatMap((t) => {
+      const g = shiftRange({ r1: t.r1, c1: t.c1, r2: t.r2, c2: t.c2 }, axis, at, delta)
+      return g ? [{ ...t, ...g }] : []
+    })
+  }
   if (l.shapes) {
     l.shapes = l.shapes.map((p) => {
       const i = shiftIndex(axis === 'r' ? p.anchor.r : p.anchor.c, at, delta) ?? at
