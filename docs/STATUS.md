@@ -2,7 +2,7 @@
 
 **Scope: only the Windows desktop (Electron) app matters.** Test and verify there; the web build (`npm run web`) is not a target.
 
-Checks on the latest commit: typecheck clean, 350 unit tests pass (also with `CELLBOOK_FAST_WRITE_MIN=0`, which forces the
+Checks on the latest commit: typecheck clean, 368 unit tests pass (also with `CELLBOOK_FAST_WRITE_MIN=0`, which forces the
 fast file writer on every workbook), `npm run build` passes. Excel-compatibility results from the Windows + real Excel run
 are in `docs/excel-check/RESULTS.md`; the oracle scripts in `scripts/excel-oracle/` drive the installed Excel over COM.
 
@@ -19,7 +19,9 @@ are in `docs/excel-check/RESULTS.md`; the oracle scripts in `scripts/excel-oracl
 - **Home:** clipboard (Paste options, Paste Special), font, Fill/Font colour palettes, borders, alignment, orientation,
   wrap, merge, number formats (₹ and dd-mm-yyyy on an English (India) PC), Increase/Decrease Decimal, Conditional
   Formatting, Format as Table, Cell Styles, Insert/Delete/Format, AutoSum, Fill, Clear, Sort & Filter, Find & Select.
-- **Insert:** PivotTable, Table, charts, Link (Ctrl+K), Comment, Header & Footer (opens Page Setup).
+- **Insert:** PivotTable, Table, charts, Pictures (file, or pasted screenshot; move/resize; saved in .xlsx), Shapes and Text Box
+  (rectangles, oval, triangle, diamond, arrows, lines; edit text by double-click; saved in .xlsx), Sparklines (line, column,
+  win/loss; saved as Excel's x14 extension), Symbol, Link (Ctrl+K), Comment, Header & Footer (opens Page Setup).
 - **Page Layout / Print:** Page Setup dialog (Page, Margins, Header/Footer with the custom editor, Sheet tab: print
   area, title rows/columns, gridlines, headings, black and white, draft, comments, error display, page order),
   margins presets, orientation, all paper sizes, breaks (insert/remove/reset), scale to fit width/height,
@@ -28,9 +30,13 @@ are in `docs/excel-check/RESULTS.md`; the oracle scripts in `scripts/excel-oracl
   Shift+F9, "Calculate" in the status bar while manual results are stale.
 - **Data:** Sort, Filter (Clear/Reapply), Advanced Filter (in place or copy, criteria ranges, unique only), Text to
   Columns, Flash Fill (Ctrl+E), Remove Duplicates, Data Validation, Consolidate (by position or labels), Goal Seek,
-  Group/Ungroup with the outline gutter and level buttons, Subtotal, Refresh All, From Text/CSV.
-- **Review / View:** protect sheet/workbook, comments, notes, gridlines, headings, formula bar, zoom, freeze panes,
-  New Window, Arrange All, Switch Windows.
+  Group/Ungroup with the outline gutter and level buttons, Subtotal, Refresh All, From Text/CSV, Circle Invalid Data,
+  Scenario Manager (saved in .xlsx), Data Table (writes values; not a live TABLE()).
+- **Review / View:** Spelling (F7, offline English dictionary), Check Accessibility (basic), protect sheet/workbook,
+  comments, notes, gridlines, headings, formula bar, zoom, freeze panes, Page Break Preview, New Window, Arrange All,
+  Switch Windows.
+- **Auditing:** Trace Precedents / Dependents arrows (one level per click), Error Checking with Excel's green triangles
+  (number stored as text, formula errors), Watch Window, Evaluate Formula (no Step In / Step Out), Apply Names.
 - **PivotTable:** up to two Rows fields, one Columns field, Sum/Count/Average/Max/Min, grand totals; refresh from the
   right-click menu or Data > Refresh All. Saved to .xlsx as values (not refreshable after reopening).
 - **Motion:** menus, flyouts, dialogs, the File view and the ribbon fade/slide in like Excel's Fluent UI; hover
@@ -49,10 +55,10 @@ Sorting and removing duplicates are bound by HyperFormula's per-cell cost (about
 
 ## Not available yet (the button says so when clicked)
 
-Pictures, shapes, icons, SmartArt, text boxes, WordArt, sparklines, slicers, timelines, maps, 3D Map, PivotChart;
-Scenario Manager and Data Table (What-If); Forecast Sheet; spelling, thesaurus, translate; trace precedents/dependents
-arrows, error checking, Watch Window; Page Break Preview and Page Layout view; split window; custom views; macros (VBA
-is kept in .xlsm files but not run); themes; sheet background; Get Data from the web; R1C1 references in INDIRECT.
+Icons, SmartArt, WordArt, slicers, timelines, maps, 3D Map, PivotChart; Forecast Sheet; thesaurus, translate; split
+window; Page Layout view; custom views; macros (VBA is kept in .xlsm files but not run); themes; sheet background; Get Data
+from the web; R1C1 references in INDIRECT. Shapes other than the basic set above, and shape formatting beyond fill,
+outline and text, are not editable.
 
 ## Known limitations
 
