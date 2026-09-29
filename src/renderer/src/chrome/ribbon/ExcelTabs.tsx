@@ -281,9 +281,9 @@ export function FormulasTab() {
       [
         { label: 'Show Formulas', icon: <ClipboardTextLtr20Regular />, shortcut: 'Ctrl+`', active: ui.formulasVisible, onClick: () => setUi({ formulasVisible: !getUi().formulasVisible }) },
         { label: 'Error Checking', icon: <ShieldTask20Regular />, onClick: () => errorCheck() },
-        { label: 'Evaluate Formula', icon: <Beaker20Regular />, onClick: () => notAvailable('Evaluate Formula') }
+        { label: 'Evaluate Formula', icon: <Beaker20Regular />, onClick: () => setUi({ dialog: { kind: 'evaluateFormula' } }) }
       ],
-      { label: 'Watch Window', icon: big(Eye20Regular), width: 52, onClick: () => notAvailable('Watch Window') }
+      { label: 'Watch Window', icon: big(Eye20Regular), width: 52, onClick: () => setUi({ watchOpen: !getUi().watchOpen }) }
     ] },
     { label: 'Calculation', items: [
       { label: 'Calculation Options', icon: big(Calculator20Regular), width: 68, menu: [

@@ -8,6 +8,7 @@ import SheetTabs from './chrome/SheetTabs'
 import StatusBar from './chrome/StatusBar'
 import Backstage from './io/Backstage'
 import DialogHost from './dialogs/DialogHost'
+import WatchWindow from './chrome/WatchWindow'
 import { useUi } from './chrome/ui'
 import { installFileShortcuts } from './io/fileOps'
 
@@ -26,6 +27,7 @@ export default function App() {
       <SheetTabs />
       <StatusBar />
       <DialogHost />
+      {ui.watchOpen && <WatchWindow />}
       {ui.toast && <div className="xl-toast" role="status">{ui.toast}</div>}
     </div>
   )
