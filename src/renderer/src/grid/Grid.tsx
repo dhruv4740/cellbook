@@ -17,6 +17,7 @@ import { Dialog } from '../components/Dialog'
 import * as cmd from './commands'
 import { shiftFormula } from '../engine/shiftFormula'
 import ChartOverlay from '../charts/ChartOverlay'
+import { PictureOverlay } from './PictureOverlay'
 import { insertChartFromSelection } from '../charts/insertChart'
 import { COLUMN_BAR_GALLERY } from '../charts/gallery'
 import { AutoFilterMenu } from './AutoFilterMenu'
@@ -890,6 +891,7 @@ export default function Grid() {
     // A chart's own mousedown handler stops propagation, so getting here means the click landed
     // on the grid itself: deselect any floating chart.
     if (getUi().selectedChart) setUi({ selectedChart: null })
+    if (getUi().selectedPicture) setUi({ selectedPicture: null })
     const rect = hostRef.current!.getBoundingClientRect()
     const x = e.clientX - rect.left, y = e.clientY - rect.top
     // Point mode: editing a formula where a reference can go (after =, an operator, "(" or ","),
@@ -1783,6 +1785,7 @@ export default function Grid() {
         <div style={{ width: sizerW, height: sizerH }} />
       </div>
       <canvas ref={canvasRef} className="xl-canvas" style={{ width: size.w, height: size.h }} />
+      <PictureOverlay sheet={sheet} geo={{ colsAxis, rowsAxis, frozen, scroll, z, rowHeaderW, headerH, viewport: size }} />
       <ChartOverlay
         sheet={sheet}
         geo={{ colsAxis, rowsAxis, frozen, scroll, z, rowHeaderW, headerH, viewport: size }}

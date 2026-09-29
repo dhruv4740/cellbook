@@ -10,6 +10,7 @@ import { adjustDecimals } from '../format/decimals'
 import { seriesValues, SeriesType, DateUnit } from '../engine/series'
 import { flashFill } from '../data/flashFill'
 import { sortRange, detectHeaders, hasAdjacentData, findCurrentRegion } from '../data/sort'
+import { insertPictureFromDataUrl } from '../data/pictures'
 
 export type PasteKind = 'all' | 'values' | 'formulas' | 'formats' | 'transpose' | 'noBorders' | 'columnWidths' | 'link'
 
@@ -184,6 +185,7 @@ function cutMove(srcSheet: SheetState, range: Range, dest: Range): void {
   store.setSelection({ ranges: [{ r1: dest.r1, c1: dest.c1, r2: dest.r1 + n.r2 - n.r1, c2: dest.c1 + n.c2 - n.c1 }], active: { r: dest.r1, c: dest.c1 } })
 }
 
+
 async function readSystemClipboardText(): Promise<string | null> {
   try {
     if (window.api?.clipboardReadText) return await window.api.clipboardReadText()
@@ -236,7 +238,12 @@ export async function paste(kind: PasteKind = 'all'): Promise<void> {
     }
   }
   // Fall back to the system clipboard (TSV) for cross-app paste.
-  if (!sysText) return
+  if (!sysText) {
+    // A screenshot or copied image: paste it as a picture at the active cell.
+    const img = await window.api?.clipboardReadImage?.().catch(() => '')
+    if (img) await insertPictureFromDataUrl(img, 'Picture')
+    return
+  }
   const raws = parseTsv(sysText)
   if (!raws.length) return
   // Excel's HTML says which cells are Text-formatted; the plain text alone would turn "00012" into 12.

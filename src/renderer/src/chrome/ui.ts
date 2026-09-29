@@ -25,6 +25,8 @@ export interface UiState {
   commentPanel: null | { r: number; c: number }
   /** The floating chart currently selected on the active sheet, if any; shows the Chart Design/Format tabs. */
   selectedChart: string | null
+  /** The floating picture currently selected on the active sheet, if any. */
+  selectedPicture: string | null
   /** Ctrl+` (Show Formulas): cells display their raw formula text instead of the computed value. */
   formulasVisible: boolean
   /** Data > Data Validation > Circle Invalid Data: cells ('r,c') to ring in red, per sheet uid. */
@@ -54,7 +56,7 @@ export interface UiState {
 
 let state: UiState = {
   backstage: false, ribbonTab: 'Home', ribbonCollapsed: false, hideFormulaBar: false, dialog: null,
-  formatPainter: null, edit: null, noteEditor: null, commentPanel: null, selectedChart: null,
+  formatPainter: null, edit: null, noteEditor: null, commentPanel: null, selectedChart: null, selectedPicture: null,
   formulasVisible: false, validationCircles: null, traceArrows: null, selectMode: 'none', backstageTab: null, scrollLock: false, endMode: false,
   groupedSheets: null, pickList: null, toast: null, outlineHidden: false
 }

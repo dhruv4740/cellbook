@@ -175,6 +175,8 @@ export interface SheetLayout {
   hyperlinks?: Record<string, HyperlinkData>
   /** Insert > Sparklines: one mini chart per cell, drawn from a range on the same sheet. */
   sparklines?: SparklineDef[]
+  /** Insert > Pictures: floating images (bottom of the list is drawn first). */
+  pictures?: PictureDef[]
   /** Floating chart objects on this sheet. Optional so existing layouts still typecheck. */
   charts?: ChartSpec[]
   conditionalFormats?: CfRule[]
@@ -429,6 +431,20 @@ export interface DataValidationRule {
 }
 
 export interface HyperlinkData { target?: string; location?: string; tooltip?: string }
+
+export interface PictureDef {
+  id: string
+  name: string
+  /** `data:image/...;base64,...` */
+  src: string
+  /** Top-left corner: a cell plus a pixel offset into it. */
+  anchor: { r: number; c: number; dx: number; dy: number }
+  /** Size in pixels at 100% zoom. */
+  width: number
+  height: number
+  /** Alt text. */
+  alt?: string
+}
 
 export interface SparklineDef {
   r: number

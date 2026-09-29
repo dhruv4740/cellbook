@@ -527,6 +527,16 @@ ipcMain.handle('file:saveAs', async (e, defaultName: string) => {
 ipcMain.handle('spell:addWord', (e, word: string) => e.sender.session.addWordToSpellCheckerDictionary(word))
 ipcMain.handle('spell:languages', (e) => e.sender.session.getSpellCheckerLanguages())
 ipcMain.handle('clipboard:readText', () => clipboard.readText())
+ipcMain.handle('clipboard:readImage', async () => {
+  try {
+    for (const item of await clipboard.read()) {
+      if (item.types.includes('image/png')) return 'data:image/png;base64,' + Buffer.from(await ((await item.getType('image/png')) as Blob).arrayBuffer()).toString('base64')
+    }
+  } catch {
+    // no image on the clipboard
+  }
+  return ''
+})
 ipcMain.handle('clipboard:readHTML', async () => {
   try {
     for (const item of await clipboard.read()) {
