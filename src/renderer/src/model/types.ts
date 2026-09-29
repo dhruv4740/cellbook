@@ -179,6 +179,8 @@ export interface SheetLayout {
   pictures?: PictureDef[]
   /** Insert > Shapes / Text Box. */
   shapes?: ShapeDef[]
+  /** Excel tables (ListObjects) kept so a save writes them back; formulas already use plain ranges. */
+  tables?: SheetTable[]
   /** Data > What-If Analysis > Scenario Manager. */
   scenarios?: ScenarioDef[]
   /** Floating chart objects on this sheet. Optional so existing layouts still typecheck. */
@@ -442,6 +444,24 @@ export interface ScenarioDef {
   cells: { r: number; c: number }[]
   values: string[]
   comment?: string
+}
+
+export interface SheetTable {
+  name: string
+  r1: number
+  c1: number
+  r2: number
+  c2: number
+  headerRows: number
+  totalsRows: number
+  /** Style name such as TableStyleMedium2 (absent = no style). */
+  style?: string
+  rowStripes?: boolean
+  colStripes?: boolean
+  firstCol?: boolean
+  lastCol?: boolean
+  /** The table shows filter buttons. */
+  filter?: boolean
 }
 
 export type ShapeKind = 'rect' | 'roundRect' | 'ellipse' | 'triangle' | 'diamond' | 'rightArrow' | 'line' | 'arrow' | 'textbox'

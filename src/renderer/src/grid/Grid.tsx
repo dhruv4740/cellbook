@@ -27,6 +27,7 @@ import { linkAt, followLink } from './links'
 import { sparkValues, drawSparkline } from '../data/sparklines'
 import { cellErrorKind } from '../data/errorCheck'
 import { layoutSheet } from '../io/print'
+import { tableStyleFor } from '../format/tableStyle'
 import { renderPivot } from '../data/pivot'
 import { getValidationForCell, getListItems, validateInput } from '../data/dataValidation'
 import {
@@ -340,7 +341,9 @@ export default function Grid() {
       if (w <= 0 || h <= 0) return
       const baseStyle = store.getStyle(sheet, r, c)
       const cf = evaluateCf(store, sheet, r, c)
-      const style = cf.style ? { ...baseStyle, ...cf.style } : baseStyle
+      const merged = cf.style ? { ...baseStyle, ...cf.style } : baseStyle
+      const tsty = tableStyleFor(sheet, r, c)
+      const style = tsty ? { ...tsty, ...Object.fromEntries(Object.entries(merged ?? {}).filter(([, v]) => v !== undefined)) } : merged
       const bg = cf.colorScale || style?.fill
       if (bg) { ctx.fillStyle = bg; ctx.fillRect(x, y, w, h) }
 

@@ -971,3 +971,23 @@ describe('shapes', () => {
     expect(got.map(({ id: _id, ...rest }) => rest)).toEqual(shapes.map(({ id: _id, ...rest }) => rest))
   })
 })
+
+describe('tables', () => {
+  it('survive a save; the table owns its filter (no sheet-level autoFilter for the same range)', async () => {
+    const cells: Record<string, { raw: string }> = { '0,0': { raw: 'Item' }, '0,1': { raw: 'Qty' } }
+    for (let r = 1; r <= 4; r++) { cells[`${r},0`] = { raw: 'x' + r }; cells[`${r},1`] = { raw: String(r) } }
+    const table = { name: 'Sales', r1: 0, c1: 0, r2: 4, c2: 1, headerRows: 1, totalsRows: 0, style: 'TableStyleMedium2', rowStripes: true, colStripes: false, firstCol: false, lastCol: false, filter: true }
+    const af = { range: { r1: 0, c1: 0, r2: 4, c2: 1 }, columns: { 1: { selected: ['1', '2'] } }, filteredOutRows: [3, 4] }
+    const buf = await writeXlsx({ sheets: [{ name: 'S', cells: cells as never, layout: { tables: [table], autoFilter: af } as never }] })
+    const files = unzipSync(buf)
+    const sheetXml = new TextDecoder().decode(files['xl/worksheets/sheet1.xml'])
+    const tableXml = new TextDecoder().decode(files['xl/tables/table1.xml'])
+    expect(sheetXml).not.toContain('<autoFilter')
+    expect(sheetXml).toContain('<tableParts count="1">')
+    expect(tableXml).toContain('<autoFilter')
+    expect(tableXml).toContain('TableStyleMedium2')
+    const back = await readXlsx(buf)
+    expect(back.sheets[0].layout?.tables).toMatchObject([{ name: 'Sales', r1: 0, c1: 0, r2: 4, c2: 1, style: 'TableStyleMedium2', rowStripes: true, filter: true }])
+    expect(back.sheets[0].layout?.autoFilter?.range).toEqual({ r1: 0, c1: 0, r2: 4, c2: 1 })
+  })
+})
