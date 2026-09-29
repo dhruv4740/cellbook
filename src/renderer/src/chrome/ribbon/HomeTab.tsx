@@ -223,7 +223,7 @@ export default function HomeTab() {
     { label: '&Left', onClick: () => cmds.fill('left') },
     'separator',
     { label: '&Series...', onClick: () => setUi({ dialog: { kind: 'series' } }) },
-    { label: '&Justify', onClick: () => notAvailable('Justify') }
+    { label: '&Justify', onClick: () => cmds.justifySelection() }
   ]
   const clearMenu: MenuItem[] = [
     { label: 'Clear &All', onClick: () => cmds.clearSelection('all') },

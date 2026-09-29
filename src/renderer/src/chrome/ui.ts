@@ -27,6 +27,8 @@ export interface UiState {
   selectedChart: string | null
   /** Ctrl+` (Show Formulas): cells display their raw formula text instead of the computed value. */
   formulasVisible: boolean
+  /** Data > Data Validation > Circle Invalid Data: cells ('r,c') to ring in red, per sheet uid. */
+  validationCircles: Record<number, string[]> | null
   /** F8/Shift+F8: keyboard "Extend Selection" / "Add to Selection" mode (shown on the status bar;
    *  while active, arrow keys extend/add to the selection without needing Shift held down). */
   selectMode: 'none' | 'extend' | 'add'
@@ -51,7 +53,7 @@ export interface UiState {
 let state: UiState = {
   backstage: false, ribbonTab: 'Home', ribbonCollapsed: false, hideFormulaBar: false, dialog: null,
   formatPainter: null, edit: null, noteEditor: null, commentPanel: null, selectedChart: null,
-  formulasVisible: false, selectMode: 'none', backstageTab: null, scrollLock: false, endMode: false,
+  formulasVisible: false, validationCircles: null, selectMode: 'none', backstageTab: null, scrollLock: false, endMode: false,
   groupedSheets: null, pickList: null, toast: null, outlineHidden: false
 }
 const listeners = new Set<() => void>()
