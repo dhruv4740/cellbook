@@ -558,6 +558,30 @@ export default function Grid() {
         })
       })
     }
+    // Trace Precedents / Dependents arrows
+    if (ui.traceArrows && ui.traceArrows.sheetUid === sheet.uid) {
+      ctx.strokeStyle = '#1f4fd8'; ctx.fillStyle = '#1f4fd8'; ctx.lineWidth = 1.5
+      for (const a of ui.traceArrows.arrows) {
+        const f0 = cellRect(a.from.r1, a.from.c1), t = cellRect(a.to.r1, a.to.c1)
+        if (a.from.r1 !== a.from.r2 || a.from.c1 !== a.from.c2) {
+          const fr = { x: cellScreenX(a.from.c1), y: cellScreenY(a.from.r1) }
+          const fw = colsAxis.totalSize(a.from.c2 + 1) * z - colsAxis.totalSize(a.from.c1) * z
+          const fh = rowsAxis.totalSize(a.from.r2 + 1) * z - rowsAxis.totalSize(a.from.r1) * z
+          ctx.setLineDash([4, 3]); ctx.strokeRect(fr.x + 0.5, fr.y + 0.5, fw - 1, fh - 1); ctx.setLineDash([])
+        }
+        const sx = f0.x + f0.w / 2, sy = f0.y + f0.h / 2, tx = t.x + t.w / 2, ty = t.y + t.h / 2
+        if (sx === tx && sy === ty) continue
+        const ang = Math.atan2(ty - sy, tx - sx)
+        const ex = tx - Math.cos(ang) * 4, ey = ty - Math.sin(ang) * 4
+        ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(ex, ey); ctx.stroke()
+        ctx.beginPath(); ctx.arc(sx, sy, 3, 0, Math.PI * 2); ctx.fill()
+        ctx.beginPath()
+        ctx.moveTo(ex, ey)
+        ctx.lineTo(ex - 8 * Math.cos(ang - 0.4), ey - 8 * Math.sin(ang - 0.4))
+        ctx.lineTo(ex - 8 * Math.cos(ang + 0.4), ey - 8 * Math.sin(ang + 0.4))
+        ctx.closePath(); ctx.fill()
+      }
+    }
     ctx.restore()
 
     // ---------- AutoFilter dropdown arrows ----------

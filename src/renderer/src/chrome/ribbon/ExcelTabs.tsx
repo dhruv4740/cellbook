@@ -19,6 +19,7 @@ import { SmallButton } from './controls'
 import { useStore, store } from '../../model/store'
 import { useUi, setUi, getUi, notAvailable, showToast } from '../ui'
 import { findInvalidCells } from '../../data/dataValidation'
+import { traceStep, removeArrows } from '../../data/trace'
 import { selectionRef } from '../../dialogs/NameDialogs'
 import { FUNCTION_CATEGORIES, RECENTLY_USED } from './functionCategories'
 import { MenuItem } from '../../components/Menu'
@@ -263,9 +264,9 @@ export function FormulasTab() {
     ] },
     { label: 'Formula Auditing', items: [
       [
-        { label: 'Trace Precedents', icon: <ArrowImport20Regular />, onClick: () => notAvailable('Trace Precedents arrows') },
-        { label: 'Trace Dependents', icon: <ArrowRepeatAll20Regular />, onClick: () => notAvailable('Trace Dependents arrows') },
-        { label: 'Remove Arrows', icon: <ArrowRepeatAllOff20Regular />, menu: na('Remove Arrows') }
+        { label: 'Trace Precedents', icon: <ArrowImport20Regular />, onClick: () => traceStep('precedents') },
+        { label: 'Trace Dependents', icon: <ArrowRepeatAll20Regular />, onClick: () => traceStep('dependents') },
+        { label: 'Remove Arrows', icon: <ArrowRepeatAllOff20Regular />, onClick: () => removeArrows() }
       ],
       [
         { label: 'Show Formulas', icon: <ClipboardTextLtr20Regular />, shortcut: 'Ctrl+`', active: ui.formulasVisible, onClick: () => setUi({ formulasVisible: !getUi().formulasVisible }) },
