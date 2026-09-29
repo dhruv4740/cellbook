@@ -126,6 +126,14 @@ export function getCellRect(
   return { x, y, w, h }
 }
 
+/** Page Break Preview repaginates only when something changed, not on every scroll frame. */
+let pbCache: { key: string; lay: ReturnType<typeof layoutSheet> } | null = null
+function pageLayoutCached(sheet: SheetState): ReturnType<typeof layoutSheet> {
+  const key = sheet.uid + ':' + store.version
+  if (pbCache?.key !== key) pbCache = { key, lay: layoutSheet(sheet, 'active') }
+  return pbCache.lay
+}
+
 export default function Grid() {
   useStore()
   const ui = useUi()
@@ -570,7 +578,7 @@ export default function Grid() {
     }
     // View > Page Break Preview: grey outside the print area, "Page N" watermarks, blue page breaks
     if (ui.viewMode === 'pageBreak') {
-      const lay = layoutSheet(sheet, 'active')
+      const lay = pageLayoutCached(sheet)
       if (lay) {
         const { rg, pages } = lay
         const X = (c: number): number => cellScreenX(c), Y = (r: number): number => cellScreenY(r)
@@ -582,13 +590,17 @@ export default function Grid() {
         ctx.fillRect(x2, y1, Math.max(0, size.w - x2), Math.max(0, y2 - y1))
         ctx.font = `bold ${Math.round(72 * z)}px Calibri, sans-serif`
         ctx.fillStyle = 'rgba(120,120,120,0.28)'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
-        for (const p of pages) ctx.fillText(`Page ${p.number}`, (X(p.c1) + X(p.c2 + 1)) / 2, (Y(p.r1) + Y(p.r2 + 1)) / 2)
+        for (const p of pages) {
+          const px1 = X(p.c1), px2 = X(p.c2 + 1), py1 = Y(p.r1), py2 = Y(p.r2 + 1)
+          if (px2 < rowHeaderW || px1 > size.w || py2 < headerH || py1 > size.h) continue // only the pages on screen
+          ctx.fillText(`Page ${p.number}`, (px1 + px2) / 2, (py1 + py2) / 2)
+        }
         const manualR = new Set(sheet.layout.pageSetup?.rowBreaks ?? []), manualC = new Set(sheet.layout.pageSetup?.colBreaks ?? [])
         ctx.strokeStyle = '#1f5fd8'; ctx.lineWidth = 1.5
         const seenC = new Set<number>(), seenR = new Set<number>()
         for (const p of pages) {
-          if (p.c1 > rg.c1 && !seenC.has(p.c1)) { seenC.add(p.c1); ctx.setLineDash(manualC.has(p.c1) ? [] : [6, 4]); ctx.beginPath(); ctx.moveTo(X(p.c1), y1); ctx.lineTo(X(p.c1), y2); ctx.stroke() }
-          if (p.r1 > rg.r1 && !seenR.has(p.r1)) { seenR.add(p.r1); ctx.setLineDash(manualR.has(p.r1) ? [] : [6, 4]); ctx.beginPath(); ctx.moveTo(x1, Y(p.r1)); ctx.lineTo(x2, Y(p.r1)); ctx.stroke() }
+          if (p.c1 > rg.c1 && !seenC.has(p.c1) && X(p.c1) >= rowHeaderW && X(p.c1) <= size.w) { seenC.add(p.c1); ctx.setLineDash(manualC.has(p.c1) ? [] : [6, 4]); ctx.beginPath(); ctx.moveTo(X(p.c1), y1); ctx.lineTo(X(p.c1), y2); ctx.stroke() }
+          if (p.r1 > rg.r1 && !seenR.has(p.r1) && Y(p.r1) >= headerH && Y(p.r1) <= size.h) { seenR.add(p.r1); ctx.setLineDash(manualR.has(p.r1) ? [] : [6, 4]); ctx.beginPath(); ctx.moveTo(x1, Y(p.r1)); ctx.lineTo(x2, Y(p.r1)); ctx.stroke() }
         }
         ctx.setLineDash([]); ctx.lineWidth = 2.5; ctx.strokeRect(x1, y1, x2 - x1, y2 - y1)
       }
@@ -1266,6 +1278,8 @@ export default function Grid() {
     const editing = !!getUi().edit
     const mod = e.ctrlKey || e.metaKey
     if (!editing) {
+      // Moving the cell cursor leaves a selected picture / shape (Excel selects either an object or cells).
+      if ((e.key.startsWith('Arrow') || e.key === 'Tab' || e.key === 'Enter') && getUi().selectedPicture) setUi({ selectedPicture: null })
       const extending = e.shiftKey || getUi().selectMode !== 'none'
       if (e.altKey && e.shiftKey && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) { outlineCommand(e.key === 'ArrowRight' ? 'group' : 'ungroup'); e.preventDefault(); return }
       if (mod && !e.shiftKey && e.key === '8') { setUi({ outlineHidden: !getUi().outlineHidden }); e.preventDefault(); return }
@@ -1361,6 +1375,8 @@ export default function Grid() {
       if (e.key === 'PageDown' && e.altKey) { moveActive(0, 10, e.shiftKey); e.preventDefault(); return }
       if (e.key === 'PageUp' && e.altKey) { moveActive(0, -10, e.shiftKey); e.preventDefault(); return }
       if (e.key === 'F2') { tabAnchorCol.current = null; const a = sheet.selection.active; beginEdit(a.r, a.c, 'Edit'); e.preventDefault(); return }
+      // With a picture, shape or chart selected, Delete / Backspace belong to that object (its overlay removes it), not to the cells.
+      if ((e.key === 'Delete' || e.key === 'Backspace') && (getUi().selectedPicture || getUi().selectedChart)) return
       if (e.key === 'Delete') { cmd.clearSelection('contents'); e.preventDefault(); return }
       if (e.key === 'Backspace') { const a = sheet.selection.active; cmd.clearSelection('contents'); beginEdit(a.r, a.c, 'Enter'); e.preventDefault(); return }
       if (mod && e.key.toLowerCase() === 'a') { cmd.selectAll(); e.preventDefault(); return }
