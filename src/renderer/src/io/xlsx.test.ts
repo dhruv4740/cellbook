@@ -925,3 +925,23 @@ describe('sparklines', () => {
     expect(back.sheets[0].layout?.sparklines).toHaveLength(3)
   })
 })
+
+describe('pictures', () => {
+  const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+  it('survive a save and reopen with position, size and bytes', async () => {
+    const pic = { id: 'p1', name: 'Logo', src: PNG, anchor: { r: 2, c: 1, dx: 5, dy: 3 }, width: 120, height: 60, alt: 'company logo' }
+    const buf = await writeXlsx({ sheets: [{ name: 'S', cells: { '0,0': { raw: 'x' } } as never, layout: { pictures: [pic] } as never }] })
+    const back = await readXlsx(buf)
+    const got = back.sheets[0].layout?.pictures
+    expect(got).toHaveLength(1)
+    expect(got![0]).toMatchObject({ name: 'Logo', anchor: { r: 2, c: 1, dx: 5, dy: 3 }, width: 120, height: 60, alt: 'company logo', src: PNG })
+  })
+  it('coexist with a chart on the same sheet', async () => {
+    const pic = { id: 'p1', name: 'Logo', src: PNG, anchor: { r: 0, c: 8, dx: 0, dy: 0 }, width: 50, height: 50 }
+    const chart = { id: 'c1', type: 'bar', subtype: 'clusteredColumn', legendPosition: 'right', anchor: { r: 5, c: 0, dx: 0, dy: 0 }, width: 300, height: 200, dataRange: { r1: 0, c1: 0, r2: 2, c2: 1 }, seriesInColumns: true, title: '', elements: { axes: true, axisTitles: false, title: false, dataLabels: false, gridlines: true, legend: true } }
+    const cells: Record<string, { raw: string }> = { '0,0': { raw: 'a' }, '0,1': { raw: '1' }, '1,0': { raw: 'b' }, '1,1': { raw: '2' } }
+    const back = await readXlsx(await writeXlsx({ sheets: [{ name: 'S', cells: cells as never, layout: { pictures: [pic], charts: [chart] } as never }] }))
+    expect(back.sheets[0].layout?.pictures).toHaveLength(1)
+    expect(back.sheets[0].layout?.charts).toHaveLength(1)
+  })
+})

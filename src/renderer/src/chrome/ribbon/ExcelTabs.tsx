@@ -21,6 +21,7 @@ import { useUi, setUi, getUi, notAvailable, showToast } from '../ui'
 import { findInvalidCells } from '../../data/dataValidation'
 import { traceStep, removeArrows } from '../../data/trace'
 import { nextErrorCell } from '../../data/errorCheck'
+import { pickPictureFiles } from '../../data/pictures'
 import { colName } from '../../model/types'
 import { selectionRef } from '../../dialogs/NameDialogs'
 import { FUNCTION_CATEGORIES, RECENTLY_USED } from './functionCategories'
@@ -76,7 +77,7 @@ export function InsertTab() {
       { label: 'Table', icon: big(Table20Regular), shortcut: 'Ctrl+T', keytip: 'T', onClick: () => cmds.formatAsTable(0) }
     ] },
     { label: 'Illustrations', items: [
-      { label: 'Pictures', icon: big(ImageAdd20Regular), menu: [{ label: 'This Device...', onClick: () => notAvailable('Pictures') }, { label: 'Stock Images...', onClick: () => notAvailable('Stock Images') }, { label: 'From Online Sources...', onClick: () => notAvailable('Online Pictures') }] },
+      { label: 'Pictures', icon: big(ImageAdd20Regular), menu: [{ label: 'This Device...', onClick: () => pickPictureFiles() }, { label: 'Stock Images...', onClick: () => notAvailable('Stock Images') }, { label: 'From Online Sources...', onClick: () => notAvailable('Online Pictures') }] },
       [
         { label: 'Shapes', icon: <Shapes20Regular />, menu: na('Shapes') },
         { label: 'Icons', icon: <Sparkle20Regular />, onClick: () => notAvailable('Icons') },

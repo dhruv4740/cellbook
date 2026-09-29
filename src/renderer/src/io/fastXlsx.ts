@@ -9,6 +9,7 @@ import { stripFuturePrefixes } from '../engine/xlfn'
 import { resolveStructuredRefs, type TableDef } from '../engine/structuredRefs'
 import type { BorderSide, CellStyle, CfRule, HyperlinkData, CommentThread, DataValidationRule, DvAllowType, DvErrorStyle, DvOperator, FilterCriteria, NoteData, PageSetup, Range, SheetLayout, CalcMode, SparklineDef } from '../model/types'
 import { parseA1 } from '../model/types'
+import { isMediaPart, parseDrawingPictures } from './xlsxPictures'
 import { parseSheetProtection } from '../model/protection'
 import { parsePageSetupXml } from './pageSetupXml'
 import type { WorkbookData, DefinedNameData } from '../model/store'
@@ -75,6 +76,7 @@ function unzipTextFilter(name: string): boolean {
     /^xl\/drawings\/[^/]+\.xml$/.test(name) ||
     /^xl\/drawings\/_rels\/[^/]+\.xml\.rels$/.test(name) ||
     /^xl\/charts\/[^/]+\.xml$/.test(name) ||
+    isMediaPart(name) ||
     /^xl\/tables\/[^/]+\.xml$/.test(name) ||
     // Notes: Excel writes xl/comments1.xml, other producers xl/comments/comment1.xml (found via rels).
     /^xl\/(?:[^/]+\/)?comments?\d*\.xml$/.test(name) ||
@@ -210,6 +212,8 @@ export function parseXlsx(bytes: Uint8Array): WorkbookData & { vbaProject?: VbaP
     if (dvs.length) layout.dataValidations = dvs
     const charts = parseDrawingMlCharts(files, dec, path, xml, parsed.colWidths, parsed.rowHeights)
     if (charts.length) layout.charts = charts
+    const pictures = parseDrawingPictures(files, dec, path, xml, parsed.colWidths, parsed.rowHeights)
+    if (pictures.length) layout.pictures = pictures
 
     sheets.push({ name: def.name, cells: parsed.cells, layout })
   }
