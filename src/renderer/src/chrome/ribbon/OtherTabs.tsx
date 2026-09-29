@@ -54,7 +54,7 @@ export function ReviewTab() {
   ]
   const groups: GGroup[] = [
     { label: 'Proofing', big: [
-      { label: 'Spelling', icon: <TextGrammarWand20Regular fontSize={28} />, shortcut: 'F7' },
+      { label: 'Spelling', icon: <TextGrammarWand20Regular fontSize={28} />, shortcut: 'F7', onClick: () => setUi({ dialog: { kind: 'spelling' } }) },
       { label: 'Thesaurus', icon: <ChatHelp20Regular fontSize={28} /> },
       { label: 'Workbook Statistics', onClick: () => setUi({ dialog: { kind: 'message', props: { text: workbookStats() } } }), icon: <DataUsage20Regular fontSize={28} /> }
     ] },

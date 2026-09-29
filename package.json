@@ -17,14 +17,17 @@
   "dependencies": {
     "@fluentui/react-icons": "^2.0.341",
     "@noble/hashes": "^2.4.0",
+    "dictionary-en": "^4.0.0",
     "exceljs": "^4.4.0",
     "fflate": "^0.8.3",
     "hyperformula": "^3.4.0",
+    "nspell": "^2.1.5",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"
   },
   "devDependencies": {
     "@types/node": "^26.6.2",
+    "@types/nspell": "^2.1.6",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^5.2.0",
@@ -50,7 +53,9 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ]
     },
@@ -64,12 +69,29 @@
       "artifactName": "Cellbook Setup ${version}.exe"
     },
     "fileAssociations": [
-      { "ext": "xlsx", "name": "Excel Workbook", "description": "Excel Workbook", "role": "Editor" },
-      { "ext": "xlsm", "name": "Excel Macro-Enabled Workbook", "description": "Excel Macro-Enabled Workbook", "role": "Editor" },
-      { "ext": "csv", "name": "CSV File", "description": "Comma Separated Values File", "role": "Editor" }
+      {
+        "ext": "xlsx",
+        "name": "Excel Workbook",
+        "description": "Excel Workbook",
+        "role": "Editor"
+      },
+      {
+        "ext": "xlsm",
+        "name": "Excel Macro-Enabled Workbook",
+        "description": "Excel Macro-Enabled Workbook",
+        "role": "Editor"
+      },
+      {
+        "ext": "csv",
+        "name": "CSV File",
+        "description": "Comma Separated Values File",
+        "role": "Editor"
+      }
     ],
     "linux": {
-      "target": ["dir"],
+      "target": [
+        "dir"
+      ],
       "category": "Office"
     }
   }
