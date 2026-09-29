@@ -1,4 +1,4 @@
-// Opens each newer dialog through the app's own state and reports its title plus any renderer errors.
+﻿// Opens each newer dialog through the app's own state and reports its title plus any renderer errors.
 import { _electron as electron } from 'playwright-core'
 import path from 'path'
 import fs from 'fs'
@@ -14,7 +14,7 @@ win.on('pageerror', (e) => errors.push(String(e)))
 win.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()) })
 await win.evaluate(() => { const s = globalThis.store; for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) s.setRaw(s.active, r, c, String(r + c)) })
 const kinds = [
-  ['dataTable'], ['scenarioManager'], ['spelling'], ['sparkline', { type: 'line' }], ['goalSeek'], ['subtotal'], ['pivot'], ['hyperlink']
+  ['dataTable'], ['scenarioManager'], ['spelling'], ['sparkline', { type: 'line' }], ['goalSeek'], ['subtotal'], ['pivot'], ['hyperlink'], ['evaluateFormula']
 ]
 for (const [kind, props] of kinds) {
   await win.evaluate(([k, p]) => globalThis.__ui.setUi({ dialog: { kind: k, props: p } }), [kind, props])
@@ -27,3 +27,4 @@ for (const [kind, props] of kinds) {
 console.log('errors:', errors.length ? errors.join(' || ').slice(0, 800) : 'none')
 await app.close()
 fs.rmSync(profile, { recursive: true, force: true })
+
