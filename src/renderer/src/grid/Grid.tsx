@@ -23,6 +23,7 @@ import { AutoFilterMenu } from './AutoFilterMenu'
 import { NoteBox, NoteTooltip, CommentBox, closeNoteEditor, closeCommentPanel } from './Annotations'
 import { evaluateCf } from '../format/conditional'
 import { linkAt, followLink } from './links'
+import { sparkValues, drawSparkline } from '../data/sparklines'
 import { renderPivot } from '../data/pivot'
 import { getValidationForCell, getListItems } from '../data/dataValidation'
 import {
@@ -329,6 +330,8 @@ export default function Grid() {
     const wholeColSel = primary.r1 === 0 && primary.r2 >= MAX_ROWS - 1
     const wholeRowSel = primary.c1 === 0 && primary.c2 >= MAX_COLS - 1
 
+    const sparkMap = sheet.layout.sparklines?.length ? new Map(sheet.layout.sparklines.map((s) => [s.r * 16384 + s.c, s])) : null
+
     function drawCellContent(r: number, c: number, x: number, y: number, w: number, h: number): void {
       if (w <= 0 || h <= 0) return
       const baseStyle = store.getStyle(sheet, r, c)
@@ -350,6 +353,9 @@ export default function Grid() {
           ctx.strokeRect(x + 1, y + 1, barW, h - 2)
         }
       }
+
+      const spark = sparkMap?.get(r * 16384 + c)
+      if (spark) drawSparkline(ctx, sparkValues(sheet, spark), spark.type, spark.color, x, y, w, h)
 
       let iconPad = 0
       if (cf.icon) {

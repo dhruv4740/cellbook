@@ -7,7 +7,8 @@ import { unzipSync } from 'fflate'
 import { shiftFormula } from '../engine/shiftFormula'
 import { stripFuturePrefixes } from '../engine/xlfn'
 import { resolveStructuredRefs, type TableDef } from '../engine/structuredRefs'
-import type { BorderSide, CellStyle, CfRule, HyperlinkData, CommentThread, DataValidationRule, DvAllowType, DvErrorStyle, DvOperator, FilterCriteria, NoteData, PageSetup, Range, SheetLayout, CalcMode } from '../model/types'
+import type { BorderSide, CellStyle, CfRule, HyperlinkData, CommentThread, DataValidationRule, DvAllowType, DvErrorStyle, DvOperator, FilterCriteria, NoteData, PageSetup, Range, SheetLayout, CalcMode, SparklineDef } from '../model/types'
+import { parseA1 } from '../model/types'
 import { parseSheetProtection } from '../model/protection'
 import { parsePageSetupXml } from './pageSetupXml'
 import type { WorkbookData, DefinedNameData } from '../model/store'
@@ -141,6 +142,8 @@ export function parseXlsx(bytes: Uint8Array): WorkbookData & { vbaProject?: VbaP
     // fallback format (see xlsxShared.ts) came from a `comments` thread on save, not a plain note.
     const links = parseHyperlinks(xml, files, dec, path)
     if (Object.keys(links).length) layout.hyperlinks = links
+    const sparks = parseSparklines(xml, def.name)
+    if (sparks.length) layout.sparklines = sparks
     const notes = parseNotesForSheet(files, dec, path)
     const comments: Record<string, CommentThread> = {}
     for (const [key, note] of Object.entries(notes)) {
@@ -243,6 +246,29 @@ export function parseXlsx(bytes: Uint8Array): WorkbookData & { vbaProject?: VbaP
   if (f0) {
     const nm = /<name\s+val="([^"]*)"/.exec(f0[1]), sz = /<sz\s+val="([\d.]+)"/.exec(f0[1])
     if (nm && sz && !(nm[1] === 'Calibri' && +sz[1] === 11)) out.defaultFont = { name: nm[1], size: +sz[1] }
+  }
+  return out
+}
+
+/** Excel's x14 sparklineGroups extension -> per-cell sparklines (only ones that read this sheet's own cells). */
+function parseSparklines(xml: string, sheetName: string): SparklineDef[] {
+  if (!xml.includes('sparklineGroup')) return []
+  const out: SparklineDef[] = []
+  const unq = (n: string) => n.replace(/^'|'$/g, '').replace(/''/g, "'")
+  for (const g of xml.matchAll(/<(?:x14:)?sparklineGroup\b([^>]*)>([\s\S]*?)<\/(?:x14:)?sparklineGroup>/g)) {
+    const t = /\btype="(\w+)"/.exec(g[1])?.[1]
+    const type: SparklineDef['type'] = t === 'column' ? 'column' : t === 'stacked' ? 'winloss' : 'line'
+    const rgb = /<(?:x14:)?colorSeries\b[^>]*\brgb="([0-9A-Fa-f]{8})"/.exec(g[2])?.[1]
+    const color = rgb ? '#' + rgb.slice(2).toLowerCase() : '#376092'
+    for (const s of g[2].matchAll(/<(?:x14:)?sparkline>\s*<(?:xm:)?f>([^<]*)<\/(?:xm:)?f>\s*<(?:xm:)?sqref>([^<]*)<\/(?:xm:)?sqref>/g)) {
+      const f = s[1].replace(/&apos;/g, "'").replace(/&amp;/g, '&')
+      const m = /^(?:(.+)!)?\$?([A-Z]+)\$?(\d+)(?::\$?([A-Z]+)\$?(\d+))?$/.exec(f)
+      const loc = /^\$?([A-Z]+)\$?(\d+)$/.exec(s[2].trim())
+      if (!m || !loc || (m[1] && unq(m[1]) !== sheetName)) continue
+      const a = parseA1(m[2] + m[3] + (m[4] ? ':' + m[4] + m[5] : ''))
+      const at = parseA1(loc[1] + loc[2])
+      if (a && at) out.push({ r: at.r1, c: at.c1, type, src: { r1: a.r1, c1: a.c1, r2: a.r2, c2: a.c2 }, color })
+    }
   }
   return out
 }

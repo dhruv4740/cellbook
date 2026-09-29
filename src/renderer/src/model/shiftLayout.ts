@@ -57,6 +57,13 @@ export function shiftLayoutRefs(l: SheetLayout, axis: Axis, at: number, delta: n
   }
   const ext = l as SheetLayout & { hyperlinks?: Record<string, unknown> }
   if (ext.hyperlinks) ext.hyperlinks = shiftKeyed(ext.hyperlinks, axis, at, delta)
+  if (l.sparklines) {
+    l.sparklines = l.sparklines.flatMap((s) => {
+      const v = shiftIndex(axis === 'r' ? s.r : s.c, at, delta)
+      const src = shiftRange({ ...s.src }, axis, at, delta)
+      return v === null || !src ? [] : [{ ...s, r: axis === 'r' ? v : s.r, c: axis === 'c' ? v : s.c, src }]
+    })
+  }
   if (l.conditionalFormats) {
     l.conditionalFormats = l.conditionalFormats
       .map((cf) => ({ ...cf, ranges: shiftRanges(cf.ranges, axis, at, delta) }))

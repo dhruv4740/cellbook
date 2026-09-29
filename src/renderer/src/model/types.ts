@@ -173,6 +173,8 @@ export interface SheetLayout {
   comments: Record<string, CommentThread> // key 'r,c'
   /** Cell hyperlinks, key 'r,c': an external target (URL, file, mailto) or an in-workbook location. */
   hyperlinks?: Record<string, HyperlinkData>
+  /** Insert > Sparklines: one mini chart per cell, drawn from a range on the same sheet. */
+  sparklines?: SparklineDef[]
   /** Floating chart objects on this sheet. Optional so existing layouts still typecheck. */
   charts?: ChartSpec[]
   conditionalFormats?: CfRule[]
@@ -427,3 +429,12 @@ export interface DataValidationRule {
 }
 
 export interface HyperlinkData { target?: string; location?: string; tooltip?: string }
+
+export interface SparklineDef {
+  r: number
+  c: number
+  type: 'line' | 'column' | 'winloss'
+  /** Source cells (same sheet); a row or a column. */
+  src: { r1: number; c1: number; r2: number; c2: number }
+  color: string
+}

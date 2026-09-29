@@ -1,4 +1,5 @@
 import { colName } from '../model/types'
+import type { SparklineDef } from '../model/types'
 // Post-processing on the raw zip package that exceljs's object model can't express: per-column
 // AutoFilter criteria (exceljs only round-trips the filtered range, never filterColumn/filters)
 // and, for .xlsm saves, the VBA project part exceljs always strips. Runs on the bytes
@@ -616,6 +617,44 @@ export function injectOutline(zipBytes: PkgLike, layouts: (Partial<SheetLayout> 
   const out: Record<string, Uint8Array> = {}
   for (const [name, bytes] of Object.entries(files)) if (!name.endsWith('/')) out[name] = bytes
   return { files: out }
+}
+
+const SPARK_URI = '{05C60535-1F16-4fd2-B633-F4F36F0B64E0}'
+const quoteSheet = (n: string) => (/^[A-Za-z_][A-Za-z0-9_.]*$/.test(n) ? n : `'${n.replace(/'/g, "''")}'`)
+const xmlAttr = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')
+
+/** Writes Insert > Sparklines as Excel's x14 sparklineGroups extension (one group per type + colour). */
+export function injectSparklines(zipBytes: PkgLike, all: (SparklineDef[] | undefined)[], sheetNames: string[]): PkgLike {
+  if (!all.some((s) => s?.length)) return zipBytes
+  const files = toFiles(zipBytes)
+  const dec = new TextDecoder('utf-8'), enc = new TextEncoder()
+  all.forEach((defs, i) => {
+    if (!defs?.length) return
+    const path = `xl/worksheets/sheet${i + 1}.xml`
+    if (!files[path]) return
+    const groups = new Map<string, SparklineDef[]>()
+    for (const d of defs) { const k = d.type + '|' + d.color; groups.set(k, [...(groups.get(k) ?? []), d]) }
+    const sn = quoteSheet(sheetNames[i] ?? `Sheet${i + 1}`)
+    let body = ''
+    for (const [k, ds] of groups) {
+      const [type, color] = k.split('|')
+      const rgb = 'FF' + color.replace('#', '').toUpperCase()
+      const attr = type === 'line' ? '' : type === 'column' ? ' type="column"' : ' type="stacked"'
+      const lines = ds.map((d) => {
+        const a = `${colName(d.src.c1)}${d.src.r1 + 1}` + (d.src.r1 === d.src.r2 && d.src.c1 === d.src.c2 ? '' : `:${colName(d.src.c2)}${d.src.r2 + 1}`)
+        return `<x14:sparkline><xm:f>${xmlAttr(sn)}!${a}</xm:f><xm:sqref>${colName(d.c)}${d.r + 1}</xm:sqref></x14:sparkline>`
+      }).join('')
+      body += `<x14:sparklineGroup${attr} displayEmptyCellsAs="gap"><x14:colorSeries rgb="${rgb}"/><x14:colorNegative rgb="FFD00000"/><x14:colorAxis rgb="FF000000"/><x14:colorMarkers rgb="FFD00000"/><x14:colorFirst rgb="FFD00000"/><x14:colorLast rgb="FFD00000"/><x14:colorHigh rgb="FFD00000"/><x14:colorLow rgb="FFD00000"/><x14:sparklines>${lines}</x14:sparklines></x14:sparklineGroup>`
+    }
+    const ext = `<ext uri="${SPARK_URI}" xmlns:x14="http://schemas.microsoft.com/office/spreadsheetml/2009/9/main"><x14:sparklineGroups xmlns:xm="http://schemas.microsoft.com/office/excel/2006/main">${body}</x14:sparklineGroups></ext>`
+    let xml = dec.decode(files[path])
+    const close = xml.lastIndexOf('</extLst>')
+    const wsEnd = xml.lastIndexOf('</worksheet>')
+    if (execTopLevel(/<extLst>/g, xml) && close >= 0) xml = xml.slice(0, close) + ext + xml.slice(close)
+    else xml = xml.slice(0, wsEnd) + `<extLst>${ext}</extLst>` + xml.slice(wsEnd)
+    files[path] = enc.encode(xml)
+  })
+  return { files }
 }
 
 /** Replaces exceljs's placeholder page elements with the sheet's real Page Setup (margins, header/footer, scale, breaks...). */
