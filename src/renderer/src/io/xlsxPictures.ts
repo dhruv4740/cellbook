@@ -1,6 +1,6 @@
 // Insert > Pictures in .xlsx: floating images live in a sheet's drawing part (xl/drawings/drawingN.xml, an
 // xdr:pic per image, its bytes in xl/media/). Read them into layout.pictures and write them back on save.
-import type { PictureDef, SheetLayout } from '../model/types'
+import type { PictureDef, ShapeDef, ShapeKind, SheetLayout } from '../model/types'
 import { parseRelationships, resolveRelTarget } from './fastXlsxXml'
 import { toFiles, type PkgLike } from './xlsxPostProcess'
 
@@ -28,44 +28,39 @@ export const isMediaPart = (name: string): boolean => /^xl\/media\/[^/]+\.(?:png
 
 const num = (s: string | undefined): number => (s ? parseInt(s, 10) : 0)
 
-export function parseDrawingPictures(
+export function parseDrawingObjects(
   files: Record<string, Uint8Array>,
   dec: TextDecoder,
   sheetPath: string,
   sheetXml: string,
   colWidths: Record<number, number> = {},
   rowHeights: Record<number, number> = {}
-): PictureDef[] {
+): { pictures: PictureDef[]; shapes: ShapeDef[] } {
+  const none = { pictures: [], shapes: [] }
   const m = /<drawing\b[^>]*r:id="([^"]+)"/.exec(sheetXml)
-  if (!m) return []
+  if (!m) return none
   const dir = sheetPath.split('/').slice(0, -1).join('/')
   const relsBytes = files[dir + '/_rels/' + (sheetPath.split('/').pop() ?? '') + '.rels']
-  if (!relsBytes) return []
+  if (!relsBytes) return none
   const rel = parseRelationships(dec.decode(relsBytes)).find((r) => r.id === m[1])
-  if (!rel) return []
+  if (!rel) return none
   const drawingPath = resolveRelTarget(sheetPath, rel.target)
   const drawingBytes = files[drawingPath]
-  if (!drawingBytes) return []
+  if (!drawingBytes) return none
   const drawingXml = dec.decode(drawingBytes)
-  if (!drawingXml.includes('pic>')) return []
+  if (!/<(?:xdr:)?(?:pic|sp|cxnSp)\b/.test(drawingXml)) return none
   const relBytes = files[drawingPath.split('/').slice(0, -1).join('/') + '/_rels/' + (drawingPath.split('/').pop() ?? '') + '.rels']
   const relMap = new Map<string, string>()
   if (relBytes) for (const r of parseRelationships(dec.decode(relBytes))) relMap.set(r.id, r.target)
 
-  const out: PictureDef[] = []
+  const pictures: PictureDef[] = [], shapes: ShapeDef[] = []
   const anchorRe = /<(?:xdr:)?(oneCellAnchor|twoCellAnchor)\b[^>]*>([\s\S]*?)<\/(?:xdr:)?\1>/g
   let a: RegExpExecArray | null
   while ((a = anchorRe.exec(drawingXml))) {
     const block = a[2]
     const pic = /<(?:xdr:)?pic\b[\s\S]*?<\/(?:xdr:)?pic>/.exec(block)
-    if (!pic) continue
-    const embed = /<(?:a:)?blip\b[^>]*r:embed="([^"]+)"/.exec(pic[0])?.[1]
-    const target = embed ? relMap.get(embed) : undefined
-    if (!target) continue
-    const mediaPath = resolveRelTarget(drawingPath, target)
-    const bytes = files[mediaPath]
-    const mime = MIME[(mediaPath.split('.').pop() ?? '').toLowerCase()]
-    if (!bytes || !mime) continue
+    const sp = pic ? null : /<(?:xdr:)?(sp|cxnSp)\b[\s\S]*?<\/(?:xdr:)?\1>/.exec(block)
+    if (!pic && !sp) continue
     const from = /<(?:xdr:)?from>([\s\S]*?)<\/(?:xdr:)?from>/.exec(block)?.[1] ?? ''
     const fc = num(/<(?:xdr:)?col>(\d+)</.exec(from)?.[1]), fr = num(/<(?:xdr:)?row>(\d+)</.exec(from)?.[1])
     const dx = Math.round(num(/<(?:xdr:)?colOff>(-?\d+)</.exec(from)?.[1]) / EMU), dy = Math.round(num(/<(?:xdr:)?rowOff>(-?\d+)</.exec(from)?.[1]) / EMU)
@@ -83,24 +78,96 @@ export function parseDrawingPictures(
       height = tr === fr ? tdy - dy : (rowHeights[fr] ?? 20) - dy + tdy
       for (let r = fr + 1; r < tr; r++) height += rowHeights[r] ?? 20
     }
-    if (width <= 0 || height <= 0) continue
-    const nm = /<(?:xdr:)?cNvPr\b[^>]*\bname="([^"]*)"/.exec(pic[0])?.[1] ?? `Picture ${out.length + 1}`
-    const alt = /<(?:xdr:)?cNvPr\b[^>]*\bdescr="([^"]*)"/.exec(pic[0])?.[1]
-    out.push({
-      id: 'pic_' + drawingPath.replace(/\D/g, '') + '_' + out.length, name: unescapeXml(nm), src: bytesToDataUrl(bytes, mime),
-      anchor: { r: fr, c: fc, dx, dy }, width, height, ...(alt ? { alt: unescapeXml(alt) } : {})
-    })
+    const anchor = { r: fr, c: fc, dx, dy }
+    if (pic) {
+      const embed = /<(?:a:)?blip\b[^>]*r:embed="([^"]+)"/.exec(pic[0])?.[1]
+      const target = embed ? relMap.get(embed) : undefined
+      if (!target || width <= 0 || height <= 0) continue
+      const mediaPath = resolveRelTarget(drawingPath, target)
+      const bytes = files[mediaPath]
+      const mime = MIME[(mediaPath.split('.').pop() ?? '').toLowerCase()]
+      if (!bytes || !mime) continue
+      const nm = /<(?:xdr:)?cNvPr\b[^>]*\bname="([^"]*)"/.exec(pic[0])?.[1] ?? `Picture ${pictures.length + 1}`
+      const alt = /<(?:xdr:)?cNvPr\b[^>]*\bdescr="([^"]*)"/.exec(pic[0])?.[1]
+      pictures.push({ id: 'pic_' + drawingPath.replace(/\D/g, '') + '_' + pictures.length, name: unescapeXml(nm), src: bytesToDataUrl(bytes, mime), anchor, width, height, ...(alt ? { alt: unescapeXml(alt) } : {}) })
+    } else if (sp) {
+      const sh = parseShape(sp[0], sp[1] === 'cxnSp', anchor, width, height)
+      if (sh) shapes.push({ ...sh, id: 'shp_' + drawingPath.replace(/\D/g, '') + '_' + shapes.length })
+    }
   }
-  return out
+  return { pictures, shapes }
+}
+
+const PRESETS: Record<string, ShapeKind> = { rect: 'rect', roundRect: 'roundRect', ellipse: 'ellipse', triangle: 'triangle', diamond: 'diamond', rightArrow: 'rightArrow', line: 'line', straightConnector1: 'line' }
+const hex = (v: string | undefined): string | undefined => (v ? '#' + v.toLowerCase() : undefined)
+const SRGB = /<(?:a:)?solidFill>\s*<(?:a:)?srgbClr\b[^>]*val="([0-9A-Fa-f]{6})"/
+
+function parseShape(xml: string, connector: boolean, anchor: ShapeDef['anchor'], width: number, height: number): Omit<ShapeDef, 'id'> | null {
+  const spPr = /<(?:xdr:)?spPr\b[\s\S]*?<\/(?:xdr:)?spPr>/.exec(xml)?.[0] ?? ''
+  const prst = /<(?:a:)?prstGeom\b[^>]*prst="(\w+)"/.exec(spPr)?.[1] ?? 'rect'
+  const txBox = /txBox="1"/.test(xml)
+  const ln = /<(?:a:)?ln\b[^>]*>[\s\S]*?<\/(?:a:)?ln>|<(?:a:)?ln\b[^>]*\/>/.exec(spPr)?.[0] ?? ''
+  const styled = /<(?:xdr:)?style>/.test(xml)
+  let kind: ShapeKind = PRESETS[prst] ?? 'rect'
+  const isLine = connector || kind === 'line'
+  if (isLine) kind = /<(?:a:)?(?:tail|head)End\b[^>]*type="(?!none)/.test(ln) ? 'arrow' : 'line'
+  else if (txBox && kind === 'rect') kind = 'textbox'
+  if (width <= 0) return null
+  if (height <= 0) height = isLine ? 1 : 0
+  if (height <= 0) return null
+  const body = ln ? spPr.replace(ln, '') : spPr
+  const noFill = /<(?:a:)?noFill\s*\/>/.test(body)
+  const fill = isLine || noFill ? undefined : hex(SRGB.exec(body)?.[1]) ?? (styled && kind !== 'textbox' ? '#4472c4' : undefined)
+  const line = /<(?:a:)?noFill\s*\/>/.test(ln) ? undefined : hex(SRGB.exec(ln)?.[1]) ?? (styled ? (isLine ? '#4472c4' : '#2f528f') : undefined)
+  const lw = /\bw="(\d+)"/.exec(ln)?.[1]
+  const paras = [...xml.matchAll(/<(?:a:)?p\b[^>]*>([\s\S]*?)<\/(?:a:)?p>/g)].map((pm) => [...pm[1].matchAll(/<(?:a:)?t\b[^>]*>([\s\S]*?)<\/(?:a:)?t>/g)].map((t) => unescapeXml(t[1])).join(''))
+  const text = paras.join('\n').replace(/\n+$/, '')
+  const run = /<(?:a:)?r>[\s\S]*?<\/(?:a:)?r>/.exec(xml)?.[0] ?? ''
+  const rPr = /<(?:a:)?rPr\b([^>]*?)(?:\/>|>([\s\S]*?)<\/(?:a:)?rPr>)/.exec(run)
+  const sz = rPr ? /\bsz="(\d+)"/.exec(rPr[1])?.[1] : undefined
+  const color = rPr?.[2] ? hex(SRGB.exec(rPr[2])?.[1]) : undefined
+  const algn = /<(?:a:)?pPr\b[^>]*\balgn="(\w+)"/.exec(xml)?.[1]
+  const nm = /<(?:xdr:)?cNvPr\b[^>]*\bname="([^"]*)"/.exec(xml)?.[1] ?? 'Shape'
+  return {
+    name: unescapeXml(nm), kind, anchor, width, height,
+    ...(fill ? { fill } : {}), ...(line ? { line, lineWidth: lw ? Math.max(0.25, num(lw) / 12700) : 1 } : {}),
+    ...(text ? { text } : {}), ...(color ? { color } : {}),
+    ...(sz ? { fontSize: num(sz) / 100 } : {}), ...(rPr && /\bb="1"/.test(rPr[1]) ? { bold: true } : {}), ...(rPr && /\bi="1"/.test(rPr[1]) ? { italic: true } : {}),
+    ...(algn === 'ctr' ? { align: 'ctr' as const } : algn === 'r' ? { align: 'r' as const } : {}),
+    ...(isLine && /<(?:a:)?xfrm\b[^>]*flipV="1"/.test(spPr) ? { flipV: true } : {})
+  }
 }
 
 const unescapeXml = (s: string): string => s.replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
 const escapeXml = (s: string): string => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
-/** Adds each sheet's pictures to its drawing part (creating the drawing if the sheet has none yet). */
+const PRST: Record<ShapeKind, string> = { rect: 'rect', roundRect: 'roundRect', ellipse: 'ellipse', triangle: 'triangle', diamond: 'diamond', rightArrow: 'rightArrow', line: 'line', arrow: 'line', textbox: 'rect' }
+const rgb = (c: string): string => c.replace('#', '').toUpperCase()
+
+function shapeAnchorXml(s: ShapeDef, id: number): string {
+  const cx = Math.round(s.width * EMU), cy = Math.round(s.height * EMU)
+  const isLine = s.kind === 'line' || s.kind === 'arrow'
+  const from = `<xdr:from><xdr:col>${s.anchor.c}</xdr:col><xdr:colOff>${Math.round(s.anchor.dx * EMU)}</xdr:colOff><xdr:row>${s.anchor.r}</xdr:row><xdr:rowOff>${Math.round(s.anchor.dy * EMU)}</xdr:rowOff></xdr:from><xdr:ext cx="${cx}" cy="${cy}"/>`
+  const fill = s.fill ? `<a:solidFill><a:srgbClr val="${rgb(s.fill)}"/></a:solidFill>` : '<a:noFill/>'
+  const ln = s.line
+    ? `<a:ln w="${Math.round((s.lineWidth ?? 1) * 12700)}"><a:solidFill><a:srgbClr val="${rgb(s.line)}"/></a:solidFill>${s.kind === 'arrow' ? '<a:tailEnd type="triangle"/>' : ''}</a:ln>`
+    : '<a:ln><a:noFill/></a:ln>'
+  const xfrm = `<a:xfrm${s.flipV ? ' flipV="1"' : ''}><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm>`
+  const geom = `<a:prstGeom prst="${PRST[s.kind]}"><a:avLst/></a:prstGeom>`
+  const name = escapeXml(s.name)
+  if (isLine) {
+    return `<xdr:oneCellAnchor>${from}<xdr:cxnSp macro=""><xdr:nvCxnSpPr><xdr:cNvPr id="${id}" name="${name}"/><xdr:cNvCxnSpPr/></xdr:nvCxnSpPr><xdr:spPr>${xfrm}${geom}${ln}</xdr:spPr></xdr:cxnSp><xdr:clientData/></xdr:oneCellAnchor>`
+  }
+  const algn = s.align === 'ctr' ? 'ctr' : s.align === 'r' ? 'r' : 'l'
+  const rPr = `<a:rPr lang="en-US" sz="${Math.round((s.fontSize ?? 11) * 100)}"${s.bold ? ' b="1"' : ''}${s.italic ? ' i="1"' : ''}><a:solidFill><a:srgbClr val="${rgb(s.color ?? '#000000')}"/></a:solidFill></a:rPr>`
+  const paras = (s.text ?? '').split('\n').map((t) => `<a:p><a:pPr algn="${algn}"/>${t ? `<a:r>${rPr}<a:t>${escapeXml(t)}</a:t></a:r>` : ''}</a:p>`).join('')
+  return `<xdr:oneCellAnchor>${from}<xdr:sp macro="" textlink=""><xdr:nvSpPr><xdr:cNvPr id="${id}" name="${name}"/><xdr:cNvSpPr${s.kind === 'textbox' ? ' txBox="1"' : ''}/></xdr:nvSpPr><xdr:spPr>${xfrm}${geom}${fill}${ln}</xdr:spPr>` +
+    `<xdr:txBody><a:bodyPr vertOverflow="clip" horzOverflow="clip" wrap="square" rtlCol="0" anchor="${s.kind === 'textbox' ? 't' : 'ctr'}"/><a:lstStyle/>${paras}</xdr:txBody></xdr:sp><xdr:clientData/></xdr:oneCellAnchor>`
+}
+
+/** Adds each sheet's pictures and shapes to its drawing part (creating the drawing if the sheet has none yet). */
 export function injectPictures(zipBytes: PkgLike, all: (PictureDef[] | undefined)[], layouts: (Partial<SheetLayout> | undefined)[]): PkgLike {
-  void layouts
-  if (!all.some((p) => p?.length)) return zipBytes
+  if (!all.some((p) => p?.length) && !layouts.some((l) => l?.shapes?.length)) return zipBytes
   const files = toFiles(zipBytes)
   const dec = new TextDecoder('utf-8'), enc = new TextEncoder()
   let ct = dec.decode(files['[Content_Types].xml'])
@@ -120,8 +187,10 @@ export function injectPictures(zipBytes: PkgLike, all: (PictureDef[] | undefined
     ct = ct.replace('</Types>', `<Override PartName="${part}" ContentType="${type}"/></Types>`)
   }
 
-  all.forEach((pics, i) => {
-    if (!pics?.length) return
+  all.forEach((pics0, i) => {
+    const pics = pics0 ?? []
+    const shapes = layouts[i]?.shapes ?? []
+    if (!pics.length && !shapes.length) return
     const sheetPath = `xl/worksheets/sheet${i + 1}.xml`
     if (!files[sheetPath]) return
     let sheetXml = dec.decode(files[sheetPath])
@@ -175,6 +244,7 @@ export function injectPictures(zipBytes: PkgLike, all: (PictureDef[] | undefined
         `<xdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic><xdr:clientData/></xdr:oneCellAnchor>`
       )
     })
+    shapes.forEach((sh, k) => anchors.push(shapeAnchorXml(sh, 3000 + k)))
     if (!anchors.length) return
     drels = drels.includes('</Relationships>')
       ? drels.replace('</Relationships>', relsAdd.join('') + '</Relationships>')

@@ -956,3 +956,18 @@ describe('scenarios', () => {
     expect(back.sheets[0].layout?.scenarios).toEqual(scenarios)
   })
 })
+
+describe('shapes', () => {
+  it('survive a save and reopen (kind, geometry, fill, outline, text)', async () => {
+    const shapes = [
+      { id: 'a', name: 'Rectangle 1', kind: 'rect', anchor: { r: 1, c: 1, dx: 4, dy: 2 }, width: 120, height: 60, fill: '#4472c4', line: '#2f528f', lineWidth: 1, text: 'Hello\nworld', color: '#ffffff', fontSize: 14, bold: true, align: 'ctr' },
+      { id: 'b', name: 'TextBox 1', kind: 'textbox', anchor: { r: 8, c: 0, dx: 0, dy: 0 }, width: 150, height: 40, text: 'note', fontSize: 11, color: '#000000' },
+      { id: 'c', name: 'Arrow 1', kind: 'arrow', anchor: { r: 3, c: 5, dx: 0, dy: 0 }, width: 100, height: 50, line: '#c00000', lineWidth: 2, flipV: true },
+      { id: 'd', name: 'Oval 1', kind: 'ellipse', anchor: { r: 12, c: 2, dx: 0, dy: 0 }, width: 80, height: 80, fill: '#ed7d31', line: '#000000', lineWidth: 1 }
+    ]
+    const back = await readXlsx(await writeXlsx({ sheets: [{ name: 'S', cells: { '0,0': { raw: 'x' } } as never, layout: { shapes } as never }] }))
+    const got = back.sheets[0].layout?.shapes ?? []
+    expect(got).toHaveLength(4)
+    expect(got.map(({ id: _id, ...rest }) => rest)).toEqual(shapes.map(({ id: _id, ...rest }) => rest))
+  })
+})
