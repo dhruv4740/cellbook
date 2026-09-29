@@ -58,7 +58,7 @@ export function ReviewTab() {
       { label: 'Thesaurus', icon: <ChatHelp20Regular fontSize={28} /> },
       { label: 'Workbook Statistics', onClick: () => setUi({ dialog: { kind: 'message', props: { text: workbookStats() } } }), icon: <DataUsage20Regular fontSize={28} /> }
     ] },
-    { label: 'Accessibility', big: [{ label: 'Check Accessibility', icon: <ShieldTask20Regular fontSize={28} /> }] },
+    { label: 'Accessibility', big: [{ label: 'Check Accessibility', icon: <ShieldTask20Regular fontSize={28} />, onClick: () => setUi({ dialog: { kind: 'accessibility' } }) }] },
     { label: 'Language', big: [{ label: 'Translate', icon: <TranslateAuto20Regular fontSize={28} /> }] },
     { label: 'Changes', big: [{ label: 'Show Changes', icon: <CommentMultiple20Regular fontSize={28} />, disabled: true }] },
     { label: 'Comments', big: [

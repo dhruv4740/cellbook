@@ -21,12 +21,13 @@ import { TextToColumnsDialog } from './TextToColumnsDialog'
 import { DataValidationDialog } from './DataValidationDialog'
 import { DataValidationErrorDialog } from './DataValidationErrorDialog'
 import { ArrangeWindowsDialog } from './ArrangeWindowsDialog'
-import { DefineNameDialog, NameManagerDialog, CreateFromSelectionDialog } from './NameDialogs'
+import { DefineNameDialog, NameManagerDialog, CreateFromSelectionDialog, ApplyNamesDialog } from './NameDialogs'
 import { HyperlinkDialog } from './HyperlinkDialog'
 import { SparklineDialog } from './SparklineDialog'
 import { SpellingDialog } from './SpellingDialog'
 import { EvaluateFormulaDialog } from './EvaluateFormulaDialog'
 import { SymbolDialog } from './SymbolDialog'
+import { AccessibilityDialog } from './AccessibilityDialog'
 import { DataTableDialog, ScenarioManagerDialog } from './WhatIfDialogs'
 import { SubtotalDialog } from './SubtotalDialog'
 import { PivotDialog } from './PivotDialog'
@@ -163,6 +164,10 @@ export default function DialogHost() {
       return <ProtectWorkbookDialog onClose={close} />
     case 'password':
       return <PasswordPromptDialog title={String(d.props?.title)} verify={d.props?.verify as (pw: string) => boolean} onOk={d.props?.onOk as () => void} onClose={close} />
+    case 'accessibility':
+      return <AccessibilityDialog onClose={close} />
+    case 'applyNames':
+      return <ApplyNamesDialog onClose={close} />
     case 'defineName':
       return <DefineNameDialog onClose={close} />
     case 'nameManager':
