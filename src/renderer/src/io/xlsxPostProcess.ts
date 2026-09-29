@@ -575,6 +575,20 @@ export function injectProtection(
   return { files: out }
 }
 
+/** Puts the workbook's default font (fonts[0], the Normal style) back after exceljs wrote Calibri 11. */
+export function injectDefaultFont(zipBytes: PkgLike, font: { name: string; size: number } | undefined): PkgLike {
+  if (!font) return zipBytes
+  const files = toFiles(zipBytes)
+  const raw = files['xl/styles.xml']
+  if (!raw) return zipBytes
+  const xml = new TextDecoder('utf-8').decode(raw)
+  const esc = font.name.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')
+  const next = xml.replace(/(<fonts[^>]*>\s*<font[^>]*>)([\s\S]*?)(<\/font>)/, (_m, a: string, body: string, c: string) =>
+    a + body.replace(/<name\s+val="[^"]*"\s*\/>/, `<name val="${esc}"/>`).replace(/<sz\s+val="[^"]*"\s*\/>/, `<sz val="${font.size}"/>`).replace(/<scheme[^>]*\/>/, '') + c)
+  files['xl/styles.xml'] = new TextEncoder().encode(next)
+  return { files }
+}
+
 /** Writes Excel's `collapsed` flags on the summary rows/columns of collapsed groups (and nowhere else). */
 export function injectOutline(zipBytes: PkgLike, layouts: (Partial<SheetLayout> | undefined)[]): PkgLike {
   if (!layouts.some((l) => l && (l.rowLevels || l.colLevels))) return zipBytes

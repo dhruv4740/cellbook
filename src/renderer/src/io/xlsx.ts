@@ -13,7 +13,7 @@ import {
 } from './xlsxShared'
 import { extractSection, parseAttrs, parseRelationships, resolveRelTarget } from './fastXlsxXml'
 import type { VbaProject } from './xlsxPostProcess'
-import { toBytes, fixLegacyDrawingOrder, markDynamicArrays, injectDefinedNames, injectHyperlinks, injectOutline, injectPageSetup, injectProtection, postProcessPkg } from './xlsxPostProcess'
+import { toBytes, fixLegacyDrawingOrder, markDynamicArrays, injectDefinedNames, injectHyperlinks, injectOutline, injectDefaultFont, injectPageSetup, injectProtection, postProcessPkg } from './xlsxPostProcess'
 import { parseDataValidations } from './fastXlsx'
 import { injectBulkCells, fastWriteThreshold, BulkRows } from './bulkCells'
 
@@ -696,7 +696,7 @@ export async function writeXlsx(data: WorkbookData, vba?: VbaProject): Promise<U
     : buf
   const linked = markDynamicArrays(fixLegacyDrawingOrder(injectHyperlinks(processed, data.sheets.map((sd) => sd.layout?.hyperlinks))))
   const named = data.names?.length ? injectDefinedNames(linked, data.names) : linked
-  return toBytes(injectPageSetup(injectOutline(injectProtection(named, data.sheets.map((sd) => sd.layout?.protection), data.protection, data.calcMode), data.sheets.map((sd) => sd.layout)), data.sheets.map((sd) => sd.layout?.pageSetup)))
+  return toBytes(injectDefaultFont(injectPageSetup(injectOutline(injectProtection(named, data.sheets.map((sd) => sd.layout?.protection), data.protection, data.calcMode), data.sheets.map((sd) => sd.layout)), data.sheets.map((sd) => sd.layout?.pageSetup)), data.defaultFont))
 }
 
 /** Same as writeXlsx, but big workbooks are built in a Web Worker (the UI stays responsive while saving). */

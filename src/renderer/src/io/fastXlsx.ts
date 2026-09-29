@@ -239,6 +239,11 @@ export function parseXlsx(bytes: Uint8Array): WorkbookData & { vbaProject?: VbaP
   }
   const cm = /<calcPr\b[^>]*\bcalcMode="(manual|autoNoTable)"/.exec(workbookXml)
   if (cm) out.calcMode = cm[1] as CalcMode
+  const f0 = /<fonts[^>]*>\s*<font[^>]*>([\s\S]*?)<\/font>/.exec(get('xl/styles.xml') ?? '')
+  if (f0) {
+    const nm = /<name\s+val="([^"]*)"/.exec(f0[1]), sz = /<sz\s+val="([\d.]+)"/.exec(f0[1])
+    if (nm && sz && !(nm[1] === 'Calibri' && +sz[1] === 11)) out.defaultFont = { name: nm[1], size: +sz[1] }
+  }
   return out
 }
 

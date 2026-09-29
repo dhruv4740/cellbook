@@ -78,4 +78,10 @@ describe('sheet protection enforcement', () => {
     expect(back.protection).toEqual({ lockStructure: true, lockWindows: false })
     expect(back.calcMode).toBe('manual')
   })
+  it('a non-Calibri default font survives a save', async () => {
+    const { s } = protectedStore()
+    s.defaultFont = { name: 'Aptos Narrow', size: 12 }
+    const back = await readXlsx(await writeXlsx(s.toData()))
+    expect(back.defaultFont).toEqual({ name: 'Aptos Narrow', size: 12 })
+  })
 })
