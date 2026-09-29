@@ -945,3 +945,14 @@ describe('pictures', () => {
     expect(back.sheets[0].layout?.charts).toHaveLength(1)
   })
 })
+
+describe('scenarios', () => {
+  it('survive a save and reopen', async () => {
+    const scenarios = [
+      { name: 'Low & "slow"', cells: [{ r: 0, c: 0 }, { r: 1, c: 0 }], values: ['50', 'a<b'], comment: 'bad case' },
+      { name: 'High', cells: [{ r: 0, c: 0 }], values: ['200'] }
+    ]
+    const back = await readXlsx(await writeXlsx({ sheets: [{ name: 'S', cells: { '0,0': { raw: '1' }, '1,0': { raw: '2' } } as never, layout: { scenarios } as never }] }))
+    expect(back.sheets[0].layout?.scenarios).toEqual(scenarios)
+  })
+})

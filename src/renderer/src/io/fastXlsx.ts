@@ -9,6 +9,7 @@ import { stripFuturePrefixes } from '../engine/xlfn'
 import { resolveStructuredRefs, type TableDef } from '../engine/structuredRefs'
 import type { BorderSide, CellStyle, CfRule, HyperlinkData, CommentThread, DataValidationRule, DvAllowType, DvErrorStyle, DvOperator, FilterCriteria, NoteData, PageSetup, Range, SheetLayout, CalcMode, SparklineDef } from '../model/types'
 import { parseA1 } from '../model/types'
+import type { ScenarioDef } from '../model/types'
 import { isMediaPart, parseDrawingPictures } from './xlsxPictures'
 import { parseSheetProtection } from '../model/protection'
 import { parsePageSetupXml } from './pageSetupXml'
@@ -144,6 +145,8 @@ export function parseXlsx(bytes: Uint8Array): WorkbookData & { vbaProject?: VbaP
     // fallback format (see xlsxShared.ts) came from a `comments` thread on save, not a plain note.
     const links = parseHyperlinks(xml, files, dec, path)
     if (Object.keys(links).length) layout.hyperlinks = links
+    const scenarios = parseScenarios(xml)
+    if (scenarios.length) layout.scenarios = scenarios
     const sparks = parseSparklines(xml, def.name)
     if (sparks.length) layout.sparklines = sparks
     const notes = parseNotesForSheet(files, dec, path)
@@ -250,6 +253,25 @@ export function parseXlsx(bytes: Uint8Array): WorkbookData & { vbaProject?: VbaP
   if (f0) {
     const nm = /<name\s+val="([^"]*)"/.exec(f0[1]), sz = /<sz\s+val="([\d.]+)"/.exec(f0[1])
     if (nm && sz && !(nm[1] === 'Calibri' && +sz[1] === 11)) out.defaultFont = { name: nm[1], size: +sz[1] }
+  }
+  return out
+}
+
+function parseScenarios(xml: string): ScenarioDef[] {
+  if (!xml.includes('<scenarios')) return []
+  const un = (s: string): string => s.replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
+  const out: ScenarioDef[] = []
+  for (const sc of xml.matchAll(/<scenario\b([^>]*)>([\s\S]*?)<\/scenario>/g)) {
+    const name = /\bname="([^"]*)"/.exec(sc[1])?.[1]
+    if (name === undefined) continue
+    const comment = /\bcomment="([^"]*)"/.exec(sc[1])?.[1]
+    const cells: ScenarioDef['cells'] = [], values: string[] = []
+    for (const ic of sc[2].matchAll(/<inputCells\b([^>]*?)\/?>/g)) {
+      const a = parseA1(/\br="([A-Z]+\d+)"/.exec(ic[1])?.[1] ?? '')
+      if (!a) continue
+      cells.push({ r: a.r1, c: a.c1 }); values.push(un(/\bval="([^"]*)"/.exec(ic[1])?.[1] ?? ''))
+    }
+    if (cells.length) out.push({ name: un(name), cells, values, ...(comment ? { comment: un(comment) } : {}) })
   }
   return out
 }

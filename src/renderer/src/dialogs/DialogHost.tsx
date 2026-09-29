@@ -25,6 +25,7 @@ import { DefineNameDialog, NameManagerDialog, CreateFromSelectionDialog } from '
 import { HyperlinkDialog } from './HyperlinkDialog'
 import { SparklineDialog } from './SparklineDialog'
 import { SpellingDialog } from './SpellingDialog'
+import { DataTableDialog, ScenarioManagerDialog } from './WhatIfDialogs'
 import { SubtotalDialog } from './SubtotalDialog'
 import { PivotDialog } from './PivotDialog'
 import { OutlineAxisDialog, OutlineSettingsDialog } from './OutlineDialogs'
@@ -170,6 +171,10 @@ export default function DialogHost() {
       return <PivotDialog onClose={close} edit={d.props?.edit as { sheetUid: number; id: string } | undefined} />
     case 'subtotal':
       return <SubtotalDialog onClose={close} />
+    case 'dataTable':
+      return <DataTableDialog onClose={close} />
+    case 'scenarioManager':
+      return <ScenarioManagerDialog onClose={close} />
     case 'spelling':
       return <SpellingDialog onClose={close} />
     case 'sparkline':

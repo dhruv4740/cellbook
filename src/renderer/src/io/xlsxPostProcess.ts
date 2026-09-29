@@ -1,5 +1,5 @@
 import { colName } from '../model/types'
-import type { SparklineDef } from '../model/types'
+import type { SparklineDef, ScenarioDef } from '../model/types'
 // Post-processing on the raw zip package that exceljs's object model can't express: per-column
 // AutoFilter criteria (exceljs only round-trips the filtered range, never filterColumn/filters)
 // and, for .xlsm saves, the VBA project part exceljs always strips. Runs on the bytes
@@ -652,6 +652,30 @@ export function injectSparklines(zipBytes: PkgLike, all: (SparklineDef[] | undef
     const wsEnd = xml.lastIndexOf('</worksheet>')
     if (execTopLevel(/<extLst>/g, xml) && close >= 0) xml = xml.slice(0, close) + ext + xml.slice(close)
     else xml = xml.slice(0, wsEnd) + `<extLst>${ext}</extLst>` + xml.slice(wsEnd)
+    files[path] = enc.encode(xml)
+  })
+  return { files }
+}
+
+/** Writes What-If > Scenario Manager scenarios as the sheet's <scenarios> element (after sheetProtection, before autoFilter and the rest). */
+export function injectScenarios(zipBytes: PkgLike, all: (ScenarioDef[] | undefined)[]): PkgLike {
+  if (!all.some((s) => s?.length)) return zipBytes
+  const files = toFiles(zipBytes)
+  const dec = new TextDecoder('utf-8'), enc = new TextEncoder()
+  all.forEach((list, i) => {
+    if (!list?.length) return
+    const path = `xl/worksheets/sheet${i + 1}.xml`
+    if (!files[path]) return
+    let xml = dec.decode(files[path]).replace(/<scenarios\b[\s\S]*?<\/scenarios>/, '')
+    const body = list.map((s) =>
+      `<scenario name="${xmlAttr(s.name)}" locked="0" count="${s.cells.length}" user="Cellbook"${s.comment ? ` comment="${xmlAttr(s.comment)}"` : ''}>` +
+      s.cells.map((c, k) => `<inputCells r="${colName(c.c)}${c.r + 1}" val="${xmlAttr(s.values[k] ?? '')}"/>`).join('') + '</scenario>'
+    ).join('')
+    const frag = `<scenarios current="0" show="0">${body}</scenarios>`
+    const re = /<(?:autoFilter|sortState|dataConsolidate|customSheetViews|mergeCells|phoneticPr|conditionalFormatting|dataValidations|hyperlinks|printOptions|pageMargins|pageSetup|headerFooter|rowBreaks|colBreaks|customProperties|cellWatches|ignoredErrors|smartTags|drawing|legacyDrawing|legacyDrawingHF|drawingHF|picture|oleObjects|controls|webPublishItems|tableParts|extLst)[\s/>]|<\/worksheet>/g
+    re.lastIndex = Math.max(0, xml.lastIndexOf('</sheetData>'))
+    const m = re.exec(xml)
+    xml = m ? xml.slice(0, m.index) + frag + xml.slice(m.index) : xml
     files[path] = enc.encode(xml)
   })
   return { files }

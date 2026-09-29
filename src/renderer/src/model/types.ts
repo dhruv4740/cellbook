@@ -177,6 +177,8 @@ export interface SheetLayout {
   sparklines?: SparklineDef[]
   /** Insert > Pictures: floating images (bottom of the list is drawn first). */
   pictures?: PictureDef[]
+  /** Data > What-If Analysis > Scenario Manager. */
+  scenarios?: ScenarioDef[]
   /** Floating chart objects on this sheet. Optional so existing layouts still typecheck. */
   charts?: ChartSpec[]
   conditionalFormats?: CfRule[]
@@ -431,6 +433,14 @@ export interface DataValidationRule {
 }
 
 export interface HyperlinkData { target?: string; location?: string; tooltip?: string }
+
+export interface ScenarioDef {
+  name: string
+  /** The changing cells and the value (raw text) each takes in this scenario. */
+  cells: { r: number; c: number }[]
+  values: string[]
+  comment?: string
+}
 
 export interface PictureDef {
   id: string
