@@ -25,7 +25,7 @@ import { evaluateCf } from '../format/conditional'
 import { linkAt, followLink } from './links'
 import { sparkValues, drawSparkline } from '../data/sparklines'
 import { renderPivot } from '../data/pivot'
-import { getValidationForCell, getListItems } from '../data/dataValidation'
+import { getValidationForCell, getListItems, validateInput } from '../data/dataValidation'
 import {
   Cut20Regular, Copy20Regular, ClipboardPaste20Regular, ClipboardTaskRegular, ClipboardCodeRegular,
   ClipboardLink20Regular, ArrowSwap20Regular, PaintBrush20Regular, Delete20Regular, Eraser20Regular,
@@ -330,6 +330,7 @@ export default function Grid() {
     const wholeColSel = primary.r1 === 0 && primary.r2 >= MAX_ROWS - 1
     const wholeRowSel = primary.c1 === 0 && primary.c2 >= MAX_COLS - 1
 
+    const circled = ui.validationCircles?.[sheet.uid] ? new Set(ui.validationCircles[sheet.uid]) : null
     const sparkMap = sheet.layout.sparklines?.length ? new Map(sheet.layout.sparklines.map((s) => [s.r * 16384 + s.c, s])) : null
 
     function drawCellContent(r: number, c: number, x: number, y: number, w: number, h: number): void {
@@ -354,6 +355,14 @@ export default function Grid() {
         }
       }
 
+      if (circled?.has(r + ',' + c)) {
+        const cell = store.getRaw(sheet, r, c)
+        const v = cell.startsWith('=') ? store.getValue(sheet, r, c) : cell
+        if (cell !== '' && !validateInput(store, sheet, r, c, v === null || v === undefined ? '' : String(v)).ok) {
+          ctx.strokeStyle = '#ff0000'; ctx.lineWidth = 1.5
+          ctx.beginPath(); ctx.ellipse(x + w / 2, y + h / 2, Math.max(2, w / 2 - 1), Math.max(2, h / 2 - 0.5), 0, 0, Math.PI * 2); ctx.stroke()
+        }
+      }
       const spark = sparkMap?.get(r * 16384 + c)
       if (spark) drawSparkline(ctx, sparkValues(sheet, spark), spark.type, spark.color, x, y, w, h)
 

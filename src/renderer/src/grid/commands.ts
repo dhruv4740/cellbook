@@ -524,6 +524,35 @@ export function sortSelection(order: 'asc' | 'desc'): void {
 
 const cellCount = (r: Range): number => (r.r2 - r.r1 + 1) * (r.c2 - r.c1 + 1)
 
+/** Home > Fill > Justify: re-flows the text of the selected cells into lines that fit the selection's width. */
+export function justifySelection(): void {
+  const sheet = store.active
+  const n = normRange(activeRange())
+  if (!store.allows(sheet, 'formatCells')) return
+  const words: string[] = []
+  const lastRow = Math.min(n.r2, n.r1 + 5000)
+  for (let r = n.r1; r <= lastRow; r++) for (let c = n.c1; c <= n.c2; c++) {
+    const raw = store.getRaw(sheet, r, c)
+    if (raw && !raw.startsWith('=') && typeof store.getValue(sheet, r, c) === 'string') words.push(...raw.split(/\s+/).filter(Boolean))
+  }
+  if (!words.length) return
+  let width = 0
+  for (let c = n.c1; c <= Math.min(n.c2, n.c1 + 500); c++) if (!sheet.layout.hiddenCols[c]) width += store.colWidth(sheet, c) / 7
+  const max = Math.max(1, Math.floor(width * 0.95))
+  const lines: string[] = []
+  let cur = ''
+  for (const w of words) {
+    if (cur && cur.length + 1 + w.length > max) { lines.push(cur); cur = w } else cur = cur ? cur + ' ' + w : w
+  }
+  lines.push(cur)
+  const cells: { r: number; c: number; raw: string; style?: CellStyle }[] = []
+  const style = store.getStyle(sheet, n.r1, n.c1)
+  const end = Math.max(lastRow, n.r1 + lines.length - 1)
+  for (let r = n.r1; r <= end; r++) cells.push({ r, c: n.c1, raw: lines[r - n.r1] ?? '', style })
+  store.setCells(sheet, cells, 'Justify')
+  store.setSelection({ ranges: [{ r1: n.r1, c1: n.c1, r2: end, c2: n.c2 }], active: { r: n.r1, c: n.c1 } })
+}
+
 // ---------- fill ----------
 export function fill(direction: 'down' | 'right' | 'up' | 'left'): void {
   const rg = activeRange()

@@ -197,3 +197,29 @@ function rangesOverlap(a: Range, b: Range): boolean {
   const nb = normRange(b)
   return !(na.r2 < nb.r1 || na.r1 > nb.r2 || na.c2 < nb.c1 || na.c1 > nb.c2)
 }
+
+/** Data > Circle Invalid Data: the cells in validated ranges whose current value breaks their rule. */
+export function findInvalidCells(store: WorkbookStore, sheet: SheetState): string[] {
+  const rules = sheet.layout.dataValidations
+  const used = store.usedRange(sheet)
+  if (!rules?.length || !used) return []
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const rule of rules) {
+    if (rule.allow === 'any') continue
+    for (const rg of rule.ranges) {
+      const n = normRange(rg)
+      for (let r = n.r1; r <= Math.min(n.r2, used.r2); r++)
+        for (let c = n.c1; c <= Math.min(n.c2, used.c2); c++) {
+          const key = r + ',' + c
+          if (seen.has(key)) continue
+          seen.add(key)
+          const raw = store.getRaw(sheet, r, c)
+          if (raw === '') continue
+          const v = raw.startsWith('=') ? store.getValue(sheet, r, c) : raw
+          if (!validateInput(store, sheet, r, c, v === null || v === undefined ? '' : String(v)).ok) out.push(key)
+        }
+    }
+  }
+  return out
+}

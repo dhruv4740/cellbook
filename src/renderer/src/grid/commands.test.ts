@@ -18,6 +18,18 @@ describe('commands', () => {
     expect([raw(0, 0), raw(0, 1), raw(0, 2), raw(0, 3)]).toEqual(['a', 'b', 'c', 'd'])
   })
 
+  it('justify re-flows text to the selection width and undoes', () => {
+    store.setRangeRaw(store.active, 0, 0, [['the quick brown fox'], ['jumps over the lazy dog']])
+    sel(0, 0, 1, 0)
+    const chars = Math.floor((store.colWidth(store.active, 0) / 7) * 0.95)
+    cmds.justifySelection()
+    const lines = Array.from({ length: 12 }, (_, r) => raw(r, 0)).filter(Boolean)
+    expect(lines.join(' ')).toBe('the quick brown fox jumps over the lazy dog')
+    for (const l of lines) expect(l.length).toBeLessThanOrEqual(Math.max(chars, 9))
+    store.undo()
+    expect([raw(0, 0), raw(1, 0)]).toEqual(['the quick brown fox', 'jumps over the lazy dog'])
+  })
+
   it('delete shift-up moves cells below into the gap', () => {
     store.setRangeRaw(store.active, 0, 0, [['1'], ['2'], ['3']])
     sel(1, 0)

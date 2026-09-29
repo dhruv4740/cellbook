@@ -17,7 +17,8 @@ import {
 import { GenericTab, GGroup, GBtn } from './GenericTab'
 import { SmallButton } from './controls'
 import { useStore, store } from '../../model/store'
-import { useUi, setUi, getUi, notAvailable } from '../ui'
+import { useUi, setUi, getUi, notAvailable, showToast } from '../ui'
+import { findInvalidCells } from '../../data/dataValidation'
 import { selectionRef } from '../../dialogs/NameDialogs'
 import { FUNCTION_CATEGORIES, RECENTLY_USED } from './functionCategories'
 import { MenuItem } from '../../components/Menu'
@@ -30,6 +31,12 @@ import { autoOutline, clearAllOutlines, outlineCommand } from '../../grid/outlin
 import { PAPER_SIZES, paperOf, marginPresetOf, fitOf } from '../../model/pageSetup'
 import { canRemovePageBreak, insertPageBreak, openPageSetup, removePageBreak, resetPageBreaks, setFitPages, setMarginPreset, setScale, updatePageSetup } from '../../grid/pageSetupCommands'
 
+function circleInvalid(): void {
+  const sh = store.active
+  const cells = findInvalidCells(store, sh)
+  setUi({ validationCircles: cells.length ? { [sh.uid]: cells } : null })
+  if (!cells.length) showToast('No cells with invalid data were found.')
+}
 const big = (I: typeof Table20Regular): ReactNode => <I fontSize={28} />
 const na = (label: string): MenuItem[] => [{ label: `${label}...`, onClick: () => notAvailable(label) }]
 
@@ -330,8 +337,8 @@ export function DataTab() {
         { label: 'Remove Duplicates', icon: <TableSimple20Regular />, iconOnly: true, onClick: () => setUi({ dialog: { kind: 'removeDuplicates' } }), keytip: 'M' },
         { label: 'Data Validation', icon: <ShieldTask20Regular />, iconOnly: true, menu: [
           { label: 'Data Validation...', onClick: () => setUi({ dialog: { kind: 'dataValidation' } }) },
-          { label: 'Circle Invalid Data', onClick: () => notAvailable('Circle Invalid Data') },
-          { label: 'Clear Validation Circles', onClick: () => notAvailable('Clear Validation Circles') }
+          { label: 'Circle Invalid Data', onClick: () => circleInvalid() },
+          { label: 'Clear Validation Circles', onClick: () => setUi({ validationCircles: null }) }
         ], onClick: () => setUi({ dialog: { kind: 'dataValidation' } }), keytip: 'V' }
       ],
       [
