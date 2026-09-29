@@ -90,9 +90,9 @@ export function InsertTab() {
       { label: 'PivotChart', icon: big(DataHistogram20Regular), menu: na('PivotChart') }
     ] },
     { label: 'Sparklines', items: [
-      { label: 'Line', icon: big(ArrowSort20Regular), onClick: () => notAvailable('Sparklines') },
-      { label: 'Column', icon: big(ColumnTriple20Regular), onClick: () => notAvailable('Sparklines') },
-      { label: 'Win/Loss', icon: big(ArrowRepeatAll20Regular), onClick: () => notAvailable('Sparklines') }
+      { label: 'Line', icon: big(ArrowSort20Regular), onClick: () => setUi({ dialog: { kind: 'sparkline', props: { type: 'line' } } }) },
+      { label: 'Column', icon: big(ColumnTriple20Regular), onClick: () => setUi({ dialog: { kind: 'sparkline', props: { type: 'column' } } }) },
+      { label: 'Win/Loss', icon: big(ArrowRepeatAll20Regular), onClick: () => setUi({ dialog: { kind: 'sparkline', props: { type: 'winloss' } } }) }
     ] },
     { label: 'Filters', items: [
       { label: 'Slicer', icon: big(Filter20Regular), onClick: () => notAvailable('Slicers') },

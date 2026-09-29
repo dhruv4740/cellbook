@@ -786,11 +786,12 @@ export class WorkbookStore {
         const rs = ranges.map(normRange)
         const inSel = (k: string) => { const [r, c] = k.split(',').map(Number); return rs.some((g) => r >= g.r1 && r <= g.r2 && c >= g.c1 && c <= g.c2) }
         const l = sheet.layout
-        if (Object.keys(l.notes).some(inSel) || Object.keys(l.comments).some(inSel) || Object.keys(l.hyperlinks ?? {}).some(inSel)) {
+        if (Object.keys(l.notes).some(inSel) || Object.keys(l.comments).some(inSel) || Object.keys(l.hyperlinks ?? {}).some(inSel) || (l.sparklines ?? []).some((z) => inSel(z.r + ',' + z.c))) {
           this.updateLayout(sheet, 'Clear', (x) => {
             x.notes = Object.fromEntries(Object.entries(x.notes).filter(([k]) => !inSel(k)))
             x.comments = Object.fromEntries(Object.entries(x.comments).filter(([k]) => !inSel(k)))
             if (x.hyperlinks) x.hyperlinks = Object.fromEntries(Object.entries(x.hyperlinks).filter(([k]) => !inSel(k)))
+            if (x.sparklines) x.sparklines = x.sparklines.filter((z) => !inSel(z.r + ',' + z.c))
           })
         }
       }

@@ -910,3 +910,18 @@ describe('threaded comments written by real Excel', () => {
     expect(legacyNoteToThread({ author: 'tc={6FCF}', text })?.text).toBe('Threaded comment')
   })
 })
+
+describe('sparklines', () => {
+  it('round-trip through the x14 extension', async () => {
+    const defs = [
+      { r: 0, c: 5, type: 'line' as const, src: { r1: 0, c1: 0, r2: 0, c2: 4 }, color: '#376092' },
+      { r: 1, c: 5, type: 'column' as const, src: { r1: 1, c1: 0, r2: 1, c2: 4 }, color: '#ff0000' },
+      { r: 2, c: 5, type: 'winloss' as const, src: { r1: 2, c1: 0, r2: 2, c2: 4 }, color: '#376092' }
+    ]
+    const cells: Record<string, { raw: string }> = {}
+    for (let r = 0; r < 3; r++) for (let c = 0; c < 5; c++) cells[`${r},${c}`] = { raw: String(c - 2 + r) }
+    const back = await readXlsx(await writeXlsx({ sheets: [{ name: 'My Sheet', cells: cells as never, layout: { sparklines: defs } as never }] }))
+    expect(back.sheets[0].layout?.sparklines).toEqual(expect.arrayContaining(defs))
+    expect(back.sheets[0].layout?.sparklines).toHaveLength(3)
+  })
+})

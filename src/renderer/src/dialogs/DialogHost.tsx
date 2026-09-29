@@ -23,6 +23,7 @@ import { DataValidationErrorDialog } from './DataValidationErrorDialog'
 import { ArrangeWindowsDialog } from './ArrangeWindowsDialog'
 import { DefineNameDialog, NameManagerDialog, CreateFromSelectionDialog } from './NameDialogs'
 import { HyperlinkDialog } from './HyperlinkDialog'
+import { SparklineDialog } from './SparklineDialog'
 import { SubtotalDialog } from './SubtotalDialog'
 import { PivotDialog } from './PivotDialog'
 import { OutlineAxisDialog, OutlineSettingsDialog } from './OutlineDialogs'
@@ -168,6 +169,8 @@ export default function DialogHost() {
       return <PivotDialog onClose={close} edit={d.props?.edit as { sheetUid: number; id: string } | undefined} />
     case 'subtotal':
       return <SubtotalDialog onClose={close} />
+    case 'sparkline':
+      return <SparklineDialog type={d.props?.type as 'line' | 'column' | 'winloss'} onClose={close} />
     case 'hyperlink':
       return <HyperlinkDialog onClose={close} />
     case 'series':
