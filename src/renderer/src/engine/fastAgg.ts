@@ -254,6 +254,37 @@ class FastAggPlugin extends FunctionPlugin {
 }
 
 // ---------- XLOOKUP / INDEX ----------
+/** XLOOKUP / XMATCH search: index into the flattened lookup line, or -1. */
+function xsearch(lf: Flat, k: unknown, mode: number, search: number): number {
+  let at = -1
+  const mm = Math.trunc(mode), sm = Math.trunc(search)
+  if (mm === 0 || mm === 2) {
+    const c = mm === 2 && typeof k === 'string' ? { test: (v: unknown) => typeof v === 'string' && wildcardRe(k).test(v) } : compileCriterion(typeof k === 'string' ? '=' + escapeEq(k) : k)
+    const eq = mm === 0 ? keyOf(k) : null
+    if (eq !== null) {
+      const list = indexOf(lf).get(eq)
+      if (list && list.length) at = sm === -1 || sm === -2 ? list[list.length - 1] : list[0]
+    } else {
+      const rev = sm === -1 || sm === -2
+      for (let i = rev ? lf.vals.length - 1 : 0; rev ? i >= 0 : i < lf.vals.length; rev ? i-- : i++) if (c.test(lf.vals[i])) { at = i; break }
+    }
+  } else {
+    // -1: exact or next smaller; 1: exact or next larger (numbers and text compared like Excel)
+    let best = -1
+    for (let i = 0; i < lf.vals.length; i++) {
+      const v = lf.vals[i]
+      if (isBlank(v) || typeof v !== typeof k) continue
+      const cmp = typeof v === 'number' ? v - (k as number) : String(v).toLowerCase().localeCompare(String(k).toLowerCase())
+      if (cmp === 0) { best = i; break }
+      if (mm === -1 ? cmp < 0 : cmp > 0) {
+        if (best < 0 || (mm === -1 ? cmp > cmpOf(lf.vals[best], k) : cmp < cmpOf(lf.vals[best], k))) best = i
+      }
+    }
+    at = best
+  }
+  return at
+}
+
 class FastLookupPlugin extends FunctionPlugin {
   static implementedFunctions = {
     XLOOKUP: {
@@ -262,6 +293,13 @@ class FastLookupPlugin extends FunctionPlugin {
       parameters: [
         { argumentType: FunctionArgumentType.ANY }, { argumentType: FunctionArgumentType.RANGE }, { argumentType: FunctionArgumentType.RANGE },
         { argumentType: FunctionArgumentType.ANY, optionalArg: true }, { argumentType: FunctionArgumentType.NUMBER, optionalArg: true, defaultValue: 0 }, { argumentType: FunctionArgumentType.NUMBER, optionalArg: true, defaultValue: 1 }
+      ]
+    },
+    XMATCH: {
+      method: 'xmatch',
+      parameters: [
+        { argumentType: FunctionArgumentType.ANY }, { argumentType: FunctionArgumentType.RANGE },
+        { argumentType: FunctionArgumentType.NUMBER, optionalArg: true, defaultValue: 0 }, { argumentType: FunctionArgumentType.NUMBER, optionalArg: true, defaultValue: 1 }
       ]
     },
     INDEX: {
@@ -288,6 +326,16 @@ class FastLookupPlugin extends FunctionPlugin {
       return SimpleRangeValue.onlyValues([Array.from({ length: w }, (_, j) => at(r - 1, j))] as never) as never
     }) as never)
   }
+  xmatch(ast: any, state: any): InterpreterValue {
+    return this.runFunction(ast.args, state, this.metadata('XMATCH'), ((key: unknown, look: unknown, mode: number, search: number) => {
+      const lf = flatten(this, look)
+      if (lf.h !== 1 && lf.w !== 1) return VALUE()
+      const k = norm(key)
+      if (k instanceof CellError) return k
+      const at = xsearch(lf, k, mode, search)
+      return at < 0 ? new CellError(ErrorType.NA) : at + 1
+    }) as never)
+  }
   xlookupArraySize(ast: any): ArraySize {
     const l = ast?.args?.[1], r = ast?.args?.[2]
     if (l?.start == null || l?.end == null || r?.start == null || r?.end == null) return ArraySize.error()
@@ -306,32 +354,7 @@ class FastLookupPlugin extends FunctionPlugin {
       if ((vertical && rf.h !== lf.h) || (!vertical && rf.w !== lf.w)) return VALUE()
       const k = norm(key)
       if (k instanceof CellError) return k
-      let at = -1
-      const mm = Math.trunc(mode), sm = Math.trunc(search)
-      if (mm === 0 || mm === 2) {
-        const c = mm === 2 && typeof k === 'string' ? { test: (v: unknown) => typeof v === 'string' && wildcardRe(k).test(v) } : compileCriterion(typeof k === 'string' ? '=' + escapeEq(k) : k)
-        const eq = mm === 0 ? keyOf(k) : null
-        if (eq !== null) {
-          const list = indexOf(lf).get(eq)
-          if (list && list.length) at = sm === -1 || sm === -2 ? list[list.length - 1] : list[0]
-        } else {
-          const rev = sm === -1 || sm === -2
-          for (let i = rev ? lf.vals.length - 1 : 0; rev ? i >= 0 : i < lf.vals.length; rev ? i-- : i++) if (c.test(lf.vals[i])) { at = i; break }
-        }
-      } else {
-        // -1: exact or next smaller; 1: exact or next larger (numbers and text compared like Excel)
-        let best = -1
-        for (let i = 0; i < lf.vals.length; i++) {
-          const v = lf.vals[i]
-          if (isBlank(v) || typeof v !== typeof k) continue
-          const cmp = typeof v === 'number' ? v - (k as number) : String(v).toLowerCase().localeCompare(String(k).toLowerCase())
-          if (cmp === 0) { best = i; break }
-          if (mm === -1 ? cmp < 0 : cmp > 0) {
-            if (best < 0 || (mm === -1 ? cmp > cmpOf(lf.vals[best], k) : cmp < cmpOf(lf.vals[best], k))) best = i
-          }
-        }
-        at = best
-      }
+      const at = xsearch(lf, k, mode, search)
       if (at < 0) return ifNot === undefined || ifNot === null ? new CellError(ErrorType.NA) : ifNot
       if (vertical) {
         if (rf.w === 1) return rf.vals[at] === null ? 0 : (rf.vals[at] as never)
