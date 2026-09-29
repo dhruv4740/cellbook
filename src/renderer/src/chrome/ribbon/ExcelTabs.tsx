@@ -360,9 +360,9 @@ export function DataTab() {
     ] },
     { label: 'Forecast', items: [
       { label: 'What-If Analysis', icon: big(DataHistogram20Regular), width: 56, menu: [
-        { label: '&Scenario Manager...', onClick: () => notAvailable('Scenario Manager') },
+        { label: '&Scenario Manager...', onClick: () => setUi({ dialog: { kind: 'scenarioManager' } }) },
         { label: '&Goal Seek...', onClick: () => setUi({ dialog: { kind: 'goalSeek' } }) },
-        { label: 'Data &Table...', onClick: () => notAvailable('Data Table') }
+        { label: 'Data &Table...', onClick: () => setUi({ dialog: { kind: 'dataTable' } }) }
       ] },
       { label: 'Forecast Sheet', icon: big(ChartMultiple20Regular), width: 52, onClick: () => notAvailable('Forecast Sheet') }
     ] },
