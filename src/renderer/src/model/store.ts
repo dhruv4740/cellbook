@@ -8,6 +8,7 @@ import {
   DEFAULT_COL_WIDTH, DEFAULT_ROW_HEIGHT, MAX_ROWS, MAX_COLS, FilterCriteria, WorkbookProtection, CalcMode, SheetProtection, ProtectAllowKey, NoteData, CommentThread, rangeA1
 , normalFont, DEFAULT_FONT, DEFAULT_FONT_SIZE } from './types'
 import { inEditRanges } from './protection'
+import type { ThemeChoice } from '../data/themes'
 import { formatValue, detectInputFormat, numericInput, FormattedValue } from '../format/numfmt'
 import { computeFilteredRows } from '../engine/filter'
 import { shiftFormula } from '../engine/shiftFormula'
@@ -49,6 +50,8 @@ export interface WorkbookData {
   calcMode?: CalcMode
   /** The workbook's Normal-style font when it isn't Calibri 11 (kept so a save doesn't reset it). */
   defaultFont?: { name: string; size: number }
+  /** Colour/font scheme chosen under Page Layout > Themes; injected into theme1.xml on save. */
+  theme?: ThemeChoice
   /** Workbook defined names (named ranges, print areas...). `ref` has no leading '='; `sheet` is
    *  the index of the sheet a local name belongs to (localSheetId). */
   names?: DefinedNameData[]
@@ -113,6 +116,8 @@ export class WorkbookStore {
   /** Formulas > Calculation Options. */
   calcMode: CalcMode = 'auto'
   defaultFont?: { name: string; size: number }
+  /** Page Layout > Themes / Colors / Fonts / Effects choice (written into theme1.xml). */
+  theme: ThemeChoice = {}
   /** Manual mode: formula results as of the last calculation. Excel leaves them stale until F9. */
   private frozen: Map<string, { f: string; v: CellValue }> | null = null
   /** Manual mode: something changed since the last calculation (the status bar shows "Calculate"). */
@@ -1203,6 +1208,17 @@ export class WorkbookStore {
   }
 
   /** Formulas > Calculation Options. */
+  /** Picks theme parts; a font scheme also becomes the Normal font (body font), as in Excel. */
+  setTheme(patch: ThemeChoice): void {
+    this.theme = { ...this.theme, ...patch }
+    if (patch.fonts) {
+      normalFont.name = patch.fonts.minor
+      this.defaultFont = patch.fonts.minor === DEFAULT_FONT && normalFont.size === DEFAULT_FONT_SIZE ? undefined : { name: patch.fonts.minor, size: normalFont.size }
+    }
+    this.dirty = true
+    this.notify()
+  }
+
   setCalcMode(mode: CalcMode): void {
     if (mode === this.calcMode) return
     this.calcMode = mode
@@ -1288,6 +1304,7 @@ export class WorkbookStore {
     this.bookProtection = data.protection
     this.calcMode = data.calcMode ?? 'auto'
     this.defaultFont = data.defaultFont
+    this.theme = data.theme ?? {}
     normalFont.name = data.defaultFont?.name ?? DEFAULT_FONT
     normalFont.size = data.defaultFont?.size ?? DEFAULT_FONT_SIZE
     this.frozen = null
@@ -1451,6 +1468,7 @@ export class WorkbookStore {
       protection: this.bookProtection,
       calcMode: this.calcMode === 'auto' ? undefined : this.calcMode,
       defaultFont: this.defaultFont,
+      theme: this.theme.colors || this.theme.fonts ? this.theme : undefined,
       sheets: this.sheets.map((s) => {
         const cells: WorkbookData['sheets'][number]['cells'] = {}
         const id = this.hfId(s)

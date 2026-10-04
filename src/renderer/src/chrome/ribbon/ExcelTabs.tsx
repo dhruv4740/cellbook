@@ -23,6 +23,7 @@ import { traceStep, removeArrows } from '../../data/trace'
 import { nextErrorCell } from '../../data/errorCheck'
 import { pickPictureFiles } from '../../data/pictures'
 import { insertShape, SHAPE_LABELS } from '../../data/shapes'
+import { THEMES, COLOR_SCHEMES, FONT_SCHEMES, EFFECT_SCHEMES } from '../../data/themes'
 import { WORDART_STYLES, insertWordArt, insertSignatureLine, EQUATIONS, NEW_EQUATION_TEXT, insertEquation } from '../../data/textObjects'
 import { colName } from '../../model/types'
 import { selectionRef } from '../../dialogs/NameDialogs'
@@ -163,7 +164,16 @@ export function PageLayoutTab() {
       <span>%</span>
     </label>
   )
-  const themeMenu = (label: string): MenuItem[] => [{ label: `${label}...`, onClick: () => notAvailable(`Workbook ${label.toLowerCase()}`) }]
+  const curColors = store.theme.colors?.name ?? 'Office'
+  const curFonts = store.theme.fonts?.name ?? 'Office'
+  const chip = (cols: string[]): ReactNode => <span style={{ display: 'inline-flex' }}>{cols.slice(4).map((c) => <span key={c} style={{ width: 6, height: 12, background: '#' + c }} />)}</span>
+  const themeMenus: Record<string, MenuItem[]> = {
+    Themes: THEMES.map((t) => ({ label: t.name, checked: curColors === t.colors.name && curFonts === t.fonts.name, icon: chip(t.colors.colors), onClick: () => store.setTheme({ colors: t.colors, fonts: t.fonts }) })),
+    Colors: COLOR_SCHEMES.map((c) => ({ label: c.name, checked: curColors === c.name, icon: chip(c.colors), onClick: () => store.setTheme({ colors: c }) })),
+    Fonts: FONT_SCHEMES.map((f) => ({ label: `${f.name} (${f.major} / ${f.minor})`, checked: curFonts === f.name, onClick: () => store.setTheme({ fonts: f }) })),
+    Effects: EFFECT_SCHEMES.map((e) => ({ label: e, checked: (store.theme.effects ?? 'Office') === e, onClick: () => store.setTheme({ effects: e }) }))
+  }
+  const themeMenu = (label: string): MenuItem[] => themeMenus[label]
   const groups: GGroup[] = [
     { label: 'Themes', items: [
       { label: 'Themes', icon: big(Color20Regular), menu: themeMenu('Themes') },

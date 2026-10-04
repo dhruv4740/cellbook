@@ -1,5 +1,6 @@
 import { colName } from '../model/types'
 import type { SparklineDef, ScenarioDef } from '../model/types'
+import { applyThemeToXml, type ThemeChoice } from '../data/themes'
 // Post-processing on the raw zip package that exceljs's object model can't express: per-column
 // AutoFilter criteria (exceljs only round-trips the filtered range, never filterColumn/filters)
 // and, for .xlsm saves, the VBA project part exceljs always strips. Runs on the bytes
@@ -589,6 +590,16 @@ export function injectDefaultFont(zipBytes: PkgLike, font: { name: string; size:
   const next = xml.replace(/(<fonts[^>]*>\s*<font[^>]*>)([\s\S]*?)(<\/font>)/, (_m, a: string, body: string, c: string) =>
     a + body.replace(/<name\s+val="[^"]*"\s*\/>/, `<name val="${esc}"/>`).replace(/<sz\s+val="[^"]*"\s*\/>/, `<sz val="${font.size}"/>`).replace(/<scheme[^>]*\/>/, '') + c)
   files['xl/styles.xml'] = new TextEncoder().encode(next)
+  return { files }
+}
+
+/** Writes the chosen Page Layout theme colours and fonts into xl/theme/theme1.xml. */
+export function injectTheme(zipBytes: PkgLike, theme: ThemeChoice | undefined): PkgLike {
+  if (!theme || (!theme.colors && !theme.fonts)) return zipBytes
+  const files = toFiles(zipBytes)
+  const raw = files['xl/theme/theme1.xml']
+  if (!raw) return zipBytes
+  files['xl/theme/theme1.xml'] = new TextEncoder().encode(applyThemeToXml(new TextDecoder('utf-8').decode(raw), theme))
   return { files }
 }
 
