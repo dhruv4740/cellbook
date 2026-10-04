@@ -67,8 +67,8 @@ export function ReviewTab() {
     { label: 'Comments', big: [
       { label: 'New Comment', icon: <CommentAdd20Regular fontSize={28} />, onClick: () => setUi({ commentPanel: { r: active.r, c: active.c } }) },
       { label: 'Delete', icon: <CommentMultiple20Regular fontSize={28} />, disabled: !hasComment, onClick: () => { if (hasComment) store.deleteComment(store.active, active.r, active.c) } },
-      { label: 'Previous', icon: <CommentMultiple20Regular fontSize={28} />, disabled: !Object.keys(store.active.layout.comments).length, onClick: () => cmds.previousComment() },
-      { label: 'Next', icon: <CommentMultiple20Regular fontSize={28} />, disabled: !Object.keys(store.active.layout.comments).length, onClick: () => cmds.nextComment() },
+      { label: 'Previous Comment', icon: <CommentMultiple20Regular fontSize={28} />, disabled: !Object.keys(store.active.layout.comments).length, onClick: () => cmds.previousComment() },
+      { label: 'Next Comment', icon: <CommentMultiple20Regular fontSize={28} />, disabled: !Object.keys(store.active.layout.comments).length, onClick: () => cmds.nextComment() },
       { label: 'Show Comments', icon: <CommentMultiple20Regular fontSize={28} />, onClick: () => setUi({ commentPanel: { r: active.r, c: active.c } }) }
     ] },
     { label: 'Notes', big: [{ label: 'Notes', icon: <Note20Regular fontSize={28} />, menu: notesMenu }] },
