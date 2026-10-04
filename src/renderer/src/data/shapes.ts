@@ -15,7 +15,7 @@ const DEFAULT_SIZE: Record<ShapeKind, [number, number]> = {
 }
 
 /** Excel's default style for an inserted shape: blue fill, darker outline, white text; a text box has no fill or outline. */
-export function insertShape(kind: ShapeKind): void {
+export function insertShape(kind: ShapeKind, patch: Partial<ShapeDef> = {}, label?: string): void {
   const sheet = store.active
   if (!store.allows(sheet, 'objects')) return
   const { r, c } = sheet.selection.active
@@ -28,7 +28,8 @@ export function insertShape(kind: ShapeKind): void {
     ...(kind === 'textbox' ? { line: undefined, fontSize: 11 } : isLine ? { line: '#4472c4', lineWidth: 2 } : { fill: '#4472c4', line: '#2f528f', lineWidth: 1, color: '#ffffff', fontSize: 11, align: 'ctr' as const })
   }
   if (isLine) shape.height = 60 // a diagonal that is easy to grab
-  store.updateLayout(sheet, kind === 'textbox' ? 'Insert Text Box' : 'Insert Shape', (l) => { l.shapes = [...(l.shapes ?? []), shape] })
+  Object.assign(shape, patch)
+  store.updateLayout(sheet, label ?? (kind === 'textbox' ? 'Insert Text Box' : 'Insert Shape'), (l) => { l.shapes = [...(l.shapes ?? []), shape] })
   setUi({ selectedPicture: shape.id, selectedChart: null })
 }
 
