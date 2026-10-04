@@ -449,7 +449,7 @@ export function ViewTab() {
       { label: 'Page Break Preview', icon: big(DocumentPageBreak20Regular), width: 62, active: ui.viewMode === 'pageBreak', onClick: () => setUi({ viewMode: 'pageBreak' }) },
       [
         { label: 'Page Layout', icon: <PageFit20Regular />, onClick: () => setUi({ backstage: true, backstageTab: 'print' }) },
-        { label: 'Custom Views', icon: <AppsListDetail20Regular />, onClick: () => notAvailable('Custom Views') }
+        { label: 'Custom Views', icon: <AppsListDetail20Regular />, onClick: () => setUi({ dialog: { kind: 'customViews' } }) }
       ]
     ] },
     { label: 'Show', items: [
