@@ -27,6 +27,7 @@ import { SparklineDialog } from './SparklineDialog'
 import { SpellingDialog } from './SpellingDialog'
 import { EvaluateFormulaDialog } from './EvaluateFormulaDialog'
 import { SymbolDialog } from './SymbolDialog'
+import { IconsDialog } from './IconsDialog'
 import { AccessibilityDialog } from './AccessibilityDialog'
 import { DataTableDialog, ScenarioManagerDialog } from './WhatIfDialogs'
 import { SubtotalDialog } from './SubtotalDialog'
@@ -187,6 +188,8 @@ export default function DialogHost() {
       return <ScenarioManagerDialog onClose={close} />
     case 'symbol':
       return <SymbolDialog onClose={close} />
+    case 'icons':
+      return <IconsDialog onClose={close} />
     case 'evaluateFormula':
       return <EvaluateFormulaDialog onClose={close} />
     case 'spelling':
