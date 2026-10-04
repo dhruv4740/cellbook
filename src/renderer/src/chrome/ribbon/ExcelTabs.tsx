@@ -227,7 +227,7 @@ export function PageLayoutTab() {
     ] },
     { label: 'Arrange', items: [
       { label: 'Bring Forward', icon: big(Layer20Regular), width: 60, onClick: () => arrangeOrder('forward'), menu: [{ label: 'Bring &Forward', onClick: () => arrangeOrder('forward') }, { label: 'Bring to &Front', onClick: () => arrangeOrder('front') }] },
-      { label: 'Send Backward', icon: big(Layer20Regular), width: 60, onClick: () => arrangeOrder('backward'), menu: [{ label: 'Send &Backward', onClick: () => arrangeOrder('backward') }, { label: 'Send to &Back', onClick: () => arrangeOrder('back') }] },
+      { label: 'Send Backward', icon: big(Layer20Regular), width: 72, onClick: () => arrangeOrder('backward'), menu: [{ label: 'Send &Backward', onClick: () => arrangeOrder('backward') }, { label: 'Send to &Back', onClick: () => arrangeOrder('back') }] },
       { label: 'Selection Pane', icon: big(AppsListDetail20Regular), width: 60, active: ui.selectionPaneOpen, onClick: () => setUi({ selectionPaneOpen: !getUi().selectionPaneOpen }) },
       { label: 'Align', icon: big(AlignLeft20Regular), width: 40, menu: [
         { label: 'Align &Left', onClick: () => arrangeAlign('left') }, { label: 'Align &Center', onClick: () => arrangeAlign('center') }, { label: 'Align &Right', onClick: () => arrangeAlign('right') },
