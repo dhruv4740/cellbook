@@ -99,6 +99,7 @@ export function createForecastSheet(store: WorkbookStore, src: ForecastSource, o
       { r: 1, c: 9, dx: 0, dy: 0 }
     )
     spec.seriesInColumns = true
+    spec.firstIsCategories = true
     insertChart(store, sh, spec)
   })
   return null

@@ -303,8 +303,11 @@ function LineBody({ inner, data, colors, subtype, gridlines, axes, dataLabels }:
       const areaD = `${d} L${pts[pts.length - 1][0]} ${baseY} L${pts[0][0]} ${baseY} Z`
       shapes.push(<path key={'a' + si} d={areaD} fill={colors[si % colors.length]} opacity={0.55} stroke="none" />)
     }
-    shapes.push(<path key={si} d={d} fill="none" stroke={colors[si % colors.length]} strokeWidth={2} />)
-    if (markers) pts.forEach(([x, y], i) => shapes.push(<circle key={si + '-' + i} cx={x} cy={y} r={3} fill="#FFFFFF" stroke={colors[si % colors.length]} strokeWidth={1.5} />))
+    // empty cells leave a gap in a plain line (Excel's default), rather than dropping to zero
+    const runs: [number, number][][] = [[]]
+    pts.forEach((pt, i) => { if (s.values[i] === null && !stacked && !area) runs.push([]); else runs[runs.length - 1].push(pt) })
+    runs.forEach((run, ri) => { if (run.length > 1) shapes.push(<path key={si + '_' + ri} d={pathFor(run, false)} fill="none" stroke={colors[si % colors.length]} strokeWidth={2} />) })
+    if (markers) pts.forEach(([x, y], i) => s.values[i] !== null && shapes.push(<circle key={si + '-' + i} cx={x} cy={y} r={3} fill="#FFFFFF" stroke={colors[si % colors.length]} strokeWidth={1.5} />))
     if (dataLabels) pts.forEach(([x, y], i) => shapes.push(<text key={'l' + si + '-' + i} x={x} y={y - 6} textAnchor="middle" fontSize={9} fill={TEXT_COLOR}>{fmtVal(s.values[i] ?? 0)}</text>))
   })
 

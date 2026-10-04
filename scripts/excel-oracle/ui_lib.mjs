@@ -11,6 +11,7 @@ export async function launch(tag) {
   let win
   for (let i = 0; i < 100 && !win; i++) { for (const p of app.windows()) if (await p.evaluate(() => document.visibilityState === 'visible').catch(() => false)) win = p; if (!win) await new Promise((r) => setTimeout(r, 200)) }
   await win.waitForFunction(() => globalThis.store)
+  await win.evaluate(() => { globalThis.__driven = 1 })
   const errors = []
   win.on('pageerror', (e) => errors.push(String(e).slice(0, 200)))
   win.on('console', (m) => { if (m.type() === 'error') errors.push(m.text().slice(0, 200)) })
@@ -24,11 +25,15 @@ export async function launch(tag) {
     tab: async (name) => { await win.locator('.xl-tab', { hasText: name }).first().click(); await win.waitForTimeout(250) },
     click: async (text) => { await win.getByText(text, { exact: false }).filter({ visible: true }).first().click(); await win.waitForTimeout(250) },
     shot: async (n, region) => {
+      const park = (x) => app.evaluate(({ BrowserWindow }, x) => { for (const w of BrowserWindow.getAllWindows()) if (!process.env.SHOW) w.setPosition(x, x) }, x)
+      await park(0); await win.waitForTimeout(450) // an off-screen window is not repainted, so bring it on-screen to capture
       const b64 = await app.evaluate(async ({ BrowserWindow }, rect) => {
-        let t = BrowserWindow.getAllWindows()[0]
-        for (const w of BrowserWindow.getAllWindows()) { if (await w.webContents.executeJavaScript('!!globalThis.store').catch(() => false) && w.isVisible()) t = w }
+        let t = null
+        for (const w of BrowserWindow.getAllWindows()) { if (!t && await w.webContents.executeJavaScript('!!globalThis.__driven').catch(() => false)) t = w }
+        t = t ?? BrowserWindow.getAllWindows()[0]
         return (await (rect ? t.webContents.capturePage(rect) : t.webContents.capturePage())).toPNG().toString('base64')
       }, region)
+      await park(-3000)
       fs.mkdirSync('scripts/excel-oracle/out/ui', { recursive: true })
       fs.writeFileSync('scripts/excel-oracle/out/ui/' + n + '.png', Buffer.from(b64, 'base64'))
     },
