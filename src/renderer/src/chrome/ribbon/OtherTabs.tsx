@@ -131,19 +131,21 @@ export function DrawTab() {
   return <GenericTab groups={groups} />
 }
 
+const web = (url: string) => { void window.api?.openLink?.(url) }
+
 export function HelpTab() {
   const groups: GGroup[] = [
     { label: 'Help', items: [
       { label: 'Help', icon: <QuestionCircle20Regular fontSize={28} />, shortcut: 'F1', width: 40 },
-      { label: 'Contact Support', icon: <ChatHelp20Regular fontSize={28} />, width: 56, onClick: () => notAvailable('Contact Support') },
+      { label: 'Contact Support', icon: <ChatHelp20Regular fontSize={28} />, width: 56, onClick: () => web('https://support.microsoft.com/contactus') },
       { label: 'Feedback', icon: <Mail20Regular fontSize={28} />, width: 56, onClick: () => notAvailable('Feedback') },
-      { label: 'Show Training', icon: <Sparkle20Regular fontSize={28} />, width: 56 }
+      { label: 'Show Training', icon: <Sparkle20Regular fontSize={28} />, width: 56, onClick: () => web('https://support.microsoft.com/excel') }
     ] },
     { label: 'Community', items: [
-      { label: 'Community', icon: <ChatHelp20Regular fontSize={28} />, width: 64 },
-      { label: 'Excel Blog', icon: <Note20Regular fontSize={28} />, width: 48 }
+      { label: 'Community', icon: <ChatHelp20Regular fontSize={28} />, width: 64, onClick: () => web('https://techcommunity.microsoft.com/category/microsoft365/blog/excelblog') },
+      { label: 'Excel Blog', icon: <Note20Regular fontSize={28} />, width: 48, onClick: () => web('https://techcommunity.microsoft.com/category/microsoft365/blog/excelblog') }
     ] },
-    { label: 'Mobile', items: [{ label: 'Get Excel Mobile App', icon: <Mail20Regular fontSize={28} />, width: 84 }] }
+    { label: 'Mobile', items: [{ label: 'Get Excel Mobile App', icon: <Mail20Regular fontSize={28} />, width: 84, onClick: () => web('https://www.microsoft.com/microsoft-365/excel-mobile') }] }
   ]
   return <GenericTab groups={groups} />
 }

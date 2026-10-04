@@ -6,7 +6,8 @@ import { launch } from './ui_lib.mjs'
 const only = process.argv.slice(2)
 const t = await launch('crawl')
 const { win, app } = t
-await app.evaluate(({ dialog }) => {
+await app.evaluate(({ dialog, shell }) => {
+  shell.openExternal = async () => {}; shell.openPath = async () => ''
   const cancel = async () => ({ canceled: true, filePaths: [], filePath: undefined, response: 1, checkboxChecked: false })
   dialog.showOpenDialog = cancel; dialog.showSaveDialog = cancel; dialog.showMessageBox = cancel; dialog.showMessageBoxSync = () => 1
 })
@@ -63,6 +64,7 @@ for (const tabName of tabs) {
     const name = (await btn.evaluate((el) => (el.getAttribute('aria-label') || el.innerText || el.title || '').replace(/\s+/g, ' ').trim())).slice(0, 60) || `#${i}`
     const cls = await btn.evaluate((e) => e.className)
     if (SKIP.test(name) || /xl-launcher/.test(cls) && false) { report.push({ tab: tabName, i, name, result: 'skipped' }); continue }
+    console.log('>', tabName, i, name)
     const errBefore = t.errors.length
     const before = await snap()
     try { await btn.click({ timeout: 2500 }) } catch (e) { report.push({ tab: tabName, i, name, cls, result: 'click-failed', detail: String(e).slice(0, 900) }); continue }
@@ -81,7 +83,7 @@ for (const tabName of tabs) {
       for (let j = 0; j < items.length; j++) {
         if (SKIP.test(items[j])) { entry.items.push({ j, name: items[j], result: 'skipped' }); continue }
         await reset()
-        const e0 = t.errors.length
+        const e0 = t.errors.length; console.log('  item', j, items[j])
         try {
           await btn.click({ timeout: 2500 }); await win.waitForTimeout(200)
           const cand = win.locator('.xl-menu .xl-menu-item, .xl-combo-list .xl-combo-item, .xl-group-popup button, .xl-color-menu .xl-color-swatch, .xl-color-menu .xl-more-colors').filter({ visible: true })
