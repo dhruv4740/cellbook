@@ -95,7 +95,7 @@ export function ObjectOverlay({ sheet, geo }: { sheet: SheetState; geo: ChartGeo
   const startInk = (e: React.MouseEvent<HTMLDivElement>): void => {
     const tool = ui.inkTool
     if (!tool || tool.kind === 'select') return
-    e.preventDefault()
+    e.preventDefault(); e.stopPropagation()
     const host = e.currentTarget.getBoundingClientRect()
     const at = (ev: { clientX: number; clientY: number }): Pt => [ev.clientX - host.left, ev.clientY - host.top]
     const pts: Pt[] = [at(e)]
