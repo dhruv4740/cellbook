@@ -83,7 +83,7 @@ export function InsertTab() {
       { label: 'Pictures', icon: big(ImageAdd20Regular), menu: [{ label: 'This Device...', onClick: () => pickPictureFiles() }, { label: 'Stock Images...', onClick: () => notAvailable('Stock Images') }, { label: 'From Online Sources...', onClick: () => notAvailable('Online Pictures') }] },
       [
         { label: 'Shapes', icon: <Shapes20Regular />, menu: (['rect', 'roundRect', 'ellipse', 'triangle', 'diamond', 'rightArrow', 'line', 'arrow', 'textbox'] as const).map((k) => ({ label: SHAPE_LABELS[k], onClick: () => insertShape(k) })) },
-        { label: 'Icons', icon: <Sparkle20Regular />, onClick: () => notAvailable('Icons') },
+        { label: 'Icons', icon: <Sparkle20Regular />, onClick: () => setUi({ dialog: { kind: 'icons' } }) },
         { label: '3D Models', icon: <Cube20Regular />, menu: na('3D Models') }
       ],
       [
