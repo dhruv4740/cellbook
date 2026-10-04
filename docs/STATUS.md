@@ -89,3 +89,9 @@ Waterfall/Funnel/Stock/Surface/Radar/Combo charts, Thesaurus, Translate, Smart L
 Split, Hide window, Ink to Math, Add-ins store, Sheet Background.
 Simplifications: ink saved as freeform shapes (not InkML); custom table styles in localStorage; Custom Views session-only;
 themes recolour new content only; WordArt/Equation are styled text boxes.
+
+Also added after the first crawl: Quick Analysis, Page Layout Background (session only, not saved to .xlsx), View Hide/Unhide window,
+Combo and Waterfall charts (saved as bar+line / stacked column), AutoFilter Date Filters, negative values on column/bar/line/area/combo
+charts (value axis spans min..max). Fixed: Text/Number custom-filter dialogs closed instantly under the menu scrim; pen strokes moved the
+cell selection. Removed from the "on purpose" list: Quick Analysis, Hide window, Combo, Waterfall, Background.
+Still open: Split, Slicer, Timeline, SmartArt, Sort/Filter by Color, Sheet View in the filter menu, scatter charts with negatives.
