@@ -14,6 +14,7 @@ import { copyAsPicture } from '../../grid/copyPicture'
 import { getSpecialRanges } from '../../dialogs/find'
 import { toggleSheetProtection } from '../../dialogs/ProtectDialogs'
 import { addCfRule, clearCfRules } from '../../format/conditional'
+import { loadCustomTableStyles } from '../../format/customTableStyles'
 import {
   ClipboardPaste24Regular, Cut20Regular, Copy20Regular, PaintBrush20Regular,
   TextBold20Regular, TextItalic20Regular, TextUnderline20Regular, TextUnderlineDouble20Regular,
@@ -473,7 +474,7 @@ export default function HomeTab() {
 
       <Group label="Styles" icon={<TableCellsMerge20Regular />}>
         <BigButton wide icon={<TableCellsMerge20Regular fontSize={28} />} label="Conditional Formatting" tip={{ title: 'Conditional Formatting' }} menu={cfMenu} keytip="L" />
-        <BigButton wide icon={<TableSimple20Regular fontSize={28} />} label="Format as Table" tip={{ title: 'Format as Table' }} menu={[...cmds.TABLE_STYLES.map((t, i) => ({ label: t.name, icon: <span style={{ display: 'inline-block', width: 14, height: 12, background: `linear-gradient(${t.header} 0 34%, ${t.band} 34% 67%, #fff 67%)`, border: `1px solid ${t.line}` }} />, onClick: () => cmds.formatAsTable(i) } as MenuItem)), 'separator', { label: 'New Table Style...', onClick: () => notAvailable('New Table Style') }]} keytip="T" />
+        <BigButton wide icon={<TableSimple20Regular fontSize={28} />} label="Format as Table" tip={{ title: 'Format as Table' }} menu={[...cmds.TABLE_STYLES.map((t, i) => ({ label: t.name, icon: <span style={{ display: 'inline-block', width: 14, height: 12, background: `linear-gradient(${t.header} 0 34%, ${t.band} 34% 67%, #fff 67%)`, border: `1px solid ${t.line}` }} />, onClick: () => cmds.formatAsTable(i) } as MenuItem)), ...loadCustomTableStyles().flatMap((t, i): MenuItem[] => [...(i === 0 ? ['separator' as const, { label: 'Custom', disabled: true }] : []), { label: t.name, icon: <span style={{ display: 'inline-block', width: 14, height: 12, background: `linear-gradient(${t.header} 0 34%, ${t.band} 34% 67%, #fff 67%)`, border: `1px solid ${t.line}` }} />, onClick: () => cmds.formatAsTable(t) }]), 'separator', { label: 'New Table Style...', onClick: () => setUi({ dialog: { kind: 'newTableStyle' } }) }]} keytip="T" />
         <BigButton
           wide
           icon={<TableInsertRow20Regular fontSize={28} />}

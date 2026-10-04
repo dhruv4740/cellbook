@@ -29,6 +29,7 @@ import { EvaluateFormulaDialog } from './EvaluateFormulaDialog'
 import { SymbolDialog } from './SymbolDialog'
 import { IconsDialog } from './IconsDialog'
 import { EditRangesDialog } from './EditRangesDialog'
+import { NewTableStyleDialog } from './NewTableStyleDialog'
 import { AccessibilityDialog } from './AccessibilityDialog'
 import { DataTableDialog, ScenarioManagerDialog } from './WhatIfDialogs'
 import { SubtotalDialog } from './SubtotalDialog'
@@ -189,6 +190,8 @@ export default function DialogHost() {
       return <ScenarioManagerDialog onClose={close} />
     case 'symbol':
       return <SymbolDialog onClose={close} />
+    case 'newTableStyle':
+      return <NewTableStyleDialog onClose={close} />
     case 'editRanges':
       return <EditRangesDialog onClose={close} />
     case 'icons':
