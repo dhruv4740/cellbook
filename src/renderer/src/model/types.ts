@@ -253,6 +253,8 @@ export const MAX_ROWS = 1048576
 export const MAX_COLS = 16384
 export const DEFAULT_FONT = 'Calibri'
 export const DEFAULT_FONT_SIZE = 11
+/** The open workbook's Normal-style font (set on load); cells without their own font draw with it. */
+export const normalFont = { name: DEFAULT_FONT, size: DEFAULT_FONT_SIZE }
 /** Office 2013-2022 theme colors ("Office" theme), used by every color picker and chart default. */
 export const THEME_COLORS = {
   dark1: '#000000', light1: '#FFFFFF', dark2: '#44546A', light2: '#E7E6E6',

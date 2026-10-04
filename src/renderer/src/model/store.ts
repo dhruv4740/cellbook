@@ -6,7 +6,7 @@ import { useSyncExternalStore } from 'react'
 import {
   CellStyle, CellValue, Range, Selection, SheetLayout, cellKey, normRange,
   DEFAULT_COL_WIDTH, DEFAULT_ROW_HEIGHT, MAX_ROWS, MAX_COLS, FilterCriteria, WorkbookProtection, CalcMode, SheetProtection, ProtectAllowKey, NoteData, CommentThread, rangeA1
-} from './types'
+, normalFont, DEFAULT_FONT, DEFAULT_FONT_SIZE } from './types'
 import { formatValue, detectInputFormat, numericInput, FormattedValue } from '../format/numfmt'
 import { computeFilteredRows } from '../engine/filter'
 import { shiftFormula } from '../engine/shiftFormula'
@@ -1287,6 +1287,8 @@ export class WorkbookStore {
     this.bookProtection = data.protection
     this.calcMode = data.calcMode ?? 'auto'
     this.defaultFont = data.defaultFont
+    normalFont.name = data.defaultFont?.name ?? DEFAULT_FONT
+    normalFont.size = data.defaultFont?.size ?? DEFAULT_FONT_SIZE
     this.frozen = null
     this.calcPending = false
     if (this.calcMode === 'manual') this.freezeValues()
