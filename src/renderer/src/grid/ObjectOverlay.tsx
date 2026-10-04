@@ -168,7 +168,9 @@ function ShapeView({ shape: s, z, box, editing, onText }: { shape: ShapeDef; z: 
   const align = s.align === 'r' ? 'flex-end' : s.align === 'ctr' ? 'center' : 'flex-start'
   const textStyle: React.CSSProperties = {
     color: s.color ?? '#000000', fontSize: (s.fontSize ?? 11) * z * (96 / 72), fontWeight: s.bold ? 700 : 400, fontStyle: s.italic ? 'italic' : 'normal',
-    textAlign: s.align === 'r' ? 'right' : s.align === 'ctr' ? 'center' : 'left', fontFamily: 'Calibri, Carlito, sans-serif', whiteSpace: 'pre-wrap', overflow: 'hidden', width: '100%'
+    textAlign: s.align === 'r' ? 'right' : s.align === 'ctr' ? 'center' : 'left', fontFamily: s.fontFamily ? `"${s.fontFamily}", Calibri, Carlito, sans-serif` : 'Calibri, Carlito, sans-serif', whiteSpace: 'pre-wrap', overflow: 'hidden', width: '100%',
+    ...(s.textOutline ? { WebkitTextStroke: `${Math.max(0.5, z)}px ${s.textOutline}`, paintOrder: 'stroke fill' } : {}),
+    ...(s.textShadow ? { textShadow: `${2 * z}px ${2 * z}px ${3 * z}px rgba(0,0,0,0.45)` } : {})
   }
   const isLine = s.kind === 'line' || s.kind === 'arrow'
   return (

@@ -502,6 +502,11 @@ export interface ShapeDef extends ArrangeProps {
   bold?: boolean
   italic?: boolean
   align?: 'l' | 'ctr' | 'r'
+  /** WordArt-style text effects. */
+  fontFamily?: string
+  /** Text outline colour (#rrggbb). */
+  textOutline?: string
+  textShadow?: boolean
 }
 
 export interface PictureDef extends ArrangeProps {

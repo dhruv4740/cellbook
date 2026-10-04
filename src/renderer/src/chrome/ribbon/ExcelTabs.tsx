@@ -23,6 +23,7 @@ import { traceStep, removeArrows } from '../../data/trace'
 import { nextErrorCell } from '../../data/errorCheck'
 import { pickPictureFiles } from '../../data/pictures'
 import { insertShape, SHAPE_LABELS } from '../../data/shapes'
+import { WORDART_STYLES, insertWordArt, insertSignatureLine, EQUATIONS, NEW_EQUATION_TEXT, insertEquation } from '../../data/textObjects'
 import { colName } from '../../model/types'
 import { selectionRef } from '../../dialogs/NameDialogs'
 import { FUNCTION_CATEGORIES, RECENTLY_USED } from './functionCategories'
@@ -123,12 +124,16 @@ export function InsertTab() {
     { label: 'Text', items: [{ label: 'Text', icon: big(TextboxAlignTopLeft20Regular), menu: [
       { label: 'Text Box', icon: <TextboxAlignTopLeft20Regular />, onClick: () => insertShape('textbox') },
       { label: 'Header & Footer', icon: <PanelLeftText20Regular />, onClick: () => openPageSetup('Header/Footer') },
-      { label: 'WordArt', onClick: () => notAvailable('WordArt') },
-      { label: 'Signature Line', onClick: () => notAvailable('Signature Line') },
+      { label: 'WordArt', submenu: WORDART_STYLES.map((w) => ({ label: w.label, icon: <b style={{ color: w.patch.color, WebkitTextStroke: w.patch.textOutline ? `0.5px ${w.patch.textOutline}` : undefined, textShadow: w.patch.textShadow ? '1px 1px 1px #666' : undefined }}>A</b>, onClick: () => insertWordArt(w) })) },
+      { label: 'Signature Line', onClick: () => insertSignatureLine() },
       { label: 'Object', onClick: () => notAvailable('Object') }
     ] }] },
     { label: 'Symbols', items: [{ label: 'Symbols', icon: big(MathSymbols20Regular), menu: [
-      { label: 'Equation', icon: <MathFormula20Regular />, onClick: () => notAvailable('Equation') },
+      { label: 'Equation', icon: <MathFormula20Regular />, submenu: [
+        ...EQUATIONS.map((q) => ({ label: `${q.label}:  ${q.text}`, onClick: () => insertEquation(q.text) })),
+        'separator' as const,
+        { label: 'Insert New Equation', onClick: () => insertEquation(NEW_EQUATION_TEXT) }
+      ] },
       { label: 'Symbol', icon: <MathSymbols20Regular />, onClick: () => setUi({ dialog: { kind: 'symbol' } }) }
     ] }] }
   ]

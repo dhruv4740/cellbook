@@ -139,7 +139,10 @@ function parseShape(xml: string, connector: boolean, anchor: ShapeDef['anchor'],
   const run = /<(?:a:)?r>[\s\S]*?<\/(?:a:)?r>/.exec(xml)?.[0] ?? ''
   const rPr = /<(?:a:)?rPr\b([^>]*?)(?:\/>|>([\s\S]*?)<\/(?:a:)?rPr>)/.exec(run)
   const sz = rPr ? /\bsz="(\d+)"/.exec(rPr[1])?.[1] : undefined
-  const color = rPr?.[2] ? hex(SRGB.exec(rPr[2])?.[1]) : undefined
+  const RLN = /<(?:a:)?ln\b[\s\S]*?<\/(?:a:)?ln>/
+  const color = rPr?.[2] ? hex(SRGB.exec(rPr[2].replace(RLN, ''))?.[1]) : undefined
+  const textOutline = hex(SRGB.exec(RLN.exec(rPr?.[2] ?? '')?.[0] ?? '')?.[1])
+  const fontFamily = rPr?.[2] ? /<(?:a:)?latin\b[^>]*typeface="([^"]*)"/.exec(rPr[2])?.[1] : undefined
   const algn = /<(?:a:)?pPr\b[^>]*\balgn="(\w+)"/.exec(xml)?.[1]
   const nm = /<(?:xdr:)?cNvPr\b[^>]*\bname="([^"]*)"/.exec(xml)?.[1] ?? 'Shape'
   return {
@@ -147,6 +150,7 @@ function parseShape(xml: string, connector: boolean, anchor: ShapeDef['anchor'],
     ...(fill ? { fill } : {}), ...(line ? { line, lineWidth: lw ? Math.max(0.25, num(lw) / 12700) : 1 } : {}),
     ...(text ? { text } : {}), ...(color ? { color } : {}),
     ...(sz ? { fontSize: num(sz) / 100 } : {}), ...(rPr && /\bb="1"/.test(rPr[1]) ? { bold: true } : {}), ...(rPr && /\bi="1"/.test(rPr[1]) ? { italic: true } : {}),
+    ...(textOutline ? { textOutline } : {}), ...(fontFamily ? { fontFamily: unescapeXml(fontFamily) } : {}), ...(rPr?.[2] && /<(?:a:)?outerShdw\b/.test(rPr[2]) ? { textShadow: true } : {}),
     ...(algn === 'ctr' ? { align: 'ctr' as const } : algn === 'r' ? { align: 'r' as const } : {})
   }
 }
@@ -172,7 +176,7 @@ function shapeAnchorXml(s: ShapeDef, id: number): string {
     return `<xdr:oneCellAnchor>${from}<xdr:cxnSp macro=""><xdr:nvCxnSpPr><xdr:cNvPr id="${id}" name="${name}"${hiddenAttr(s)}/><xdr:cNvCxnSpPr/></xdr:nvCxnSpPr><xdr:spPr>${xfrm}${geom}${ln}</xdr:spPr></xdr:cxnSp><xdr:clientData/></xdr:oneCellAnchor>`
   }
   const algn = s.align === 'ctr' ? 'ctr' : s.align === 'r' ? 'r' : 'l'
-  const rPr = `<a:rPr lang="en-US" sz="${Math.round((s.fontSize ?? 11) * 100)}"${s.bold ? ' b="1"' : ''}${s.italic ? ' i="1"' : ''}><a:solidFill><a:srgbClr val="${rgb(s.color ?? '#000000')}"/></a:solidFill></a:rPr>`
+  const rPr = `<a:rPr lang="en-US" sz="${Math.round((s.fontSize ?? 11) * 100)}"${s.bold ? ' b="1"' : ''}${s.italic ? ' i="1"' : ''}>${s.textOutline ? `<a:ln w="9525"><a:solidFill><a:srgbClr val="${rgb(s.textOutline)}"/></a:solidFill></a:ln>` : ''}<a:solidFill><a:srgbClr val="${rgb(s.color ?? '#000000')}"/></a:solidFill>${s.textShadow ? '<a:effectLst><a:outerShdw blurRad="38100" dist="25400" dir="2700000" algn="tl" rotWithShape="0"><a:srgbClr val="000000"><a:alpha val="45000"/></a:srgbClr></a:outerShdw></a:effectLst>' : ''}${s.fontFamily ? `<a:latin typeface="${escapeXml(s.fontFamily)}"/>` : ''}</a:rPr>`
   const paras = (s.text ?? '').split('\n').map((t) => `<a:p><a:pPr algn="${algn}"/>${t ? `<a:r>${rPr}<a:t>${escapeXml(t)}</a:t></a:r>` : ''}</a:p>`).join('')
   return `<xdr:oneCellAnchor>${from}<xdr:sp macro="" textlink=""><xdr:nvSpPr><xdr:cNvPr id="${id}" name="${name}"${hiddenAttr(s)}/><xdr:cNvSpPr${s.kind === 'textbox' ? ' txBox="1"' : ''}/></xdr:nvSpPr><xdr:spPr>${xfrm}${geom}${fill}${ln}</xdr:spPr>` +
     `<xdr:txBody><a:bodyPr vertOverflow="clip" horzOverflow="clip" wrap="square" rtlCol="0" anchor="${s.kind === 'textbox' ? 't' : 'ctr'}"/><a:lstStyle/>${paras}</xdr:txBody></xdr:sp><xdr:clientData/></xdr:oneCellAnchor>`
