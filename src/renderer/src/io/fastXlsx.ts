@@ -178,6 +178,8 @@ export function parseXlsx(bytes: Uint8Array): WorkbookData & { vbaProject?: VbaP
       const prot = sp ? parseSheetProtection(parseAttrs(sp[1], 0, sp[1].length)) : undefined
       if (prot) layout.protection = prot
     }
+    const er = [...xml.matchAll(/<protectedRange\b([^>]*?)\/?>/g)].map((m) => parseAttrs(m[1], 0, m[1].length)).filter((a) => a.sqref)
+    if (er.length) layout.editRanges = er.map((a, i) => ({ title: decodeXmlEntities(a.name ?? `Range${i + 1}`), ref: decodeXmlEntities(a.sqref) }))
     if (parsed.tabColorAttrs) {
       const c = resolveColor(parseAttrs(parsed.tabColorAttrs, 0, parsed.tabColorAttrs.length), themeColors)
       if (c) layout.tabColor = c

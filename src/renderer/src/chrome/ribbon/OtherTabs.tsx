@@ -72,7 +72,7 @@ export function ReviewTab() {
     { label: 'Protect', big: [
       { label: store.active.layout.protection ? 'Unprotect Sheet' : 'Protect Sheet', icon: <LockClosed20Regular fontSize={28} />, wide: true, onClick: () => toggleSheetProtection(store.active) },
       { label: store.bookProtection ? 'Unprotect Workbook' : 'Protect Workbook', icon: <LockClosed20Regular fontSize={28} />, wide: true, onClick: () => toggleWorkbookProtection() },
-      { label: 'Allow Edit Ranges', icon: <ShieldTask20Regular fontSize={28} /> },
+      { label: 'Allow Edit Ranges', icon: <ShieldTask20Regular fontSize={28} />, disabled: !!store.active.layout.protection, onClick: () => setUi({ dialog: { kind: 'editRanges' } }) },
       { label: 'Unshare Workbook', icon: <ShieldTask20Regular fontSize={28} /> }
     ] },
     { label: 'Ink', big: [{ label: 'Hide Ink', icon: <PenSparkle20Regular fontSize={28} /> }] }

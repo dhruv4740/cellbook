@@ -1,6 +1,6 @@
 // Sheet / workbook protection: Excel's password hashes and the allow-list defaults.
 import { sha512 } from '@noble/hashes/sha2.js'
-import { PasswordHash, ProtectAllowKey, SheetProtection } from './types'
+import { EditRange, PasswordHash, ProtectAllowKey, Range, SheetProtection, parseA1, rangeA1 } from './types'
 
 export const PROTECT_OPTIONS: { key: ProtectAllowKey; label: string }[] = [
   { key: 'selectLockedCells', label: 'Select locked cells' },
@@ -124,4 +124,22 @@ export function sheetProtectionXml(p: SheetProtection): string {
     if (prohibited !== PROHIBIT_DEFAULT[o.key]) a += ` ${o.key}="${prohibited ? 1 : 0}"`
   }
   return `<sheetProtection${a}/>`
+}
+
+/** The ranges named by an sqref-style string ("A1:B4 D6"); unparsable parts are dropped. */
+export function parseSqref(ref: string): Range[] {
+  return ref.split(/[\s,]+/).filter(Boolean).map((p) => parseA1(p)).filter((r): r is Range => !!r)
+}
+
+export function inEditRanges(list: EditRange[] | undefined, r: number, c: number): boolean {
+  return !!list?.some((e) => parseSqref(e.ref).some((g) => r >= g.r1 && r <= g.r2 && c >= g.c1 && c <= g.c2))
+}
+
+const escAttr = (s: string): string => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+
+/** The sheet's <protectedRanges> element, or '' when there are none. */
+export function protectedRangesXml(list: EditRange[] | undefined): string {
+  const ok = (list ?? []).filter((e) => parseSqref(e.ref).length)
+  if (!ok.length) return ''
+  return `<protectedRanges>${ok.map((e) => `<protectedRange sqref="${escAttr(parseSqref(e.ref).map(rangeA1).join(' '))}" name="${escAttr(e.title)}"/>`).join('')}</protectedRanges>`
 }

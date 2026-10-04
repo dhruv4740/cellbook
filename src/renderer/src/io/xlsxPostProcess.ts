@@ -17,8 +17,8 @@ export function toBytes(z: PkgLike, level: 1 | 4 | 6 = 4): Uint8Array {
   for (const [name, bytes] of Object.entries(z.files)) if (!name.endsWith('/')) out[name] = bytes
   return zipSync(out, { level })
 }
-import type { AutoFilter, CalcMode, ChartSpec, DataValidationRule, SheetLayout, SheetProtection, WorkbookProtection } from '../model/types'
-import { passwordAttrs, sheetProtectionXml } from '../model/protection'
+import type { AutoFilter, CalcMode, ChartSpec, EditRange,DataValidationRule, SheetLayout, SheetProtection, WorkbookProtection } from '../model/types'
+import { passwordAttrs, protectedRangesXml, sheetProtectionXml } from '../model/protection'
 import { outlineRuns } from '../model/outline'
 import { buildPageSetupXml } from './pageSetupXml'
 import type { PageSetup } from '../model/types'
@@ -543,18 +543,20 @@ export function injectProtection(
   zipBytes: PkgLike,
   sheetProt: (SheetProtection | undefined)[],
   wbProt: WorkbookProtection | undefined,
-  calcMode: CalcMode | undefined
+  calcMode: CalcMode | undefined,
+  editRanges: (EditRange[] | undefined)[] = []
 ): PkgLike {
-  if (!sheetProt.some(Boolean) && !wbProt && (!calcMode || calcMode === 'auto')) return zipBytes
+  if (!sheetProt.some(Boolean) && !editRanges.some((e) => e?.length) && !wbProt && (!calcMode || calcMode === 'auto')) return zipBytes
   const files = toFiles(zipBytes)
   const dec = new TextDecoder('utf-8'), enc = new TextEncoder()
   sheetProt.forEach((p, i) => {
-    if (!p) return
+    const ranges = protectedRangesXml(editRanges[i])
+    if (!p && !ranges) return
     const path = `xl/worksheets/sheet${i + 1}.xml`
     if (!files[path]) return
     let xml = dec.decode(files[path])
-    xml = xml.replace(/<sheetProtection\b[^>]*\/>/, '')
-    const frag = sheetProtectionXml(p)
+    xml = xml.replace(/<sheetProtection\b[^>]*\/>/, '').replace(/<protectedRanges\b[\s\S]*?<\/protectedRanges>/, '')
+    const frag = (p ? sheetProtectionXml(p) : '') + ranges // protectedRanges follows sheetProtection (and precedes scenarios)
     if (xml.includes('</sheetData>')) xml = xml.replace('</sheetData>', '</sheetData>' + frag)
     else xml = xml.replace('<sheetData/>', '<sheetData/>' + frag)
     files[path] = enc.encode(xml)

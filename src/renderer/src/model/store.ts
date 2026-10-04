@@ -7,6 +7,7 @@ import {
   CellStyle, CellValue, Range, Selection, SheetLayout, cellKey, normRange,
   DEFAULT_COL_WIDTH, DEFAULT_ROW_HEIGHT, MAX_ROWS, MAX_COLS, FilterCriteria, WorkbookProtection, CalcMode, SheetProtection, ProtectAllowKey, NoteData, CommentThread, rangeA1
 , normalFont, DEFAULT_FONT, DEFAULT_FONT_SIZE } from './types'
+import { inEditRanges } from './protection'
 import { formatValue, detectInputFormat, numericInput, FormattedValue } from '../format/numfmt'
 import { computeFilteredRows } from '../engine/filter'
 import { shiftFormula } from '../engine/shiftFormula'
@@ -510,7 +511,7 @@ export class WorkbookStore {
     return !p || p.allow[key] || this.deny(WorkbookStore.PROTECTED_MSG)
   }
   cellLocked(sheet: SheetState, r: number, c: number): boolean {
-    return sheet.styles.get(cellKey(r, c))?.locked !== false
+    return sheet.styles.get(cellKey(r, c))?.locked !== false && !inEditRanges(sheet.layout.editRanges, r, c)
   }
   /** False (after telling the user) if any of these cells is locked on a protected sheet. */
   canEditCells(sheet: SheetState, cells: Iterable<{ r: number; c: number }>): boolean {
