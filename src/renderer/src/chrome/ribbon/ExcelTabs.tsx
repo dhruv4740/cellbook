@@ -28,6 +28,7 @@ import { selectionRef } from '../../dialogs/NameDialogs'
 import { FUNCTION_CATEGORIES, RECENTLY_USED } from './functionCategories'
 import { MenuItem } from '../../components/Menu'
 import * as cmds from '../../grid/commands'
+import { arrangeOrder, arrangeAlign, arrangeDistribute, arrangeGroup, arrangeUngroup, arrangeTransform } from '../../data/arrangeActions'
 import { COLUMN_BAR_GALLERY, LINE_AREA_GALLERY, PIE_DOUGHNUT_GALLERY, SCATTER_BUBBLE_GALLERY, GalleryEntry } from '../../charts/gallery'
 import { insertChartFromSelection } from '../../charts/insertChart'
 import { openFile } from '../../io/fileOps'
@@ -137,7 +138,7 @@ export function InsertTab() {
 // ---------------------------------------------------------------------------------------------------------- Page Layout
 export function PageLayoutTab() {
   const store = useStore()
-  useUi()
+  const ui = useUi()
   const layout = store.active.layout
   const ps = layout.pageSetup ?? {}
   const fit = fitOf(ps)
@@ -210,12 +211,21 @@ export function PageLayoutTab() {
       ]
     ] },
     { label: 'Arrange', items: [
-      { label: 'Bring Forward', icon: big(Layer20Regular), width: 60, disabled: true, menu: na('Bring Forward') },
-      { label: 'Send Backward', icon: big(Layer20Regular), width: 60, disabled: true, menu: na('Send Backward') },
-      { label: 'Selection Pane', icon: big(AppsListDetail20Regular), width: 60, onClick: () => notAvailable('Selection Pane') },
-      { label: 'Align', icon: big(AlignLeft20Regular), width: 40, disabled: true, menu: na('Align') },
-      { label: 'Group', icon: big(FlowchartCircle20Regular), width: 44, disabled: true, menu: na('Group') },
-      { label: 'Rotate', icon: big(ArrowRotateClockwise20Regular), width: 44, disabled: true, menu: na('Rotate') }
+      { label: 'Bring Forward', icon: big(Layer20Regular), width: 60, onClick: () => arrangeOrder('forward'), menu: [{ label: 'Bring &Forward', onClick: () => arrangeOrder('forward') }, { label: 'Bring to &Front', onClick: () => arrangeOrder('front') }] },
+      { label: 'Send Backward', icon: big(Layer20Regular), width: 60, onClick: () => arrangeOrder('backward'), menu: [{ label: 'Send &Backward', onClick: () => arrangeOrder('backward') }, { label: 'Send to &Back', onClick: () => arrangeOrder('back') }] },
+      { label: 'Selection Pane', icon: big(AppsListDetail20Regular), width: 60, active: ui.selectionPaneOpen, onClick: () => setUi({ selectionPaneOpen: !getUi().selectionPaneOpen }) },
+      { label: 'Align', icon: big(AlignLeft20Regular), width: 40, menu: [
+        { label: 'Align &Left', onClick: () => arrangeAlign('left') }, { label: 'Align &Center', onClick: () => arrangeAlign('center') }, { label: 'Align &Right', onClick: () => arrangeAlign('right') },
+        'separator',
+        { label: 'Align &Top', onClick: () => arrangeAlign('top') }, { label: 'Align &Middle', onClick: () => arrangeAlign('middle') }, { label: 'Align &Bottom', onClick: () => arrangeAlign('bottom') },
+        'separator',
+        { label: 'Distribute &Horizontally', onClick: () => arrangeDistribute(true) }, { label: 'Distribute &Vertically', onClick: () => arrangeDistribute(false) }
+      ] },
+      { label: 'Group', icon: big(FlowchartCircle20Regular), width: 44, menu: [{ label: '&Group', onClick: arrangeGroup }, { label: '&Ungroup', onClick: arrangeUngroup }] },
+      { label: 'Rotate', icon: big(ArrowRotateClockwise20Regular), width: 44, menu: [
+        { label: 'Rotate &Right 90\u00B0', onClick: () => arrangeTransform({ rotate: 90 }) }, { label: 'Rotate &Left 90\u00B0', onClick: () => arrangeTransform({ rotate: -90 }) },
+        { label: 'Flip &Vertical', onClick: () => arrangeTransform({ flip: 'v' }) }, { label: 'Flip &Horizontal', onClick: () => arrangeTransform({ flip: 'h' }) }
+      ] }
     ] }
   ]
   return <GenericTab groups={groups} />

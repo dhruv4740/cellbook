@@ -968,7 +968,16 @@ describe('shapes', () => {
     const back = await readXlsx(await writeXlsx({ sheets: [{ name: 'S', cells: { '0,0': { raw: 'x' } } as never, layout: { shapes } as never }] }))
     const got = back.sheets[0].layout?.shapes ?? []
     expect(got).toHaveLength(4)
-    expect(got.map(({ id: _id, ...rest }) => rest)).toEqual(shapes.map(({ id: _id, ...rest }) => rest))
+    expect(got.map(({ id: _id, z: _z, ...rest }) => rest)).toEqual(shapes.map(({ id: _id, ...rest }) => rest))
+  })
+  it('keep z-order, rotation, flips and hidden across pictures and shapes', async () => {
+    const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+    const pic = { id: 'p', name: 'Pic', src: PNG, anchor: { r: 0, c: 0, dx: 0, dy: 0 }, width: 50, height: 50, z: 2, rotation: 90, flipH: true }
+    const sh = { id: 's', name: 'Rect', kind: 'rect', anchor: { r: 5, c: 0, dx: 0, dy: 0 }, width: 60, height: 40, fill: '#4472c4', z: 1, hidden: true, rotation: 270, flipV: true }
+    const back = await readXlsx(await writeXlsx({ sheets: [{ name: 'S', cells: { '0,0': { raw: 'x' } } as never, layout: { pictures: [pic], shapes: [sh] } as never }] }))
+    const l = back.sheets[0].layout
+    expect(l?.shapes?.[0]).toMatchObject({ name: 'Rect', z: 0, hidden: true, rotation: 270, flipV: true }) // drawn first = furthest back
+    expect(l?.pictures?.[0]).toMatchObject({ name: 'Pic', z: 1, rotation: 90, flipH: true })
   })
 })
 

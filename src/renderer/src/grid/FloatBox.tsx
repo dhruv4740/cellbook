@@ -6,9 +6,9 @@ export type Box = { left: number; top: number; width: number; height: number }
 const HANDLES = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'] as const
 type Handle = (typeof HANDLES)[number]
 
-export function FloatBox({ box, selected, lockAspect, minSize = 16, onSelect, onContext, onCommit, onDoubleClick, children }: {
-  box: Box; selected: boolean; lockAspect?: boolean; minSize?: number
-  onSelect: () => void; onContext: (x: number, y: number) => void; onCommit: (b: Box) => void; onDoubleClick?: () => void
+export function FloatBox({ box, selected, lockAspect, minSize = 16, zIndex, rotation, onSelect, onContext, onCommit, onDoubleClick, children }: {
+  box: Box; selected: boolean; lockAspect?: boolean; minSize?: number; zIndex?: number; rotation?: number
+  onSelect: (additive: boolean) => void; onContext: (x: number, y: number) => void; onCommit: (b: Box) => void; onDoubleClick?: () => void
   children: ReactNode
 }) {
   const [drag, setDrag] = useState<Box | null>(null)
@@ -19,7 +19,7 @@ export function FloatBox({ box, selected, lockAspect, minSize = 16, onSelect, on
     e.preventDefault()
     e.stopPropagation()
     ;(e.currentTarget as HTMLElement).closest<HTMLElement>('.grid-host')?.focus() // keep Ctrl+Z / Delete working
-    onSelect()
+    onSelect(e.ctrlKey || e.metaKey || e.shiftKey)
     start.current = { mx: e.clientX, my: e.clientY, box, handle }
     const move = (ev: MouseEvent): void => {
       const s = start.current
@@ -54,7 +54,7 @@ export function FloatBox({ box, selected, lockAspect, minSize = 16, onSelect, on
 
   return (
     <div
-      style={{ position: 'absolute', left: live.left, top: live.top, width: live.width, height: live.height, pointerEvents: 'auto', outline: selected ? '1px solid #217346' : 'none', cursor: drag ? 'move' : 'default' }}
+      style={{ position: 'absolute', left: live.left, top: live.top, width: live.width, height: live.height, pointerEvents: 'auto', outline: selected ? '1px solid #217346' : 'none', cursor: drag ? 'move' : 'default', zIndex, transform: rotation ? `rotate(${rotation}deg)` : undefined }}
       onMouseDown={(e) => begin(e)}
       onDoubleClick={onDoubleClick}
       onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onContext(e.clientX, e.clientY) }}

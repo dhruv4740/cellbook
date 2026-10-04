@@ -6,8 +6,10 @@ import { setUi, useUi } from '../chrome/ui'
 import { PictureDef, ShapeDef } from '../model/types'
 import type { ChartGeometry } from '../charts/ChartOverlay'
 import { Menu, MenuItem } from '../components/Menu'
-import { picturesOf, updatePicture, deletePicture, reorderPicture } from '../data/pictures'
-import { shapesOf, updateShape, deleteShape, reorderShape } from '../data/shapes'
+import { picturesOf, updatePicture, deletePicture } from '../data/pictures'
+import { shapesOf, updateShape, deleteShape } from '../data/shapes'
+import { floatsOf } from '../data/arrange'
+import { arrangeOrder, commitMoveOfSelection, selectObject, selectObjects, selectedObjectIds } from '../data/arrangeActions'
 import { FloatBox, Box } from './FloatBox'
 
 const FILLS: [string, string | undefined][] = [['Blue', '#4472c4'], ['Orange', '#ed7d31'], ['Gray', '#a5a5a5'], ['Gold', '#ffc000'], ['Green', '#70ad47'], ['Red', '#c00000'], ['White', '#ffffff'], ['No Fill', undefined]]
@@ -19,11 +21,21 @@ export function ObjectOverlay({ sheet, geo }: { sheet: SheetState; geo: ChartGeo
   const pics = picturesOf(sheet)
   const shapes = shapesOf(sheet)
   const selectedId = ui.selectedPicture // pictures and shapes share this selection (their ids never collide)
+  const selIds = selectedObjectIds()
+  const zOf = new Map(floatsOf(sheet.layout).map((f, i) => [f.id, i + 1]))
+  const [band, setBand] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null)
   const [menu, setMenu] = useState<{ x: number; y: number; id: string } | null>(null)
   const [editing, setEditing] = useState<string | null>(null)
   const { colsAxis, rowsAxis, frozen, scroll, z, rowHeaderW, headerH, viewport } = geo
   const frozenW = colsAxis.totalSize(frozen.cols) * z
   const frozenH = rowsAxis.totalSize(frozen.rows) * z
+
+  useEffect(() => {
+    if (!ui.selectObjectsMode) return
+    const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') setUi({ selectObjectsMode: false }) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [ui.selectObjectsMode])
 
   useEffect(() => {
     if (!selectedId || editing) return
@@ -38,7 +50,7 @@ export function ObjectOverlay({ sheet, geo }: { sheet: SheetState; geo: ChartGeo
     return () => window.removeEventListener('keydown', onKey)
   }, [selectedId, sheet, editing])
 
-  if (!pics.length && !shapes.length) return null
+  if (!floatsOf(sheet.layout).length) return null
   const sx = (c: number): number => (c < frozen.cols ? colsAxis.offset(c) * z : frozenW + colsAxis.offset(c) * z - colsAxis.offset(frozen.cols) * z - scroll.x)
   const sy = (r: number): number => (r < frozen.rows ? rowsAxis.offset(r) * z : frozenH + rowsAxis.offset(r) * z - rowsAxis.offset(frozen.rows) * z - scroll.y)
   const lx = (v: number): number => (v < frozenW ? v / z : colsAxis.offset(frozen.cols) + (v - frozenW + scroll.x) / z)
@@ -49,14 +61,39 @@ export function ObjectOverlay({ sheet, geo }: { sheet: SheetState; geo: ChartGeo
     const c = colsAxis.indexAt(x), r = rowsAxis.indexAt(y)
     return { anchor: { r, c, dx: x - colsAxis.offset(c), dy: y - rowsAxis.offset(r) }, width: Math.max(8, b.width / z), height: Math.max(1, b.height / z) }
   }
-  const select = (id: string): void => setUi({ selectedPicture: id, selectedChart: null })
+  const select = (id: string, additive = false): void => selectObject(sheet, id, additive)
+  const commit = (id: string, b: Box, update: () => void): void => {
+    const pl = place(b)
+    if (!commitMoveOfSelection(sheet, id, pl.anchor, pl.width, pl.height)) update()
+  }
+  const startBand = (e: React.MouseEvent<HTMLDivElement>): void => {
+    const host = e.currentTarget.getBoundingClientRect()
+    const x0 = e.clientX - host.left, y0 = e.clientY - host.top
+    setBand({ x0, y0, x1: x0, y1: y0 })
+    let last = { x1: x0, y1: y0 }
+    const move = (ev: MouseEvent): void => { last = { x1: ev.clientX - host.left, y1: ev.clientY - host.top }; setBand({ x0, y0, ...last }) }
+    const up = (): void => {
+      window.removeEventListener('mousemove', move)
+      window.removeEventListener('mouseup', up)
+      setBand(null)
+      const l = Math.min(x0, last.x1), r = Math.max(x0, last.x1), t = Math.min(y0, last.y1), b = Math.max(y0, last.y1)
+      const hit = floatsOf(sheet.layout).filter((f) => {
+        if (f.obj.hidden) return false
+        const bx = boxOf(f.obj)
+        return bx.left < r && bx.left + bx.width > l && bx.top < b && bx.top + bx.height > t
+      }).map((f) => f.id)
+      selectObjects(sheet, hit)
+    }
+    window.addEventListener('mousemove', move)
+    window.addEventListener('mouseup', up)
+  }
 
   const menuItems = (id: string): MenuItem[] => {
     const isShape = id.startsWith('shp_')
     const sh = shapes.find((s) => s.id === id)
     const items: MenuItem[] = [
-      { label: 'Bring to &Front', onClick: () => (isShape ? reorderShape(sheet, id, true) : reorderPicture(sheet, id, true)) },
-      { label: 'S&end to Back', onClick: () => (isShape ? reorderShape(sheet, id, false) : reorderPicture(sheet, id, false)) }
+      { label: 'Bring to &Front', onClick: () => arrangeOrder('front') },
+      { label: 'S&end to Back', onClick: () => arrangeOrder('back') }
     ]
     if (sh) {
       const isLine = sh.kind === 'line' || sh.kind === 'arrow'
@@ -74,16 +111,18 @@ export function ObjectOverlay({ sheet, geo }: { sheet: SheetState; geo: ChartGeo
 
   return (
     <div style={{ position: 'absolute', left: rowHeaderW, top: headerH, width: Math.max(0, viewport.w - rowHeaderW), height: Math.max(0, viewport.h - headerH), overflow: 'hidden', pointerEvents: 'none' }}>
-      {pics.map((p) => (
-        <FloatBox key={p.id} box={boxOf(p)} lockAspect selected={p.id === selectedId} onSelect={() => select(p.id)}
-          onContext={(x, y) => { select(p.id); setMenu({ x, y, id: p.id }) }} onCommit={(b) => updatePicture(sheet, p.id, place(b), 'Move or Resize Picture')}>
-          <img src={p.src} alt={p.alt ?? p.name} draggable={false} style={{ width: '100%', height: '100%', display: 'block', userSelect: 'none' }} />
+      {ui.selectObjectsMode && <div onMouseDown={startBand} style={{ position: 'absolute', inset: 0, pointerEvents: 'auto', cursor: 'crosshair' }} />}
+      {band && <div style={{ position: 'absolute', left: Math.min(band.x0, band.x1), top: Math.min(band.y0, band.y1), width: Math.abs(band.x1 - band.x0), height: Math.abs(band.y1 - band.y0), border: '1px dashed #217346', background: 'rgba(33,115,70,0.08)', zIndex: 100000 }} />}
+      {pics.filter((p) => !p.hidden).map((p) => (
+        <FloatBox key={p.id} box={boxOf(p)} lockAspect zIndex={zOf.get(p.id)} rotation={p.rotation} selected={selIds.includes(p.id)} onSelect={(a) => select(p.id, a)}
+          onContext={(x, y) => { select(p.id); setMenu({ x, y, id: p.id }) }} onCommit={(b) => commit(p.id, b, () => updatePicture(sheet, p.id, place(b), 'Move or Resize Picture'))}>
+          <img src={p.src} alt={p.alt ?? p.name} draggable={false} style={{ width: '100%', height: '100%', display: 'block', userSelect: 'none', transform: flipCss(p) }} />
         </FloatBox>
       ))}
-      {shapes.map((s) => (
-        <FloatBox key={s.id} box={boxOf(s)} minSize={s.kind === 'line' || s.kind === 'arrow' ? 1 : 16} selected={s.id === selectedId} onSelect={() => select(s.id)}
+      {shapes.filter((s) => !s.hidden).map((s) => (
+        <FloatBox key={s.id} box={boxOf(s)} minSize={s.kind === 'line' || s.kind === 'arrow' ? 1 : 16} zIndex={zOf.get(s.id)} rotation={s.rotation} selected={selIds.includes(s.id)} onSelect={(a) => select(s.id, a)}
           onDoubleClick={() => { if (s.kind !== 'line' && s.kind !== 'arrow') setEditing(s.id) }}
-          onContext={(x, y) => { select(s.id); setMenu({ x, y, id: s.id }) }} onCommit={(b) => updateShape(sheet, s.id, place(b), 'Move or Resize Shape')}>
+          onContext={(x, y) => { select(s.id); setMenu({ x, y, id: s.id }) }} onCommit={(b) => commit(s.id, b, () => updateShape(sheet, s.id, place(b), 'Move or Resize Shape'))}>
           <ShapeView shape={s} z={z} box={boxOf(s)} editing={editing === s.id} onText={(t) => { updateShape(sheet, s.id, { text: t || undefined }, 'Edit Text'); setEditing(null) }} />
         </FloatBox>
       ))}
@@ -95,6 +134,9 @@ export function ObjectOverlay({ sheet, geo }: { sheet: SheetState; geo: ChartGeo
     </div>
   )
 }
+
+/** CSS flip for the picture or a shape's outline (text stays upright). */
+const flipCss = (o: { flipH?: boolean; flipV?: boolean }): string | undefined => (o.flipH || o.flipV ? `scale(${o.flipH ? -1 : 1}, ${o.flipV ? -1 : 1})` : undefined)
 
 function ShapeView({ shape: s, z, box, editing, onText }: { shape: ShapeDef; z: number; box: Box; editing: boolean; onText: (t: string) => void }) {
   const w = box.width, h = box.height
@@ -131,7 +173,7 @@ function ShapeView({ shape: s, z, box, editing, onText }: { shape: ShapeDef; z: 
   const isLine = s.kind === 'line' || s.kind === 'arrow'
   return (
     <>
-      <svg width={w} height={h} style={{ position: 'absolute', left: 0, top: 0, overflow: 'visible', pointerEvents: isLine ? 'none' : 'auto' }}>{geom}</svg>
+      <svg width={w} height={h} style={{ position: 'absolute', left: 0, top: 0, overflow: 'visible', pointerEvents: isLine ? 'none' : 'auto', transform: isLine ? undefined : flipCss(s) }}>{geom}</svg>
       {isLine && <div style={{ position: 'absolute', inset: -4, pointerEvents: 'auto' }} />}
       {!isLine && (
         <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: s.kind === 'textbox' ? 'flex-start' : 'center', justifyContent: align, padding: 4 * z, pointerEvents: editing ? 'auto' : 'none' }}>

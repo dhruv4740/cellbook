@@ -9,6 +9,7 @@ import StatusBar from './chrome/StatusBar'
 import Backstage from './io/Backstage'
 import DialogHost from './dialogs/DialogHost'
 import WatchWindow from './chrome/WatchWindow'
+import SelectionPane from './chrome/SelectionPane'
 import { useUi } from './chrome/ui'
 import { installFileShortcuts } from './io/fileOps'
 
@@ -28,6 +29,7 @@ export default function App() {
       <StatusBar />
       <DialogHost />
       {ui.watchOpen && <WatchWindow />}
+      {ui.selectionPaneOpen && <SelectionPane />}
       {ui.toast && <div className="xl-toast" role="status">{ui.toast}</div>}
     </div>
   )

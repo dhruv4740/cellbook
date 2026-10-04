@@ -27,6 +27,12 @@ export interface UiState {
   selectedChart: string | null
   /** The floating picture currently selected on the active sheet, if any. */
   selectedPicture: string | null
+  /** Every selected floating object (Ctrl+click adds, groups select whole); only valid while it contains the primary selectedPicture / selectedChart. */
+  selectedObjects: string[]
+  /** Page Layout > Selection Pane is showing. */
+  selectionPaneOpen: boolean
+  /** Home > Find & Select > Select Objects: dragging on the sheet rubber-bands floating objects instead of cells. */
+  selectObjectsMode: boolean
   /** Ctrl+` (Show Formulas): cells display their raw formula text instead of the computed value. */
   formulasVisible: boolean
   /** Data > Data Validation > Circle Invalid Data: cells ('r,c') to ring in red, per sheet uid. */
@@ -61,7 +67,7 @@ export interface UiState {
 
 let state: UiState = {
   backstage: false, ribbonTab: 'Home', ribbonCollapsed: false, hideFormulaBar: false, dialog: null,
-  formatPainter: null, edit: null, noteEditor: null, commentPanel: null, selectedChart: null, selectedPicture: null,
+  formatPainter: null, edit: null, noteEditor: null, commentPanel: null, selectedChart: null, selectedPicture: null, selectedObjects: [], selectionPaneOpen: false, selectObjectsMode: false,
   formulasVisible: false, validationCircles: null, traceArrows: null, watchOpen: false, viewMode: 'normal', watchItems: [], selectMode: 'none', backstageTab: null, scrollLock: false, endMode: false,
   groupedSheets: null, pickList: null, toast: null, outlineHidden: false
 }

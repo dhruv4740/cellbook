@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, ClipboardItem, dialog, ipcMain, screen, shell } from 'electron'
+import { app, BrowserWindow, clipboard, ClipboardItem, dialog, ipcMain, nativeImage, screen, shell } from 'electron'
 import { join, basename } from 'path'
 import { promises as fs, existsSync } from 'fs'
 
@@ -550,6 +550,7 @@ ipcMain.handle('clipboard:readHTML', async () => {
 ipcMain.handle('clipboard:write', (_e, data: { text: string; html?: string }) =>
   clipboard.write([new ClipboardItem(data.html ? { 'text/plain': data.text, 'text/html': data.html } : { 'text/plain': data.text })])
 )
+ipcMain.handle('clipboard:writeImage', (_e, dataUrl: string) => clipboard.write([new ClipboardItem({ 'image/png': new Blob([new Uint8Array(nativeImage.createFromDataURL(dataUrl).toPNG())], { type: 'image/png' }) })]))
 ipcMain.handle('file:read', async (_e, path: string) => new Uint8Array(await fs.readFile(path)))
 
 // AutoRecover: while a workbook has unsaved changes its window writes a backup here every minute;

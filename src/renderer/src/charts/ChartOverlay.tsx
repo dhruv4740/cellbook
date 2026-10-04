@@ -8,7 +8,9 @@ import { ChartSpec, Range, rangeA1 } from '../model/types'
 import { Axis } from '../grid/axis'
 import { extractChartData } from './dataExtraction'
 import { ChartRenderer } from './ChartRenderer'
-import { chartsOf, readerFor, deleteChart, updateChart, moveOrResizeChart, bringChartToFront, sendChartToBack } from './chartsStore'
+import { chartsOf, readerFor, deleteChart, updateChart, moveOrResizeChart } from './chartsStore'
+import { floatsOf } from '../data/arrange'
+import { arrangeOrder, arrangeGroup, arrangeUngroup, commitMoveOfSelection, selectObject, selectedObjectIds } from '../data/arrangeActions'
 import { Menu, MenuItem } from '../components/Menu'
 import {
   Add20Regular, PaintBrush20Regular, Filter20Regular
@@ -33,6 +35,8 @@ export default function ChartOverlay({ sheet, geo }: { sheet: SheetState; geo: C
   const ui = useUi()
   const charts = chartsOf(sheet)
   const selectedId = ui.selectedChart
+  const selIds = selectedObjectIds()
+  const zOf = new Map(floatsOf(sheet.layout).map((f, i) => [f.id, i + 1]))
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; id: string } | null>(null)
   const [panel, setPanel] = useState<null | 'elements' | 'styles' | 'filters'>(null)
 
@@ -78,16 +82,17 @@ export default function ChartOverlay({ sheet, geo }: { sheet: SheetState; geo: C
     const lx = toLogicalX(box.left), ly = toLogicalY(box.top)
     const c = colsAxis.indexAt(lx), r = rowsAxis.indexAt(ly)
     const anchor = { r, c, dx: lx - colsAxis.offset(c), dy: ly - rowsAxis.offset(r) }
-    moveOrResizeChart(store, sheet, id, anchor, Math.max(40, box.width / z), Math.max(30, box.height / z))
+    const w = Math.max(40, box.width / z), h = Math.max(30, box.height / z)
+    if (!commitMoveOfSelection(sheet, id, anchor, w, h)) moveOrResizeChart(store, sheet, id, anchor, w, h)
   }
 
   return (
     <div
       style={{ position: 'absolute', left: rowHeaderW, top: headerH, width: Math.max(0, viewport.w - rowHeaderW), height: Math.max(0, viewport.h - headerH), overflow: 'hidden', pointerEvents: 'none' }}
     >
-      {charts.map((spec) => {
+      {charts.filter((c) => !c.hidden).map((spec) => {
         const box = boxOf(spec)
-        const selected = spec.id === selectedId
+        const selected = selIds.includes(spec.id)
         return (
           <ChartBox
             key={spec.id}
@@ -95,10 +100,12 @@ export default function ChartOverlay({ sheet, geo }: { sheet: SheetState; geo: C
             box={box}
             z={z}
             selected={selected}
+            solo={selIds.length === 1}
+            zIndex={zOf.get(spec.id)}
             sheet={sheet}
             store={store}
-            onSelect={() => setUi({ selectedChart: spec.id })}
-            onContextMenu={(x, y) => { setUi({ selectedChart: spec.id }); setCtxMenu({ x, y, id: spec.id }) }}
+            onSelect={(a) => selectObject(sheet, spec.id, a)}
+            onContextMenu={(x, y) => { selectObject(sheet, spec.id); setCtxMenu({ x, y, id: spec.id }) }}
             onCommitBox={(b) => commitBox(spec.id, b)}
             panel={selected ? panel : null}
             onPanel={setPanel}
@@ -129,9 +136,10 @@ function contextMenuItems(store: ReturnType<typeof useStore>, sheet: SheetState,
     { label: '&Move Chart...' },
     { label: '&3-D Rotation...' },
     'separator',
-    { label: '&Group' },
-    { label: 'Bring to &Front', onClick: () => bringChartToFront(store, sheet, id) },
-    { label: 'S&end to Back', onClick: () => sendChartToBack(store, sheet, id) },
+    { label: '&Group', onClick: arrangeGroup },
+    { label: '&Ungroup', onClick: arrangeUngroup },
+    { label: 'Bring to &Front', onClick: () => arrangeOrder('front') },
+    { label: 'S&end to Back', onClick: () => arrangeOrder('back') },
     'separator',
     { label: 'Assign &Macro...' },
     { label: 'Edit Alt &Text...' },
@@ -141,14 +149,16 @@ function contextMenuItems(store: ReturnType<typeof useStore>, sheet: SheetState,
   ]
 }
 
-function ChartBox({ spec, box, z, selected, sheet, store, onSelect, onContextMenu, onCommitBox, panel, onPanel }: {
+function ChartBox({ spec, box, z, selected, solo, zIndex, sheet, store, onSelect, onContextMenu, onCommitBox, panel, onPanel }: {
   spec: ChartSpec
   box: { left: number; top: number; width: number; height: number }
   z: number
   selected: boolean
+  solo: boolean
+  zIndex?: number
   sheet: SheetState
   store: ReturnType<typeof useStore>
-  onSelect: () => void
+  onSelect: (additive: boolean) => void
   onContextMenu: (x: number, y: number) => void
   onCommitBox: (box: { left: number; top: number; width: number; height: number }) => void
   panel: null | 'elements' | 'styles' | 'filters'
@@ -167,7 +177,7 @@ function ChartBox({ spec, box, z, selected, sheet, store, onSelect, onContextMen
   function beginDrag(e: React.MouseEvent, handle?: Handle): void {
     e.preventDefault()
     e.stopPropagation()
-    onSelect()
+    onSelect(e.ctrlKey || e.metaKey || e.shiftKey)
     startRef.current = { mx: e.clientX, my: e.clientY, box, handle }
     const move = (ev: MouseEvent): void => {
       const s = startRef.current
@@ -203,10 +213,9 @@ function ChartBox({ spec, box, z, selected, sheet, store, onSelect, onContextMen
       style={{
         position: 'absolute', left: liveBox.left, top: liveBox.top, width: liveBox.width, height: liveBox.height,
         pointerEvents: 'auto', boxShadow: selected ? 'none' : '0 0 0 1px rgba(0,0,0,0.06)',
-        outline: selected ? '1px solid #217346' : 'none', background: '#fff', cursor: drag ? 'move' : 'default'
+        outline: selected ? '1px solid #217346' : 'none', background: '#fff', cursor: drag ? 'move' : 'default', zIndex
       }}
       onMouseDown={(e) => beginDrag(e)}
-      onClick={onSelect}
       onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onContextMenu(e.clientX, e.clientY) }}
     >
       <ChartRenderer spec={spec} data={data} width={Math.max(1, liveBox.width / z)} height={Math.max(1, liveBox.height / z)} />
@@ -219,7 +228,7 @@ function ChartBox({ spec, box, z, selected, sheet, store, onSelect, onContextMen
               style={{ position: 'absolute', width: 7, height: 7, background: '#fff', border: '1px solid #217346', borderRadius: '50%', ...handlePos(h) }}
             />
           ))}
-          <FloatingButtons spec={spec} sheet={sheet} store={store} panel={panel} onPanel={onPanel} />
+          {solo && <FloatingButtons spec={spec} sheet={sheet} store={store} panel={panel} onPanel={onPanel} />}
         </>
       )}
     </div>

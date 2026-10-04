@@ -1895,7 +1895,7 @@ export default function Grid() {
             top: Math.round(activeRc.y),
             width: 18,
             height: Math.round(activeRc.h),
-            zIndex: 4
+            zIndex: 49999
           }}
           title="List options"
           onMouseDown={(e) => {
