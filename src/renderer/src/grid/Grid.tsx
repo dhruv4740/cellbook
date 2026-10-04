@@ -1756,7 +1756,7 @@ export default function Grid() {
     { label: '&Delete...', icon: <Delete20Regular />, onClick: () => cmd.deleteCellsDialog() },
     { label: 'Clear Co&ntents', icon: <Eraser20Regular />, shortcut: 'Del', onClick: () => cmd.clearSelection('contents') },
     { label: '&Translate', icon: <Translate20Regular /> },
-    { label: '&Quick Analysis', icon: <SquareHintSparkles20Regular /> },
+    { label: '&Quick Analysis', icon: <SquareHintSparkles20Regular />, onClick: () => setUi({ dialog: { kind: 'quickAnalysis' } }) },
     'separator',
     {
       label: 'Filt&er', icon: <Filter20Regular />, submenu: [

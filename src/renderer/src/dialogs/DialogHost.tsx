@@ -24,6 +24,7 @@ import { ArrangeWindowsDialog } from './ArrangeWindowsDialog'
 import { DefineNameDialog, NameManagerDialog, CreateFromSelectionDialog, ApplyNamesDialog } from './NameDialogs'
 import { HyperlinkDialog } from './HyperlinkDialog'
 import { SparklineDialog } from './SparklineDialog'
+import { QuickAnalysisDialog } from './QuickAnalysisDialog'
 import { SpellingDialog } from './SpellingDialog'
 import { EvaluateFormulaDialog } from './EvaluateFormulaDialog'
 import { SymbolDialog } from './SymbolDialog'
@@ -208,6 +209,8 @@ export default function DialogHost() {
       return <SpellingDialog onClose={close} />
     case 'sparkline':
       return <SparklineDialog type={d.props?.type as 'line' | 'column' | 'winloss'} onClose={close} />
+    case 'quickAnalysis':
+      return <QuickAnalysisDialog onClose={close} />
     case 'hyperlink':
       return <HyperlinkDialog onClose={close} />
     case 'series':
