@@ -24,6 +24,9 @@ const api = {
     ipcRenderer.invoke('window:newView', snapshot),
   listWindows: (): Promise<WinListEntry[]> => ipcRenderer.invoke('window:list'),
   activateWindow: (id: number): Promise<void> => ipcRenderer.invoke('window:activate', id),
+  /** View > Hide: false if this is the only visible window. */
+  hideWindow: (): Promise<boolean> => ipcRenderer.invoke('window:hide'),
+  listHiddenWindows: (): Promise<{ id: number; title: string }[]> => ipcRenderer.invoke('window:listHidden'),
   cycleWindow: (dir: 1 | -1): Promise<void> => ipcRenderer.invoke('window:cycle', dir),
   arrangeWindowsPrompt: (): Promise<void> => ipcRenderer.invoke('window:arrangePrompt'),
   arrangeWindows: (mode: 'tiled' | 'horizontal' | 'vertical' | 'cascade'): Promise<void> =>

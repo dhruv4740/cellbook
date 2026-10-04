@@ -1,6 +1,7 @@
 import { app, BrowserWindow, clipboard, ClipboardItem, dialog, ipcMain, nativeImage, screen, shell } from 'electron'
 import { join, basename } from 'path'
 import { promises as fs, existsSync } from 'fs'
+import { canHideWindow, hiddenWindows, WinVis } from './windowVisibility'
 
 // Chromium gives pages the Windows display language (often en-US), but Excel reads dates and
 // digit grouping from the Windows region (e.g. English (India): 3/9/2026 = 3 Sept, 12,34,567).
@@ -420,6 +421,17 @@ ipcMain.on('workbook:saved', (e, info: { fileName: string; filePath: string | nu
 })
 
 ipcMain.handle('window:list', () => getWindowList())
+
+const winVis = (): WinVis[] => getWindowList().map((w) => ({ id: w.id, title: w.title, visible: windows.get(w.id)!.win.isVisible() }))
+
+/** View > Hide: hides the sender's window. Returns false (and does nothing) if it is the only visible one. */
+ipcMain.handle('window:hide', (e): boolean => {
+  const win = BrowserWindow.fromWebContents(e.sender)
+  if (!win || !canHideWindow(winVis(), win.id)) return false
+  win.hide()
+  return true
+})
+ipcMain.handle('window:listHidden', () => hiddenWindows(winVis()))
 
 ipcMain.handle('window:activate', (_e, id: number) => {
   const entry = windows.get(id)
