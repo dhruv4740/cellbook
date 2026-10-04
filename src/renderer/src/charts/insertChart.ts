@@ -22,7 +22,7 @@ export function insertChartFromSelection(store: WorkbookStore, entry: GalleryEnt
   spec.height = DEFAULT_CHART_HEIGHT
   // Excel titles a one-series chart with the series name, and drops the legend unless it is a
   // pie/doughnut (where the legend names the slices).
-  const data = extractChartData(reader, dataRange, spec.seriesInColumns)
+  const data = extractChartData(reader, dataRange, spec.seriesInColumns, spec.firstIsCategories)
   if (data.series.length === 1) {
     if (data.series[0].name) spec.title = data.series[0].name
     if (spec.type !== 'pie') spec.elements.legend = false

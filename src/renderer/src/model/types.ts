@@ -253,6 +253,8 @@ export interface ChartSpec extends ArrangeProps {
   styleId?: number
   /** Series indices hidden via the Chart Filters funnel (Select Data still lists them). */
   hiddenSeriesIdx?: number[]
+  /** Treat the first column (or row, when series are in rows) as category labels even when it is numeric, e.g. a timeline. */
+  firstIsCategories?: boolean
 }
 
 export type CellValue = number | string | boolean | null | CellError

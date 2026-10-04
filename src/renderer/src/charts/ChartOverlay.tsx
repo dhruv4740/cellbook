@@ -169,7 +169,7 @@ function ChartBox({ spec, box, z, selected, solo, zIndex, sheet, store, onSelect
 
   const liveBox = drag?.box ?? box
   const data = useMemo(() => {
-    const filtered = extractChartData(readerFor(store, sheet), spec.dataRange, spec.seriesInColumns)
+    const filtered = extractChartData(readerFor(store, sheet), spec.dataRange, spec.seriesInColumns, spec.firstIsCategories)
     const hide = new Set(spec.hiddenSeriesIdx ?? [])
     return { categories: filtered.categories, series: filtered.series.filter((_, i) => !hide.has(i)) }
   }, [store, sheet, spec])
@@ -334,7 +334,7 @@ function StylesPanel({ spec, sheet, store }: { spec: ChartSpec; sheet: SheetStat
 }
 
 function FiltersPanel({ spec, sheet, store }: { spec: ChartSpec; sheet: SheetState; store: ReturnType<typeof useStore> }) {
-  const data = useMemo(() => extractChartData(readerFor(store, sheet), spec.dataRange, spec.seriesInColumns), [store, sheet, spec])
+  const data = useMemo(() => extractChartData(readerFor(store, sheet), spec.dataRange, spec.seriesInColumns, spec.firstIsCategories), [store, sheet, spec])
   const hidden = new Set(spec.hiddenSeriesIdx ?? [])
   const toggle = (i: number): void => {
     const next = new Set(hidden)

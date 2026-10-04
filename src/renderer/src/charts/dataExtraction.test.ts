@@ -88,6 +88,18 @@ describe('extractChartData', () => {
   })
 })
 
+describe('extractChartData firstIsCategories', () => {
+  const g = grid([['Period', 'Sales'], [1, 10], [2, 13]])
+  it('plots a numeric first column as a series by default', () => {
+    expect(extractChartData(g, { r1: 0, c1: 0, r2: 2, c2: 1 }, true).series.map((x) => x.name)).toEqual(['Period', 'Sales'])
+  })
+  it('uses it as category labels when asked', () => {
+    const d = extractChartData(g, { r1: 0, c1: 0, r2: 2, c2: 1 }, true, true)
+    expect(d.series.map((x) => x.name)).toEqual(['Sales'])
+    expect(d.categories).toEqual(['1', '2'])
+  })
+})
+
 describe('defaultSeriesInColumns', () => {
   it('prefers more categories over more series: tall ranges keep series in columns', () => {
     expect(defaultSeriesInColumns({ r1: 0, c1: 0, r2: 10, c2: 2 })).toBe(true)

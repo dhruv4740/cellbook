@@ -39,7 +39,7 @@ export function buildChartSpaceXml(
   cells: CellReader
 ): string {
   const norm = normRange(spec.dataRange)
-  const extracted = extractChartData(cells, spec.dataRange, spec.seriesInColumns)
+  const extracted = extractChartData(cells, spec.dataRange, spec.seriesInColumns, spec.firstIsCategories)
 
   const rows = norm.r2 - norm.r1 + 1
   const cols = norm.c2 - norm.c1 + 1
