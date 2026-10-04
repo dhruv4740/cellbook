@@ -15,7 +15,7 @@ import { extractSection, parseAttrs, parseRelationships, resolveRelTarget } from
 import type { VbaProject } from './xlsxPostProcess'
 import { injectPictures } from './xlsxPictures'
 import { injectTables } from './xlsxTables'
-import { toBytes, fixLegacyDrawingOrder, markDynamicArrays, injectDefinedNames, injectHyperlinks, injectOutline, injectDefaultFont, injectScenarios, injectSparklines, injectPageSetup, injectProtection, postProcessPkg } from './xlsxPostProcess'
+import { toBytes, fixLegacyDrawingOrder, markDynamicArrays, injectDefinedNames, injectHyperlinks, injectOutline, injectDefaultFont, injectTheme, injectScenarios, injectSparklines, injectPageSetup, injectProtection, postProcessPkg } from './xlsxPostProcess'
 import { parseDataValidations } from './fastXlsx'
 import { injectBulkCells, fastWriteThreshold, BulkRows } from './bulkCells'
 
@@ -697,7 +697,7 @@ export async function writeXlsx(data: WorkbookData, vba?: VbaProject): Promise<U
     ? postProcessPkg(buf, sheetFilters, vba, sheetValidations, sheetCharts, sheetNames, sheetCells, sheetLayouts)
     : buf
   const linked = markDynamicArrays(fixLegacyDrawingOrder(injectHyperlinks(processed, data.sheets.map((sd) => sd.layout?.hyperlinks))))
-  const named = data.names?.length ? injectDefinedNames(linked, data.names) : linked
+  const named = injectTheme(data.names?.length ? injectDefinedNames(linked, data.names) : linked, data.theme)
   return toBytes(injectDefaultFont(injectTables(injectScenarios(injectPictures(injectSparklines(injectPageSetup(injectOutline(injectProtection(named, data.sheets.map((sd) => sd.layout?.protection), data.protection, data.calcMode, data.sheets.map((sd) => sd.layout?.editRanges)), data.sheets.map((sd) => sd.layout)), data.sheets.map((sd) => sd.layout?.pageSetup)), data.sheets.map((sd) => sd.layout?.sparklines), sheetNames), data.sheets.map((sd) => sd.layout?.pictures), data.sheets.map((sd) => sd.layout)), data.sheets.map((sd) => sd.layout?.scenarios)), data.sheets.map((sd) => sd.layout), data.sheets.map((sd) => sd.cells as never)), data.defaultFont))
 }
 
