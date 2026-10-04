@@ -7,7 +7,7 @@ import { getUi, setUi, useUi, commitEdit, cancelEdit, commitEditToSelection } fr
 import {
   CellStyle, Range, CellRef, Selection, normRange, inRange, colName, a1, rangeA1, parseA1,
   DEFAULT_COL_WIDTH, DEFAULT_ROW_HEIGHT, MAX_ROWS, MAX_COLS
-} from '../model/types'
+, normalFont } from '../model/types'
 import { buildAxis, Axis } from './axis'
 import { outlineRuns, maxLevel } from '../model/outline'
 import { drawGutter, hitGutter, gutterSizes, GutterGeo } from './outlineGutter'
@@ -46,8 +46,8 @@ const CORNER_W_MIN = 46
 const REF_COLORS = ['#2563eb', '#dc2626', '#7c3aed', '#059669', '#d97706', '#0891b2', '#be185d', '#4d7c0f']
 
 function fontString(style: CellStyle | undefined, z: number): string {
-  const size = Math.round((style?.fontSize ?? 11) * z)
-  const fam = style?.fontFamily ?? 'Calibri'
+  const size = Math.round((style?.fontSize ?? normalFont.size) * z)
+  const fam = style?.fontFamily ?? normalFont.name
   let s = ''
   if (style?.italic) s += 'italic '
   if (style?.bold) s += 'bold '

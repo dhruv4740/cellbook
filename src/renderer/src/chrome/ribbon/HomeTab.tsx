@@ -4,7 +4,7 @@ import { useStore } from '../../model/store'
 import { useUi, setUi, getUi, notAvailable } from '../ui'
 import { hideSheet } from '../sheetCommands'
 import { CURRENCY_FORMAT, ACCOUNTING_FORMAT, SHORT_DATE_FORMAT, LONG_DATE_FORMAT, CURRENCY_SYMBOL } from '../../engine/locale'
-import { CellStyle, normRange } from '../../model/types'
+import { CellStyle, normRange, normalFont } from '../../model/types'
 import { MenuItem } from '../../components/Menu'
 import { Group, GroupSep, BigButton, SplitButton, StackSplit, SmallButton, DialogLauncher, Combo, KeyTipBadge } from './controls'
 import { ChevronDown12Regular } from '@fluentui/react-icons'
@@ -392,7 +392,7 @@ export default function HomeTab() {
       <Group label="Font" icon={<TextFont20Regular />}>
         <div className="xl-col">
           <div className="xl-row">
-            <Combo value={style.fontFamily ?? 'Calibri'} options={FONTS} width={112} tip={{ title: 'Font' }} onChange={(v) => setStyle({ fontFamily: v }, 'Font')} keytip="FF" />
+            <Combo value={style.fontFamily ?? normalFont.name} options={FONTS} width={112} tip={{ title: 'Font' }} onChange={(v) => setStyle({ fontFamily: v }, 'Font')} keytip="FF" />
             <Combo value={String(style.fontSize ?? 11)} options={SIZES} width={40} tip={{ title: 'Font Size' }} onChange={(v) => { const n = +v; if (n > 0) setStyle({ fontSize: n }, 'Font Size') }} keytip="FS" />
             <SmallButton icon={<FontIncrease20Regular />} tip={{ title: 'Increase Font Size' }} onClick={() => setStyle({ fontSize: (style.fontSize ?? 11) + 1 }, 'Font Size')} keytip="FG" />
             <SmallButton icon={<FontDecrease20Regular />} tip={{ title: 'Decrease Font Size' }} onClick={() => setStyle({ fontSize: Math.max(1, (style.fontSize ?? 11) - 1) }, 'Font Size')} keytip="FK" />
