@@ -1,5 +1,6 @@
 // More Excel functions HyperFormula lacks: TAKE, DROP, CHOOSECOLS, CHOOSEROWS, TOCOL, TOROW, SORTBY, MUNIT, MINVERSE,
-// MDETERM, FREQUENCY, TREND, FORECAST, INTERCEPT, PERCENTRANK, NUMBERVALUE, TYPE, VALUETOTEXT.
+// MDETERM, FREQUENCY, TREND, FORECAST, INTERCEPT, PERCENTRANK, NUMBERVALUE, TYPE, VALUETOTEXT, TEXTSPLIT, WRAPROWS, WRAPCOLS,
+// EXPAND, RANDARRAY, ARRAYTOTEXT, CELL, INFO.
 // Array functions declare their result size from the formula text, so their row / column counts must be literal numbers.
 import { FunctionPlugin, FunctionArgumentType, HyperFormula, SimpleRangeValue, CellError, ErrorType, ArraySize } from 'hyperformula'
 type Any = any // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -107,7 +108,23 @@ class MorePlugin extends FunctionPlugin {
     'PERCENTRANK.INC': { method: 'percentrank', parameters: [RANGE, NUM, optNum(3)] },
     NUMBERVALUE: { method: 'numbervalue', parameters: [{ argumentType: A.STRING }, { argumentType: A.STRING, optionalArg: true, defaultValue: '.' }, { argumentType: A.STRING, optionalArg: true, defaultValue: ',' }] },
     TYPE: { method: 'typeOf', parameters: [{ argumentType: A.SCALAR }] }, // SCALAR (like ISERROR) lets error values through
-    VALUETOTEXT: { method: 'valuetotext', parameters: [ANY, optNum(0)] }
+    VALUETOTEXT: { method: 'valuetotext', parameters: [ANY, optNum(0)] },
+    TEXTSPLIT: { method: 'textsplit', sizeOfResultArrayMethod: 'textsplitSize', parameters: [{ argumentType: A.STRING }, { argumentType: A.ANY, optionalArg: true }, { argumentType: A.ANY, optionalArg: true }, optNum(0), optNum(0), { argumentType: A.ANY, optionalArg: true }] },
+    WRAPROWS: { method: 'wraprows', sizeOfResultArrayMethod: 'wraprowsSize', parameters: [RANGE, NUM, { argumentType: A.ANY, optionalArg: true }] },
+    WRAPCOLS: { method: 'wrapcols', sizeOfResultArrayMethod: 'wrapcolsSize', parameters: [RANGE, NUM, { argumentType: A.ANY, optionalArg: true }] },
+    EXPAND: { method: 'expand', sizeOfResultArrayMethod: 'expandSize', parameters: [RANGE, NUM, { argumentType: A.NUMBER, optionalArg: true }, { argumentType: A.ANY, optionalArg: true }] },
+    RANDARRAY: { method: 'randarray', sizeOfResultArrayMethod: 'randarraySize', isVolatile: true, parameters: [optNum(1), optNum(1), optNum(0), optNum(1), optNum(0)] },
+    ARRAYTOTEXT: { method: 'arraytotext', parameters: [RANGE, optNum(0)] },
+    CELL: { method: 'cellInfo', parameters: [{ argumentType: A.ANY }, { argumentType: A.ANY, optionalArg: true }] },
+    INFO: { method: 'info', parameters: [{ argumentType: A.STRING }] },
+    LET: { method: 'unexpanded', parameters: [{ argumentType: A.ANY }], repeatLastArgs: 1, expandRanges: false },
+    LAMBDA: { method: 'unexpanded', parameters: [{ argumentType: A.ANY }], repeatLastArgs: 1, expandRanges: false },
+    MAP: { method: 'unexpanded', parameters: [{ argumentType: A.ANY }], repeatLastArgs: 1, expandRanges: false },
+    REDUCE: { method: 'unexpanded', parameters: [{ argumentType: A.ANY }], repeatLastArgs: 1, expandRanges: false },
+    SCAN: { method: 'unexpanded', parameters: [{ argumentType: A.ANY }], repeatLastArgs: 1, expandRanges: false },
+    BYROW: { method: 'unexpanded', parameters: [{ argumentType: A.ANY }], repeatLastArgs: 1, expandRanges: false },
+    BYCOL: { method: 'unexpanded', parameters: [{ argumentType: A.ANY }], repeatLastArgs: 1, expandRanges: false },
+    MAKEARRAY: { method: 'unexpanded', parameters: [{ argumentType: A.ANY }], repeatLastArgs: 1, expandRanges: false }
   }
 
   // ---- result sizes (from the formula text) ----
@@ -310,6 +327,139 @@ class MorePlugin extends FunctionPlugin {
       return n === null ? '' : String(n)
     })
   }
+  // ---- text splitting and array reshaping ----
+  /** A string the formula text pins down: a literal, or the current value of a referenced cell (the size is fixed when the formula is entered). */
+  private peek(node: Any, state: Any): unknown {
+    if (!node) return undefined
+    if (node.type === 'STRING') return node.value
+    if (node.type === 'CELL_REFERENCE') { try { return this.dependencyGraph.getScalarValue(node.reference.toSimpleCellAddress(state.formulaAddress)) } catch { return undefined } }
+    return undefined
+  }
+  private delims(node: Any, state: Any): string[] | null {
+    if (!node || node.type === 'EMPTY') return []
+    const v = this.peek(node, state)
+    return typeof v === 'string' ? (v === '' ? [] : [v]) : null
+  }
+  private split(text: string, cols: string[], rows: string[], ignoreEmpty: boolean, insensitive: boolean): string[][] {
+    const re = (d: string[]): RegExp | null => (d.length ? new RegExp(d.map((x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'), insensitive ? 'gi' : 'g') : null)
+    const rr = re(rows), cr = re(cols)
+    let lines = rr ? text.split(rr) : [text]
+    if (ignoreEmpty) lines = lines.filter((l) => l !== '')
+    const g = lines.map((l) => { const parts = cr ? l.split(cr) : [l]; return ignoreEmpty ? parts.filter((x) => x !== '') : parts })
+    return g.length ? g : [['']]
+  }
+  textsplitSize(ast: Any, state: Any): ArraySize {
+    const t = this.peek(ast.args[0], state), cd = this.delims(ast.args[1], state), rd = this.delims(ast.args[2], state)
+    if (typeof t !== 'string' || !cd || !rd) return bad()
+    const ig = ast.args[3] ? lit(ast.args[3]) : 0, mm = ast.args[4] ? lit(ast.args[4]) : 0
+    if (ig === null || mm === null) return bad()
+    const g = this.split(t, cd, rd, ig !== 0, mm === 1)
+    return new ArraySize(Math.max(1, ...g.map((r) => r.length)), g.length)
+  }
+  textsplit(ast: Any, state: Any): Any {
+    return this.runFunction(ast.args, state, this.metadata('TEXTSPLIT'), (text: string, cd: unknown, rd: unknown, ignore: number, mode: number, pad: unknown) => {
+      const flat = (d: unknown): string[] => (d === undefined || d === null ? [] : grid(d).flat().map(String).filter((x) => x !== ''))
+      const g = this.split(text, flat(cd), flat(rd), ignore !== 0, mode === 1)
+      const w = Math.max(1, ...g.map((r) => r.length))
+      const fill = pad === undefined || pad === null ? NA() : pad
+      return out(g.map((r) => Array.from({ length: w }, (_v, k) => (k < r.length ? r[k] : fill))))
+    })
+  }
+  private wrapDims(ast: Any, byCol: boolean): ArraySize {
+    const d = this.sizeOf(ast, 0), n = lit(ast.args[1])
+    if (!d || n === null || n < 1) return bad()
+    const len = d[0] * d[1], k = Math.trunc(n), other = Math.ceil(len / k)
+    return byCol ? new ArraySize(other, k) : new ArraySize(k, other)
+  }
+  wraprowsSize(ast: Any): ArraySize { return this.wrapDims(ast, false) }
+  wrapcolsSize(ast: Any): ArraySize { return this.wrapDims(ast, true) }
+  private wrap(ast: Any, state: Any, name: string, byCol: boolean): Any {
+    return this.runFunction(ast.args, state, this.metadata(name), (arr: Any, n: number, pad: unknown) => {
+      const v = grid(arr).flat(), k = Math.trunc(n)
+      if (k < 1) return VALUE()
+      const other = Math.ceil(v.length / k)
+      const fill = pad === undefined || pad === null ? NA() : pad
+      const at = (i: number): unknown => (i < v.length ? v[i] : fill)
+      return out(byCol
+        ? Array.from({ length: k }, (_a, r) => Array.from({ length: other }, (_b, c) => at(c * k + r)))
+        : Array.from({ length: other }, (_a, r) => Array.from({ length: k }, (_b, c) => at(r * k + c))))
+    })
+  }
+  wraprows(ast: Any, state: Any): Any { return this.wrap(ast, state, 'WRAPROWS', false) }
+  wrapcols(ast: Any, state: Any): Any { return this.wrap(ast, state, 'WRAPCOLS', true) }
+  expandSize(ast: Any): ArraySize {
+    const d = this.sizeOf(ast, 0), r = lit(ast.args[1]), c = ast.args[2] ? lit(ast.args[2]) : d ? d[1] : null
+    return d && r !== null && c !== null && r >= d[0] && c >= d[1] ? new ArraySize(Math.trunc(c), Math.trunc(r)) : bad()
+  }
+  expand(ast: Any, state: Any): Any {
+    return this.runFunction(ast.args, state, this.metadata('EXPAND'), (arr: Any, rows: number, cols: number | undefined, pad: unknown) => {
+      const g = grid(arr), r = Math.trunc(rows), c = cols === undefined ? g[0].length : Math.trunc(cols)
+      if (r < g.length || c < g[0].length) return VALUE()
+      const fill = pad === undefined || pad === null ? NA() : pad
+      return out(Array.from({ length: r }, (_a, i) => Array.from({ length: c }, (_b, j) => (i < g.length && j < g[0].length ? g[i][j] : fill))))
+    })
+  }
+  randarraySize(ast: Any): ArraySize {
+    const r = ast.args[0] ? lit(ast.args[0]) : 1, c = ast.args[1] ? lit(ast.args[1]) : 1
+    return r !== null && c !== null && r >= 1 && c >= 1 ? new ArraySize(Math.trunc(c), Math.trunc(r)) : bad()
+  }
+  randarray(ast: Any, state: Any): Any {
+    return this.runFunction(ast.args, state, this.metadata('RANDARRAY'), (rows: number, cols: number, min: number, max: number, whole: number) => {
+      if (min > max) return VALUE()
+      const lo = Math.ceil(min), hi = Math.floor(max)
+      if (whole && lo > hi) return VALUE()
+      return out(Array.from({ length: Math.trunc(rows) }, () => Array.from({ length: Math.trunc(cols) }, () => (whole ? lo + Math.floor(Math.random() * (hi - lo + 1)) : min + Math.random() * (max - min)))))
+    })
+  }
+  arraytotext(ast: Any, state: Any): Any {
+    return this.runFunction(ast.args, state, this.metadata('ARRAYTOTEXT'), (arr: Any, fmt: number) => {
+      const strict = Math.trunc(fmt) === 1
+      const show = (v: unknown): string => (v instanceof CellError ? '#VALUE!' : typeof v === 'string' ? (strict ? '"' + v.replace(/"/g, '""') + '"' : v) : typeof v === 'boolean' ? (v ? 'TRUE' : 'FALSE') : v === null || v === undefined ? '' : String(num(v) ?? v))
+      const g = grid(arr)
+      return strict ? '{' + g.map((r) => r.map(show).join(',')).join(';') + '}' : g.map((r) => r.map(show).join(', ')).join(', ')
+    })
+  }
+
+  /** LET / LAMBDA-family calls are expanded before they reach the engine (engine/lambda.ts); one that arrives here couldn't be (size not literal). */
+  unexpanded(): Any { return new CellError(ErrorType.NAME) }
+
+  // ---- CELL and INFO ----
+  cellInfo(ast: Any, state: Any): Any {
+    const kind = this.peek(ast.args[0], state)
+    if (typeof kind !== 'string') return VALUE()
+    const node = ast.args[1]
+    const ref = node ? (node.reference ?? node.start) : null
+    if (node && !ref) return VALUE()
+    const a = ref ? ref.toSimpleCellAddress(state.formulaAddress) : state.formulaAddress
+    const colLetters = (c: number): string => { let s = ''; for (let n = c + 1; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s; return s }
+    const v = this.dependencyGraph.getScalarValue(a) as unknown
+    switch (kind.toLowerCase()) {
+      case 'address': return `$${colLetters(a.col)}$${a.row + 1}`
+      case 'col': return a.col + 1
+      case 'row': return a.row + 1
+      case 'contents': return v === null || v === undefined ? 0 : (v as Any)
+      case 'type': return v === null || v === undefined || v === '' ? 'b' : typeof v === 'string' ? 'l' : 'v'
+      case 'filename': case 'prefix': return ''
+      case 'protect': case 'parentheses': case 'color': return 0
+      default: return VALUE()
+    }
+  }
+  info(ast: Any, state: Any): Any {
+    return this.runFunction(ast.args, state, this.metadata('INFO'), (what: string) => {
+      switch (String(what).toLowerCase()) {
+        case 'system': return 'pcdos'
+        case 'recalc': return 'Automatic'
+        case 'numfile': return 1
+        case 'osversion': return 'Windows (32-bit) NT 10.00'
+        case 'release': return '16.0'
+        case 'origin': return '$A:$A$1'
+        case 'directory': return ''
+        case 'memavail': case 'memused': case 'totmem': return 0
+        default: return VALUE()
+      }
+    })
+  }
+
 }
 
 let registered = false

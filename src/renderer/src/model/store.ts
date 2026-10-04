@@ -10,7 +10,7 @@ import {
 import { formatValue, detectInputFormat, numericInput, FormattedValue } from '../format/numfmt'
 import { computeFilteredRows } from '../engine/filter'
 import { shiftFormula } from '../engine/shiftFormula'
-import { expandLet } from '../engine/let'
+import { expandFormula } from '../engine/lambda'
 import { eachPacked, type PackedCells } from '../io/packedCells'
 import { patchHyperFormulaGraph, instrumentHf } from '../engine/hfPatches'
 import { DEFAULT_AUTHOR, defaultLayout } from './defaults'
@@ -214,7 +214,7 @@ export class WorkbookStore {
   private letSrc = new Map<string, { orig: string; expanded: string }>()
   private toEngine(sheet: SheetState, r: number, c: number, raw: string): string {
     const key = `${sheet.uid}:${r},${c}`
-    const x = raw.charCodeAt(0) === 61 ? expandLet(raw) : null
+    const x = raw.charCodeAt(0) === 61 ? expandFormula(raw) : null
     if (x === null) { this.letSrc.delete(key); return raw }
     this.letSrc.set(key, { orig: raw, expanded: x })
     return x
