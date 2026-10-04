@@ -182,6 +182,8 @@ export interface SheetLayout {
   sparklines?: SparklineDef[]
   /** Insert > Pictures: floating images (bottom of the list is drawn first). */
   pictures?: PictureDef[]
+  /** Page Layout > Background: image data URL tiled behind the cells (screen only; not written to .xlsx). */
+  background?: string
   /** Insert > Shapes / Text Box. */
   shapes?: ShapeDef[]
   /** Excel tables (ListObjects) kept so a save writes them back; formulas already use plain ranges. */
