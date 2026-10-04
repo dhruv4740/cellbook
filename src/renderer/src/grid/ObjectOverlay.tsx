@@ -7,6 +7,7 @@ import { PictureDef, ShapeDef } from '../model/types'
 import type { ChartGeometry } from '../charts/ChartOverlay'
 import { Menu, MenuItem } from '../components/Menu'
 import { picturesOf, updatePicture, deletePicture } from '../data/pictures'
+import { backgroundVars } from '../data/background'
 import { shapesOf, updateShape, deleteShape } from '../data/shapes'
 import { floatsOf } from '../data/arrange'
 import { arrangeOrder, commitMoveOfSelection, selectObject, selectObjects, selectedObjectIds } from '../data/arrangeActions'
@@ -52,6 +53,21 @@ export function ObjectOverlay({ sheet, geo }: { sheet: SheetState; geo: ChartGeo
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [selectedId, sheet, editing])
+
+  // Sheet background (Page Layout > Background): handed to the grid host as CSS so Grid.tsx's canvas stays untouched.
+  const bg = sheet.layout.background
+  useEffect(() => {
+    const host = document.querySelector<HTMLElement>('.grid-host')
+    if (!host) return
+    const vars = backgroundVars(bg, rowHeaderW, headerH, scroll)
+    for (const k of ['--xl-bg-img', '--xl-bg-x', '--xl-bg-y', '--xl-bg-sx', '--xl-bg-sy']) host.style.removeProperty(k)
+    for (const [k, v] of Object.entries(vars)) host.style.setProperty(k, v)
+    host.classList.toggle('xl-has-bg', !!bg)
+  }, [bg, rowHeaderW, headerH, scroll.x, scroll.y]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => {
+    const host = document.querySelector<HTMLElement>('.grid-host')
+    host?.classList.remove('xl-has-bg')
+  }, [])
 
   if (!floatsOf(sheet.layout).length && !ui.inkTool) return null
   const sx = (c: number): number => (c < frozen.cols ? colsAxis.offset(c) * z : frozenW + colsAxis.offset(c) * z - colsAxis.offset(frozen.cols) * z - scroll.x)

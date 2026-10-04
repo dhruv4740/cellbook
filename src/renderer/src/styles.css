@@ -21,6 +21,13 @@ body { font: 12px var(--ui-font); color: var(--text); background: #fff; user-sel
 .app { display: flex; flex-direction: column; height: 100%; }
 .grid-host { flex: 1; min-height: 0; position: relative; overflow: hidden; background: #fff; }
 
+/* Page Layout > Background: tiled image under the cell area; the main canvas multiplies over it so white cells show it. */
+.grid-host.xl-has-bg::before {
+  content: ''; position: absolute; left: var(--xl-bg-x); top: var(--xl-bg-y); right: 0; bottom: 0; pointer-events: none;
+  background-image: var(--xl-bg-img); background-repeat: repeat; background-position: var(--xl-bg-sx) var(--xl-bg-sy);
+}
+.grid-host.xl-has-bg > canvas:first-of-type { mix-blend-mode: multiply; }
+
 .xl-scroll { position: absolute; inset: 0; overflow: auto; }
 .xl-scroll > div { position: relative; }
 .xl-canvas {

@@ -22,6 +22,7 @@ import { findInvalidCells } from '../../data/dataValidation'
 import { traceStep, removeArrows } from '../../data/trace'
 import { nextErrorCell } from '../../data/errorCheck'
 import { pickPictureFiles } from '../../data/pictures'
+import { pickSheetBackground, setSheetBackground } from '../../data/background'
 import { insertShape, SHAPE_LABELS } from '../../data/shapes'
 import { THEMES, COLOR_SCHEMES, FONT_SCHEMES, EFFECT_SCHEMES } from '../../data/themes'
 import { WORDART_STYLES, insertWordArt, insertSignatureLine, EQUATIONS, NEW_EQUATION_TEXT, insertEquation } from '../../data/textObjects'
@@ -205,7 +206,9 @@ export function PageLayoutTab() {
         { label: 'Remove Page Break', disabled: !canRemovePageBreak(), onClick: removePageBreak },
         { label: 'Reset All Page Breaks', disabled: !(ps.rowBreaks?.length || ps.colBreaks?.length), onClick: resetPageBreaks }
       ] },
-      { label: 'Background', icon: big(ImageAdd20Regular), width: 62, onClick: () => notAvailable('Sheet Background') },
+      store.active.layout.background
+        ? { label: 'Delete Background', icon: big(ImageAdd20Regular), width: 62, onClick: () => setSheetBackground(store.active, null) }
+        : { label: 'Background', icon: big(ImageAdd20Regular), width: 62, onClick: () => pickSheetBackground() },
       { label: 'Print Titles', icon: big(TableFreezeRow20Regular), width: 50, onClick: () => openPageSetup('Sheet') }
     ] },
     { label: 'Scale to Fit', launcher: true, onLauncher: () => openPageSetup('Page'), items: [[
