@@ -30,6 +30,7 @@ import { SymbolDialog } from './SymbolDialog'
 import { IconsDialog } from './IconsDialog'
 import { EditRangesDialog } from './EditRangesDialog'
 import { NewTableStyleDialog } from './NewTableStyleDialog'
+import { AddPenDialog } from './AddPenDialog'
 import { CustomViewsDialog } from './CustomViewsDialog'
 import { AccessibilityDialog } from './AccessibilityDialog'
 import { DataTableDialog, ScenarioManagerDialog } from './WhatIfDialogs'
@@ -191,6 +192,8 @@ export default function DialogHost() {
       return <ScenarioManagerDialog onClose={close} />
     case 'symbol':
       return <SymbolDialog onClose={close} />
+    case 'addPen':
+      return <AddPenDialog onClose={close} />
     case 'newTableStyle':
       return <NewTableStyleDialog onClose={close} />
     case 'customViews':

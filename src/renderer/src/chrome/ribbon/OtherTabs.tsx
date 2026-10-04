@@ -18,7 +18,9 @@ import {
 } from '@fluentui/react-icons'
 import { GenericTab, GGroup, GBtn } from './GenericTab'
 import { useStore, store } from '../../model/store'
-import { useUi, setUi, getUi, notAvailable } from '../ui'
+import { useUi, setUi, getUi, notAvailable, showToast } from '../ui'
+import { DEFAULT_PENS, InkTool, Pen, inkToShape, inksOf, replayInk } from '../../data/ink'
+import { selectedObjectIds } from '../../data/arrangeActions'
 import { PageSetup } from '../../model/types'
 import { PAPER_SIZES, paperOf, marginPresetOf, fitOf } from '../../model/pageSetup'
 import { canRemovePageBreak, insertPageBreak, openPageSetup, removePageBreak, resetPageBreaks, setFitPages, setMarginPreset, updatePageSetup } from '../../grid/pageSetupCommands'
@@ -35,6 +37,7 @@ import { toggleSheetProtection, toggleWorkbookProtection } from '../../dialogs/P
 
 export function ReviewTab() {
   const store = useStore()
+  const { hideInk } = useUi()
   const active = store.active.selection.active
   const key = active.r + ',' + active.c
   const hasComment = !!store.active.layout.comments[key]
@@ -75,7 +78,7 @@ export function ReviewTab() {
       { label: 'Allow Edit Ranges', icon: <ShieldTask20Regular fontSize={28} />, disabled: !!store.active.layout.protection, onClick: () => setUi({ dialog: { kind: 'editRanges' } }) },
       { label: 'Unshare Workbook', icon: <ShieldTask20Regular fontSize={28} /> }
     ] },
-    { label: 'Ink', big: [{ label: 'Hide Ink', icon: <PenSparkle20Regular fontSize={28} /> }] }
+    { label: 'Ink', big: [{ label: 'Hide Ink', icon: <PenSparkle20Regular fontSize={28} />, active: hideInk, onClick: () => setUi({ hideInk: !getUi().hideInk }) }] }
   ]
   return <GenericTab groups={groups} />
 }
@@ -105,28 +108,69 @@ function cellName(r: number, c: number): string {
   return s + (r + 1)
 }
 
-// Excel 2021's Draw tab: pen/highlighter/eraser tools for inking on the sheet. Commands are inert
-// (no touch/pen input to drive them in this environment) but the real groups and tools are present.
+// Excel 2021's Draw tab: pens, highlighter and eraser ink the sheet. Strokes are floating ink objects (ShapeDef kind 'ink'),
+// so move / delete / arrange / Selection Pane work on them; they are saved to .xlsx as freeform shapes.
+const INK_HELP = [
+  'Draw on the sheet: pick a pen, then drag over the grid. Each stroke is an object you can move, resize, delete or arrange.',
+  '',
+  'Select Objects: drag a rectangle around objects.  Lasso Select: draw a loop around objects to select them.',
+  'Eraser: drag across a stroke to remove it.  Ink to Shape: select strokes, then snap them to a line, rectangle or oval.',
+  'Ink Replay: plays the strokes back in the order they were drawn.  Review > Hide Ink hides all ink.',
+  'Press Esc to leave drawing.  Ink to Math is not available in Cellbook.'
+].join('\n')
+
+function PenIcon({ color, alpha }: { color: string; alpha?: number }) {
+  return (
+    <svg width="28" height="28" viewBox="0 0 28 28">
+      <path d="M17 3l6 6-12 12-7 1 1-7z" fill="#f2f2f2" stroke="#605e5c" strokeWidth="1.2" strokeLinejoin="round" />
+      <path d="M4 22l1-7 3 3z" fill={color} opacity={alpha ?? 1} stroke="#605e5c" strokeWidth="0.8" />
+      <rect x="3" y="25" width="22" height="2.5" rx="1" fill={color} opacity={alpha ?? 1} />
+    </svg>
+  )
+}
+
+function LassoIcon() {
+  return (
+    <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="#605e5c" strokeWidth="1.6">
+      <path d="M14 5c6 0 10 3 10 7s-4 7-10 7S4 16 4 12s4-7 10-7z" strokeDasharray="3 2" />
+      <path d="M10 19c-1 2-2 4-2 5" />
+    </svg>
+  )
+}
+
 export function DrawTab() {
-  const pen = (label: string, w = 30): GBtn => ({ label, icon: <PenSparkle20Regular fontSize={28} />, noLabel: true, width: w })
+  const ui = useUi()
+  const tool = ui.inkTool
+  const sameTool = (a: InkTool | null, b: InkTool): boolean => !!a && a.kind === b.kind && (a.kind !== 'pen' || a.pen.name === (b as { pen: Pen }).pen.name)
+  const use = (t: InkTool | null): void => setUi({ inkTool: t, selectObjectsMode: false })
+  const toggle = (t: InkTool): void => use(sameTool(getUi().inkTool, t) ? null : t)
+  const pen = (p: Pen): GBtn => ({ label: p.name, icon: <PenIcon color={p.color} alpha={p.alpha} />, noLabel: true, width: 30, active: sameTool(tool, { kind: 'pen', pen: p }), onClick: () => toggle({ kind: 'pen', pen: p }) })
+  const convert = (): void => {
+    const sheet = store.active
+    const ids = selectedObjectIds().filter((id) => inksOf(sheet).some((s) => s.id === id))
+    if (!ids.length) { showToast('Select one or more ink strokes first (Select Objects or Lasso Select), then choose Ink to Shape.'); return }
+    const n = inkToShape(sheet, ids)
+    showToast(n ? `Converted ${n} ink stroke${n > 1 ? 's' : ''} to shapes.` : 'Cellbook could not recognise a line, rectangle or oval in the selected ink.')
+  }
   const groups: GGroup[] = [
-    { label: 'Input Mode', items: [{ label: 'Draw', icon: <PenSparkle20Regular fontSize={28} />, width: 44 }] },
+    { label: 'Input Mode', items: [{ label: 'Draw', icon: <PenSparkle20Regular fontSize={28} />, width: 44, active: !!tool && tool.kind !== 'select', onClick: () => use(tool && tool.kind !== 'select' ? null : { kind: 'pen', pen: DEFAULT_PENS[0] }) }] },
     { label: 'Undo', items: [[
       { label: 'Undo', icon: <ArrowUndo20Regular />, iconOnly: true, onClick: () => store.undo() },
       { label: 'Redo', icon: <ArrowRedo20Regular />, iconOnly: true, onClick: () => store.redo() }
     ]] },
     { label: 'Drawing Tools', items: [
-      { label: 'Select Objects', icon: <DesktopFlow20Regular fontSize={28} />, noLabel: true, width: 40 },
-      { label: 'Lasso Select', icon: <DesktopFlow20Regular fontSize={28} />, noLabel: true, width: 40 },
-      pen('Eraser'), pen('Pen: Black'), pen('Pen: Red'), pen('Pencil'), pen('Highlighter: Yellow'), pen('Pen: Blue'), pen('Pen: Green'),
-      { label: 'Add', icon: <Add20Regular fontSize={28} />, width: 44, menu: [{ label: 'Add Pen...', onClick: () => notAvailable('Add Pen') }] }
+      { label: 'Select Objects', icon: <DesktopFlow20Regular fontSize={28} />, noLabel: true, width: 40, active: ui.selectObjectsMode, onClick: () => setUi({ inkTool: null, selectObjectsMode: !getUi().selectObjectsMode }) },
+      { label: 'Lasso Select', icon: <LassoIcon />, noLabel: true, width: 40, active: tool?.kind === 'lasso', onClick: () => toggle({ kind: 'lasso' }) },
+      { label: 'Eraser', icon: <Eraser20Regular fontSize={28} />, noLabel: true, width: 30, active: tool?.kind === 'eraser', onClick: () => toggle({ kind: 'eraser' }) },
+      ...DEFAULT_PENS.map(pen), ...ui.customPens.map(pen),
+      { label: 'Add', icon: <Add20Regular fontSize={28} />, width: 44, menu: [{ label: 'Add Pen...', onClick: () => setUi({ dialog: { kind: 'addPen' } }) }] }
     ] },
     { label: 'Convert', items: [
-      { label: 'Ink to Shape', icon: <Shapes20Regular fontSize={28} />, width: 50 },
-      { label: 'Ink to Math', icon: <MathSymbols20Regular fontSize={28} />, width: 50 }
+      { label: 'Ink to Shape', icon: <Shapes20Regular fontSize={28} />, width: 50, onClick: convert },
+      { label: 'Ink to Math', icon: <MathSymbols20Regular fontSize={28} />, width: 50, onClick: () => showToast('Ink to Math (handwriting recognition) is not available in Cellbook; use Insert > Equation instead.') }
     ] },
-    { label: 'Replay', items: [{ label: 'Ink Replay', icon: <ArrowRepeatAll20Regular fontSize={28} />, width: 48 }] },
-    { label: 'Help', items: [{ label: 'Ink Help', icon: <QuestionCircle20Regular fontSize={28} />, width: 44 }] }
+    { label: 'Replay', items: [{ label: 'Ink Replay', icon: <ArrowRepeatAll20Regular fontSize={28} />, width: 48, onClick: () => replayInk(store.active) }] },
+    { label: 'Help', items: [{ label: 'Ink Help', icon: <QuestionCircle20Regular fontSize={28} />, width: 44, onClick: () => setUi({ dialog: { kind: 'message', props: { text: INK_HELP } } }) }] }
   ]
   return <GenericTab groups={groups} />
 }
