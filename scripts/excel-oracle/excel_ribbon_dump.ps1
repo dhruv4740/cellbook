@@ -2,6 +2,7 @@
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
 $xl = New-Object -ComObject Excel.Application
 $xl.Visible = $true
+$xl.WindowState = -4137
 $null = $xl.Workbooks.Add()
 Start-Sleep 3
 $root = [Windows.Automation.AutomationElement]::RootElement
@@ -19,9 +20,12 @@ foreach ($t in $tabs) {
   try { $t.GetCurrentPattern([Windows.Automation.SelectionItemPattern]::Pattern).Select() } catch { continue }
   Start-Sleep -Milliseconds 700
   $items = @()
+  $top = $t.Current.BoundingRectangle.Bottom
   foreach ($e in $win.FindAll('Descendants', [Windows.Automation.Condition]::TrueCondition)) {
     $ct = $e.Current.ControlType.ProgrammaticName
     if ($e.Current.IsOffscreen -or -not $e.Current.Name) { continue }
+    $r = $e.Current.BoundingRectangle
+    if ($r.Top -lt $top - 2 -or $r.Top -gt $top + 150) { continue }
     if ($ct -in 'ControlType.Button', 'ControlType.SplitButton', 'ControlType.MenuItem', 'ControlType.ComboBox', 'ControlType.CheckBox', 'ControlType.Group') {
       $items += [ordered]@{ type = $ct -replace 'ControlType\.', ''; name = $e.Current.Name; id = $e.Current.AutomationId }
     }
