@@ -379,7 +379,8 @@ export class WorkbookStore {
   }
 
   /** Sorts every row of the AutoFilter range (keeping rows intact) by one column. */
-  sortFilterRange(sheet: SheetState, col: number, order: 'asc' | 'desc'): void {
+  /** `byColor` puts rows whose cell (fill) or font colour in `col` equals `color` (null = none) first, keeping the rest in place. */
+  sortFilterRange(sheet: SheetState, col: number, order: 'asc' | 'desc', byColor?: { kind: 'fill' | 'font'; color: string | null }): void {
     const af = sheet.layout.autoFilter
     if (!af) return
     if (sheet.layout.protection && (!this.allows(sheet, 'sort') || !this.canEditRange(sheet, af.range))) return
@@ -396,7 +397,12 @@ export class WorkbookStore {
       if (typeof v === 'number') return [0, v]
       return [1, String(v).toLowerCase()]
     }
+    const colorRank = (row: (typeof rows)[number]): number => {
+      const st = this.getStyle(sheet, row.r, col)
+      return ((byColor!.kind === 'fill' ? st?.fill : st?.color) ?? null) === byColor!.color ? 0 : 1
+    }
     const sorted = [...rows].sort((a, b) => {
+      if (byColor) return colorRank(a) - colorRank(b)
       const [ta, va] = key(a)
       const [tb, vb] = key(b)
       if (ta !== tb) return ta - tb
