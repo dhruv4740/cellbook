@@ -210,6 +210,20 @@ export interface ChartElementsVisible {
   axisTitles: boolean
 }
 
+/** Page Layout > Arrange state shared by charts, pictures and shapes. */
+export interface ArrangeProps {
+  /** Stacking order across all floating objects on the sheet (higher = in front); absent = on top of any that have one. */
+  z?: number
+  /** Hidden via the Selection Pane. */
+  hidden?: boolean
+  /** Objects sharing a group id move and select together. */
+  group?: string
+  /** Degrees clockwise (pictures and shapes only). */
+  rotation?: number
+  flipH?: boolean
+  flipV?: boolean
+}
+
 /** Anchors the chart's top-left corner to a cell, offset by pixels within that cell (at 100% zoom). */
 export interface ChartAnchor {
   r: number
@@ -218,7 +232,7 @@ export interface ChartAnchor {
   dy: number
 }
 
-export interface ChartSpec {
+export interface ChartSpec extends ArrangeProps {
   id: string
   type: ChartType
   subtype: ChartSubtype
@@ -468,7 +482,7 @@ export interface SheetTable {
 
 export type ShapeKind = 'rect' | 'roundRect' | 'ellipse' | 'triangle' | 'diamond' | 'rightArrow' | 'line' | 'arrow' | 'textbox'
 
-export interface ShapeDef {
+export interface ShapeDef extends ArrangeProps {
   id: string
   name: string
   kind: ShapeKind
@@ -486,11 +500,9 @@ export interface ShapeDef {
   bold?: boolean
   italic?: boolean
   align?: 'l' | 'ctr' | 'r'
-  /** Lines: runs bottom-left to top-right instead of top-left to bottom-right. */
-  flipV?: boolean
 }
 
-export interface PictureDef {
+export interface PictureDef extends ArrangeProps {
   id: string
   name: string
   /** `data:image/...;base64,...` */

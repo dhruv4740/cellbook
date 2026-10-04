@@ -10,6 +10,7 @@ import { Group, GroupSep, BigButton, SplitButton, StackSplit, SmallButton, Dialo
 import { ChevronDown12Regular } from '@fluentui/react-icons'
 import { ColorMenu } from './ColorMenu'
 import * as cmds from '../../grid/commands'
+import { copyAsPicture } from '../../grid/copyPicture'
 import { getSpecialRanges } from '../../dialogs/find'
 import { toggleSheetProtection } from '../../dialogs/ProtectDialogs'
 import { addCfRule, clearCfRules } from '../../format/conditional'
@@ -272,7 +273,7 @@ export default function HomeTab() {
       }
     },
     'separator',
-    { label: 'Select Objects', onClick: () => notAvailable('Select Objects') }
+    { label: 'Select &Objects', checked: getUi().selectObjectsMode, onClick: () => setUi({ selectObjectsMode: !getUi().selectObjectsMode }) }
   ]
 
   const cfMenu: MenuItem[] = [
@@ -376,7 +377,7 @@ export default function HomeTab() {
         </div>
         <div className="xl-col xl-stack">
           <SmallButton icon={<Cut20Regular />} tip={{ title: 'Cut (Ctrl+X)' }} onClick={() => cmds.cut()} keytip="X" />
-          <SmallButton icon={<Copy20Regular />} split menu={[{ label: '&Copy', onClick: () => cmds.copy() }, { label: 'Copy as &Picture...', onClick: () => notAvailable('Copy as Picture') }]} tip={{ title: 'Copy (Ctrl+C)' }} onClick={() => cmds.copy()} keytip="C" />
+          <SmallButton icon={<Copy20Regular />} split menu={[{ label: '&Copy', onClick: () => cmds.copy() }, { label: 'Copy as &Picture...', onClick: () => void copyAsPicture() }]} tip={{ title: 'Copy (Ctrl+C)' }} onClick={() => cmds.copy()} keytip="C" />
           <SmallButton
             icon={<PaintBrush20Regular />}
             tip={{ title: 'Format Painter', desc: 'Copy formatting to another selection. Double-click to keep it on.' }}

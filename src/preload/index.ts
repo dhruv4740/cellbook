@@ -68,6 +68,7 @@ const api = {
   clipboardReadImage: (): Promise<string> => ipcRenderer.invoke('clipboard:readImage'),
   clipboardReadHTML: (): Promise<string> => ipcRenderer.invoke('clipboard:readHTML'),
   clipboardWrite: (data: { text: string; html?: string }): Promise<void> => ipcRenderer.invoke('clipboard:write', data),
+  clipboardWriteImage: (dataUrl: string): Promise<void> => ipcRenderer.invoke('clipboard:writeImage', dataUrl),
   recoverWrite: (id: string, name: string, data: Uint8Array): Promise<void> => ipcRenderer.invoke('recover:write', id, name, data),
   recoverClear: (id: string): Promise<void> => ipcRenderer.invoke('recover:clear', id),
   recoverRegister: (id: string): Promise<void> => ipcRenderer.invoke('recover:register', id),

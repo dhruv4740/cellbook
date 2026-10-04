@@ -1,6 +1,6 @@
 // Insert > Pictures in .xlsx: floating images live in a sheet's drawing part (xl/drawings/drawingN.xml, an
 // xdr:pic per image, its bytes in xl/media/). Read them into layout.pictures and write them back on save.
-import type { PictureDef, ShapeDef, ShapeKind, SheetLayout } from '../model/types'
+import type { ArrangeProps, PictureDef, ShapeDef, ShapeKind, SheetLayout } from '../model/types'
 import { parseRelationships, resolveRelTarget } from './fastXlsxXml'
 import { toFiles, type PkgLike } from './xlsxPostProcess'
 
@@ -27,6 +27,19 @@ export function dataUrlToBytes(src: string): { bytes: Uint8Array; mime: string }
 export const isMediaPart = (name: string): boolean => /^xl\/media\/[^/]+\.(?:png|jpe?g|gif|bmp|webp)$/i.test(name)
 
 const num = (s: string | undefined): number => (s ? parseInt(s, 10) : 0)
+
+/** Rotation / flips from the object's a:xfrm and the Selection Pane's hidden flag from its cNvPr. */
+function arrangeProps(xml: string): ArrangeProps {
+  const xf = /<(?:a:)?xfrm\b([^>]*)>/.exec(xml)?.[1] ?? ''
+  const rot = Math.round((num(/\brot="(-?\d+)"/.exec(xf)?.[1]) / 60000) % 360 + 360) % 360
+  return {
+    ...(rot ? { rotation: rot } : {}), ...(/\bflipH="1"/.test(xf) ? { flipH: true } : {}), ...(/\bflipV="1"/.test(xf) ? { flipV: true } : {}),
+    ...(/<(?:xdr:)?cNvPr\b[^>]*\bhidden="1"/.test(xml) ? { hidden: true } : {})
+  }
+}
+/** The xfrm attributes and cNvPr hidden attribute for the writer. */
+const xfrmAttrs = (o: ArrangeProps): string => `${o.rotation ? ` rot="${Math.round(o.rotation * 60000)}"` : ''}${o.flipH ? ' flipH="1"' : ''}${o.flipV ? ' flipV="1"' : ''}`
+const hiddenAttr = (o: ArrangeProps): string => (o.hidden ? ' hidden="1"' : '')
 
 export function parseDrawingObjects(
   files: Record<string, Uint8Array>,
@@ -56,6 +69,7 @@ export function parseDrawingObjects(
   const pictures: PictureDef[] = [], shapes: ShapeDef[] = []
   const anchorRe = /<(?:xdr:)?(oneCellAnchor|twoCellAnchor)\b[^>]*>([\s\S]*?)<\/(?:xdr:)?\1>/g
   let a: RegExpExecArray | null
+  let z = 0 // drawing order = z-order
   while ((a = anchorRe.exec(drawingXml))) {
     const block = a[2]
     const pic = /<(?:xdr:)?pic\b[\s\S]*?<\/(?:xdr:)?pic>/.exec(block)
@@ -89,10 +103,10 @@ export function parseDrawingObjects(
       if (!bytes || !mime) continue
       const nm = /<(?:xdr:)?cNvPr\b[^>]*\bname="([^"]*)"/.exec(pic[0])?.[1] ?? `Picture ${pictures.length + 1}`
       const alt = /<(?:xdr:)?cNvPr\b[^>]*\bdescr="([^"]*)"/.exec(pic[0])?.[1]
-      pictures.push({ id: 'pic_' + drawingPath.replace(/\D/g, '') + '_' + pictures.length, name: unescapeXml(nm), src: bytesToDataUrl(bytes, mime), anchor, width, height, ...(alt ? { alt: unescapeXml(alt) } : {}) })
+      pictures.push({ id: 'pic_' + drawingPath.replace(/\D/g, '') + '_' + pictures.length, name: unescapeXml(nm), src: bytesToDataUrl(bytes, mime), anchor, width, height, ...(alt ? { alt: unescapeXml(alt) } : {}), ...arrangeProps(pic[0]), z: z++ })
     } else if (sp) {
       const sh = parseShape(sp[0], sp[1] === 'cxnSp', anchor, width, height)
-      if (sh) shapes.push({ ...sh, id: 'shp_' + drawingPath.replace(/\D/g, '') + '_' + shapes.length })
+      if (sh) shapes.push({ ...sh, ...arrangeProps(sp[0]), z: z++, id: 'shp_' + drawingPath.replace(/\D/g, '') + '_' + shapes.length })
     }
   }
   return { pictures, shapes }
@@ -133,8 +147,7 @@ function parseShape(xml: string, connector: boolean, anchor: ShapeDef['anchor'],
     ...(fill ? { fill } : {}), ...(line ? { line, lineWidth: lw ? Math.max(0.25, num(lw) / 12700) : 1 } : {}),
     ...(text ? { text } : {}), ...(color ? { color } : {}),
     ...(sz ? { fontSize: num(sz) / 100 } : {}), ...(rPr && /\bb="1"/.test(rPr[1]) ? { bold: true } : {}), ...(rPr && /\bi="1"/.test(rPr[1]) ? { italic: true } : {}),
-    ...(algn === 'ctr' ? { align: 'ctr' as const } : algn === 'r' ? { align: 'r' as const } : {}),
-    ...(isLine && /<(?:a:)?xfrm\b[^>]*flipV="1"/.test(spPr) ? { flipV: true } : {})
+    ...(algn === 'ctr' ? { align: 'ctr' as const } : algn === 'r' ? { align: 'r' as const } : {})
   }
 }
 
@@ -152,16 +165,16 @@ function shapeAnchorXml(s: ShapeDef, id: number): string {
   const ln = s.line
     ? `<a:ln w="${Math.round((s.lineWidth ?? 1) * 12700)}"><a:solidFill><a:srgbClr val="${rgb(s.line)}"/></a:solidFill>${s.kind === 'arrow' ? '<a:tailEnd type="triangle"/>' : ''}</a:ln>`
     : '<a:ln><a:noFill/></a:ln>'
-  const xfrm = `<a:xfrm${s.flipV ? ' flipV="1"' : ''}><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm>`
+  const xfrm = `<a:xfrm${xfrmAttrs(s)}><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm>`
   const geom = `<a:prstGeom prst="${PRST[s.kind]}"><a:avLst/></a:prstGeom>`
   const name = escapeXml(s.name)
   if (isLine) {
-    return `<xdr:oneCellAnchor>${from}<xdr:cxnSp macro=""><xdr:nvCxnSpPr><xdr:cNvPr id="${id}" name="${name}"/><xdr:cNvCxnSpPr/></xdr:nvCxnSpPr><xdr:spPr>${xfrm}${geom}${ln}</xdr:spPr></xdr:cxnSp><xdr:clientData/></xdr:oneCellAnchor>`
+    return `<xdr:oneCellAnchor>${from}<xdr:cxnSp macro=""><xdr:nvCxnSpPr><xdr:cNvPr id="${id}" name="${name}"${hiddenAttr(s)}/><xdr:cNvCxnSpPr/></xdr:nvCxnSpPr><xdr:spPr>${xfrm}${geom}${ln}</xdr:spPr></xdr:cxnSp><xdr:clientData/></xdr:oneCellAnchor>`
   }
   const algn = s.align === 'ctr' ? 'ctr' : s.align === 'r' ? 'r' : 'l'
   const rPr = `<a:rPr lang="en-US" sz="${Math.round((s.fontSize ?? 11) * 100)}"${s.bold ? ' b="1"' : ''}${s.italic ? ' i="1"' : ''}><a:solidFill><a:srgbClr val="${rgb(s.color ?? '#000000')}"/></a:solidFill></a:rPr>`
   const paras = (s.text ?? '').split('\n').map((t) => `<a:p><a:pPr algn="${algn}"/>${t ? `<a:r>${rPr}<a:t>${escapeXml(t)}</a:t></a:r>` : ''}</a:p>`).join('')
-  return `<xdr:oneCellAnchor>${from}<xdr:sp macro="" textlink=""><xdr:nvSpPr><xdr:cNvPr id="${id}" name="${name}"/><xdr:cNvSpPr${s.kind === 'textbox' ? ' txBox="1"' : ''}/></xdr:nvSpPr><xdr:spPr>${xfrm}${geom}${fill}${ln}</xdr:spPr>` +
+  return `<xdr:oneCellAnchor>${from}<xdr:sp macro="" textlink=""><xdr:nvSpPr><xdr:cNvPr id="${id}" name="${name}"${hiddenAttr(s)}/><xdr:cNvSpPr${s.kind === 'textbox' ? ' txBox="1"' : ''}/></xdr:nvSpPr><xdr:spPr>${xfrm}${geom}${fill}${ln}</xdr:spPr>` +
     `<xdr:txBody><a:bodyPr vertOverflow="clip" horzOverflow="clip" wrap="square" rtlCol="0" anchor="${s.kind === 'textbox' ? 't' : 'ctr'}"/><a:lstStyle/>${paras}</xdr:txBody></xdr:sp><xdr:clientData/></xdr:oneCellAnchor>`
 }
 
@@ -225,7 +238,7 @@ export function injectPictures(zipBytes: PkgLike, all: (PictureDef[] | undefined
     let maxDr = 0
     for (const x of drels.matchAll(/Id="rId(\d+)"/g)) maxDr = Math.max(maxDr, +x[1])
     const relsAdd: string[] = []
-    const anchors: string[] = []
+    const anchors: { z: number; xml: string }[] = [] // sorted by z below: draw order in the drawing part is the z-order
     pics.forEach((p, k) => {
       const img = dataUrlToBytes(p.src)
       const ext = img ? EXT[img.mime] : undefined
@@ -237,23 +250,24 @@ export function injectPictures(zipBytes: PkgLike, all: (PictureDef[] | undefined
       maxDr++
       relsAdd.push(`<Relationship Id="rId${maxDr}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/${mediaName}"/>`)
       const cx = Math.round(p.width * EMU), cy = Math.round(p.height * EMU)
-      anchors.push(
+      anchors.push({ z: p.z ?? 1e9 + k, xml:
         `<xdr:oneCellAnchor><xdr:from><xdr:col>${p.anchor.c}</xdr:col><xdr:colOff>${Math.round(p.anchor.dx * EMU)}</xdr:colOff><xdr:row>${p.anchor.r}</xdr:row><xdr:rowOff>${Math.round(p.anchor.dy * EMU)}</xdr:rowOff></xdr:from><xdr:ext cx="${cx}" cy="${cy}"/>` +
-        `<xdr:pic><xdr:nvPicPr><xdr:cNvPr id="${2000 + k}" name="${escapeXml(p.name)}"${p.alt ? ` descr="${escapeXml(p.alt)}"` : ''}/><xdr:cNvPicPr><a:picLocks noChangeAspect="1"/></xdr:cNvPicPr></xdr:nvPicPr>` +
+        `<xdr:pic><xdr:nvPicPr><xdr:cNvPr id="${2000 + k}" name="${escapeXml(p.name)}"${hiddenAttr(p)}${p.alt ? ` descr="${escapeXml(p.alt)}"` : ''}/><xdr:cNvPicPr><a:picLocks noChangeAspect="1"/></xdr:cNvPicPr></xdr:nvPicPr>` +
         `<xdr:blipFill><a:blip xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:embed="rId${maxDr}"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill>` +
-        `<xdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic><xdr:clientData/></xdr:oneCellAnchor>`
-      )
+        `<xdr:spPr><a:xfrm${xfrmAttrs(p)}><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic><xdr:clientData/></xdr:oneCellAnchor>`
+      })
     })
-    shapes.forEach((sh, k) => anchors.push(shapeAnchorXml(sh, 3000 + k)))
+    shapes.forEach((sh, k) => anchors.push({ z: sh.z ?? 1e9 + 1000 + k, xml: shapeAnchorXml(sh, 3000 + k) }))
     if (!anchors.length) return
+    const anchorXml = anchors.sort((x, y) => x.z - y.z).map((x) => x.xml).join('')
     drels = drels.includes('</Relationships>')
       ? drels.replace('</Relationships>', relsAdd.join('') + '</Relationships>')
       : `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${relsAdd.join('')}</Relationships>`
     files[drawingRelsPath] = enc.encode(drels)
     let dxml = files[drawingPath] ? dec.decode(files[drawingPath]) : ''
     dxml = dxml.includes('</xdr:wsDr>')
-      ? dxml.replace('</xdr:wsDr>', anchors.join('') + '</xdr:wsDr>')
-      : `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">${anchors.join('')}</xdr:wsDr>`
+      ? dxml.replace('</xdr:wsDr>', anchorXml + '</xdr:wsDr>')
+      : `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">${anchorXml}</xdr:wsDr>`
     files[drawingPath] = enc.encode(dxml)
   })
   files['[Content_Types].xml'] = enc.encode(ct)

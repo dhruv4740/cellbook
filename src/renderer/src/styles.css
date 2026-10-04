@@ -47,7 +47,7 @@ body { font: 12px var(--ui-font); color: var(--text); background: #fff; user-sel
   overflow: hidden;
   white-space: pre;
   line-height: normal;
-  z-index: 5;
+  z-index: 50000;
 }
 .xl-resize-tip {
   position: absolute;
