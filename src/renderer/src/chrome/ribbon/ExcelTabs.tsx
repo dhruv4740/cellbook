@@ -365,7 +365,7 @@ export function DataTab() {
         { label: '&Goal Seek...', onClick: () => setUi({ dialog: { kind: 'goalSeek' } }) },
         { label: 'Data &Table...', onClick: () => setUi({ dialog: { kind: 'dataTable' } }) }
       ] },
-      { label: 'Forecast Sheet', icon: big(ChartMultiple20Regular), width: 52, onClick: () => notAvailable('Forecast Sheet') }
+      { label: 'Forecast Sheet', icon: big(ChartMultiple20Regular), width: 52, onClick: () => setUi({ dialog: { kind: 'forecast' } }) }
     ] },
     { label: 'Outline', launcher: true, onLauncher: () => setUi({ dialog: { kind: 'outlineSettings' } }), items: [
       [

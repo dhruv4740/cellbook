@@ -31,6 +31,7 @@ import { AccessibilityDialog } from './AccessibilityDialog'
 import { DataTableDialog, ScenarioManagerDialog } from './WhatIfDialogs'
 import { SubtotalDialog } from './SubtotalDialog'
 import { PivotDialog } from './PivotDialog'
+import { ForecastDialog } from './ForecastDialog'
 import { OutlineAxisDialog, OutlineSettingsDialog } from './OutlineDialogs'
 import { PasswordPromptDialog, ProtectSheetDialog, ProtectWorkbookDialog } from './ProtectDialogs'
 import { MessageDialog, UnhideSheetDialog, MoveCopySheetDialog, SeriesDialog } from './SheetDialogs'
@@ -178,6 +179,8 @@ export default function DialogHost() {
       return <PivotDialog onClose={close} edit={d.props?.edit as { sheetUid: number; id: string } | undefined} />
     case 'subtotal':
       return <SubtotalDialog onClose={close} />
+    case 'forecast':
+      return <ForecastDialog onClose={close} />
     case 'dataTable':
       return <DataTableDialog onClose={close} />
     case 'scenarioManager':
