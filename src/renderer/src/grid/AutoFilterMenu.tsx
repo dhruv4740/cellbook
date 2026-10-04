@@ -81,6 +81,37 @@ export function AutoFilterMenu({ sheet, col, x, y, onClose }: Props): React.Reac
   }, [isDate, store.version]) // eslint-disable-line react-hooks/exhaustive-deps
   const inRange = (lo: number, hi: number) => (v: string): boolean => { const s = serialByText.get(v); return s !== undefined && s >= lo && s <= hi }
 
+  /** Distinct cell fills and font colours used in this column (null = no fill / automatic font). */
+  const colors = useMemo(() => {
+    const fills = new Set<string | null>(), fonts = new Set<string | null>()
+    for (let r = af.range.r1 + 1; r <= af.range.r2; r++) { const st = store.getStyle(sheet, r, col); fills.add(st?.fill ?? null); fonts.add(st?.color ?? null) }
+    return { fills: [...fills], fonts: [...fonts] }
+  }, [store.version]) // eslint-disable-line react-hooks/exhaustive-deps
+  const [colorSub, setColorSub] = useState<'sort' | 'filter' | null>(null)
+  function sortByColor(kind: 'fill' | 'font', color: string | null): void {
+    onClose()
+    runMaybeBusy((af.range.r2 - af.range.r1 + 1) * (af.range.c2 - af.range.c1 + 1), 'Sorting...', () => store.sortFilterRange(sheet, col, 'asc', { kind, color }))
+  }
+  function filterByColor(kind: 'fill' | 'font', color: string | null): void {
+    const texts = new Set<string>()
+    for (let r = af.range.r1 + 1; r <= af.range.r2; r++) { const st = store.getStyle(sheet, r, col); if (((kind === 'fill' ? st?.fill : st?.color) ?? null) === color) texts.add(getDisplay(r, col)) }
+    applyCondition((v) => texts.has(v))
+  }
+  const colorMenu = (mode: 'sort' | 'filter'): React.ReactElement => (
+    <div className="xl-afmenu-sub">
+      {([['fill', 'Cell Color', colors.fills, 'No Fill'], ['font', 'Font Color', colors.fonts, 'Automatic']] as const).map(([kind, title, list, none]) => (
+        <div key={kind}>
+          <div className="xl-afmenu-item disabled">{mode === 'sort' ? `Sort by ${title}` : `Filter by ${title}`}</div>
+          {list.map((c) => (
+            <div key={String(c)} className="xl-afmenu-item" onClick={() => (mode === 'sort' ? sortByColor(kind, c) : filterByColor(kind, c))}>
+              <span style={{ display: 'inline-block', width: 14, height: 14, marginRight: 6, verticalAlign: 'middle', border: '1px solid #8a8886', background: c ?? (kind === 'fill' ? '#fff' : '#000') }} />{c ?? none}
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  )
+
   const current = af.columns[col]
   const [checked, setChecked] = useState<Set<string>>(new Set(current ? current.selected : allValues))
   const [search, setSearch] = useState('')
@@ -143,11 +174,11 @@ export function AutoFilterMenu({ sheet, col, x, y, onClose }: Props): React.Reac
       <div ref={ref} className="xl-afmenu" style={{ left: pos.x, top: pos.y, visibility: customOp ? 'hidden' : undefined }} onMouseDown={(e) => e.stopPropagation()}>
         <div className="xl-afmenu-item" onClick={() => sort('asc')}>{isNumeric ? 'Sort Smallest to Largest' : 'Sort A to Z'}</div>
         <div className="xl-afmenu-item" onClick={() => sort('desc')}>{isNumeric ? 'Sort Largest to Smallest' : 'Sort Z to A'}</div>
-        <div className="xl-afmenu-item disabled">Sort by Color <span className="xl-afmenu-arrow">›</span></div>
+        <div className="xl-afmenu-item" onMouseEnter={() => setColorSub('sort')} onMouseLeave={() => setColorSub(null)}>Sort by Color <span className="xl-afmenu-arrow">›</span>{colorSub === 'sort' && colorMenu('sort')}</div>
         <div className="xl-afmenu-item disabled">Sheet View <span className="xl-afmenu-arrow">›</span></div>
         <div className="xl-afmenu-sep" />
         <div className="xl-afmenu-item" onClick={clearFilter}>Clear Filter From &quot;{label}&quot;</div>
-        <div className="xl-afmenu-item disabled">Filter by Color <span className="xl-afmenu-arrow">›</span></div>
+        <div className="xl-afmenu-item" onMouseEnter={() => setColorSub('filter')} onMouseLeave={() => setColorSub(null)}>Filter by Color <span className="xl-afmenu-arrow">›</span>{colorSub === 'filter' && colorMenu('filter')}</div>
         <div className="xl-afmenu-item" onMouseEnter={() => setSub(isDate ? 'date' : isNumeric ? 'number' : 'text')} onMouseLeave={() => setSub(null)}>
           {isDate ? 'Date Filters' : isNumeric ? 'Number Filters' : 'Text Filters'} <span className="xl-afmenu-arrow">›</span>
           {sub && isDate && (

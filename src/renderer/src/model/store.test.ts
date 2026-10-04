@@ -151,6 +151,18 @@ describe('AutoFilter', () => {
     expect(sh.layout.hiddenRows[2]).toBe(true)
   })
 
+  it('sorts rows with a given fill colour to the top, keeping the others in order', () => {
+    const s = makeTable()
+    const sh = s.active
+    s.setSelection({ ranges: [{ r1: 0, c1: 0, r2: 0, c2: 0 }], active: { r: 0, c: 0 } }, sh)
+    s.toggleAutoFilter(sh)
+    s.applyStyle(sh, [{ r1: 3, c1: 0, r2: 3, c2: 0 }], { fill: '#ff0000' })
+    const before = [s.getRaw(sh, 1, 0), s.getRaw(sh, 2, 0), s.getRaw(sh, 3, 0)]
+    s.sortFilterRange(sh, 0, 'asc', { kind: 'fill', color: '#ff0000' })
+    expect(s.getRaw(sh, 1, 0)).toBe(before[2])
+    expect([s.getRaw(sh, 2, 0), s.getRaw(sh, 3, 0)]).toEqual([before[0], before[1]])
+  })
+
   it('finds a current region larger than 10,000 rows', () => {
     const s = new WorkbookStore()
     const sh = s.active
