@@ -432,7 +432,8 @@ class MorePlugin extends FunctionPlugin {
     if (node && !ref) return VALUE()
     const a = ref ? ref.toSimpleCellAddress(state.formulaAddress) : state.formulaAddress
     const colLetters = (c: number): string => { let s = ''; for (let n = c + 1; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s; return s }
-    const v = this.dependencyGraph.getScalarValue(a) as unknown
+    const raw = this.dependencyGraph.getScalarValue(a) as unknown
+    const v = typeof raw === 'symbol' ? null : raw // the engine's EmptyValue
     switch (kind.toLowerCase()) {
       case 'address': return `$${colLetters(a.col)}$${a.row + 1}`
       case 'col': return a.col + 1

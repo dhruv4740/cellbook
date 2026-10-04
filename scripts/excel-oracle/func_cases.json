@@ -222,6 +222,27 @@
   "INDEX(SORTBY(B1:B12,D1:D12,-1),1)",
   "INDEX(FREQUENCY(B1:B12,D1:D3),2)",
   "INDEX(TREND(D1:D12,B1:B12,B5:B5),1)",
-  "TYPE(1/0)"
+  "TYPE(1/0)",
+  "CELL(\"address\",B3)",
+  "CELL(\"row\",C5)",
+  "CELL(\"col\",C5)",
+  "CELL(\"type\",A8)",
+  "CELL(\"type\",A1)",
+  "CELL(\"type\",B1)",
+  "CELL(\"contents\",B4)",
+  "INFO(\"recalc\")",
+  "INFO(\"numfile\")",
+  "LAMBDA(x,y,x*y+1)(3,4)",
+  "REDUCE(0,B1:B5,LAMBDA(a,b,a+b))",
+  "SUM(MAP(B1:B3,LAMBDA(v,v*v)))",
+  "SUM(BYROW(B1:B3,LAMBDA(r,SUM(r))))",
+  "SUM(SCAN(0,B1:B4,LAMBDA(a,b,a+b)))",
+  "SUM(MAKEARRAY(2,3,LAMBDA(i,j,i*j)))",
+  "LET(a,2,b,a*3,a+b)",
+  "INDEX(TEXTSPLIT(\"a,b,c\",\",\"),1,2)",
+  "ARRAYTOTEXT(B1:B3)",
+  "SUM(WRAPROWS(B1:B6,2))",
+  "INDEX(EXPAND(B1:B2,3,3,9),3,3)",
+  "COUNT(RANDARRAY(2,2))"
  ]
 }
