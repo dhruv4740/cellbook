@@ -124,7 +124,7 @@ export function commitEdit(): boolean {
   setUi({ edit: null })
   const text = normalizeEntry(e.text)
   const raw = store.getRaw(sheet, e.r, e.c)
-  if (raw !== text) store.setRaw(sheet, e.r, e.c, text)
+  if (raw !== text) { store.setRaw(sheet, e.r, e.c, text); if (store.clipboard) { store.clipboard = null; store.notify() } } // typing into a cell ends the Copy marquee
   store.setMode('Ready')
   return true
 }

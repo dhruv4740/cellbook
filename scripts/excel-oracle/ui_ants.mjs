@@ -1,0 +1,20 @@
+// Copy marquee: drawn on its own canvas, animated, cleared by Esc.
+import { launch } from './ui_lib.mjs'
+const t = await launch('ants')
+const { win } = t
+for (let r = 0; r < 5; r++) for (let c = 0; c < 4; c++) await t.set(r, c, String(r * 4 + c))
+await t.sel(1, 1, 3, 2)
+await win.locator('.grid-host').click({ position: { x: 300, y: 200 } })
+await t.sel(1, 1, 3, 2)
+await win.keyboard.press('Control+c')
+await win.waitForTimeout(400)
+const px = () => win.evaluate(() => { const cv = document.querySelectorAll('canvas.xl-canvas')[1]; const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data; let h = 0; for (let i = 3; i < d.length; i += 4) if (d[i]) h = (h * 31 + i + d[i - 3]) | 0; return h })
+const a = await px(); await win.waitForTimeout(250); const b = await px()
+t.log('marquee drawn', a !== 0)
+t.log('animates (hash changes)', a !== b)
+await t.shot('ants')
+await win.keyboard.press('Escape')
+await win.waitForTimeout(200)
+t.log('cleared after Esc', (await px()) === 0)
+t.log('errors', t.errors)
+await t.close()

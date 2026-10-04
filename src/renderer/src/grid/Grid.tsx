@@ -140,6 +140,7 @@ export default function Grid() {
   const sheet = store.active
   const scrollRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const antsRef = useRef<HTMLCanvasElement>(null)
   const editorRef = useRef<HTMLTextAreaElement>(null)
   const hostRef = useRef<HTMLDivElement>(null)
   const [, setTick] = useState(0)
@@ -319,6 +320,41 @@ export default function Grid() {
     }
     return out
   }
+
+  // ---------- Copy / Cut marquee: its own canvas so the dashes can move without repainting the grid ----------
+  const clip = store.clipboard
+  useLayoutEffect(() => {
+    const cv = antsRef.current
+    if (!cv || size.w <= 0 || size.h <= 0) return
+    const dpr = window.devicePixelRatio || 1
+    const pxW = Math.round(size.w * dpr), pxH = Math.round(size.h * dpr)
+    if (cv.width !== pxW || cv.height !== pxH) { cv.width = pxW; cv.height = pxH }
+    const ctx = cv.getContext('2d')!
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    ctx.clearRect(0, 0, size.w, size.h)
+    if (!clip || clip.sheetUid !== sheet.uid || ui.viewMode === 'pageBreak') return
+    const rg = normRange(clip.range)
+    const x1 = cellScreenX(rg.c1), y1 = cellScreenY(rg.r1)
+    const x2 = Math.min(cellScreenX(rg.c2 + 1), size.w + 4), y2 = Math.min(cellScreenY(rg.r2 + 1), size.h + 4)
+    if (x2 < rowHeaderW || y2 < headerH || x1 > size.w || y1 > size.h) return
+    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    let raf = 0
+    const t0 = performance.now()
+    const paint = (t: number): void => {
+      ctx.clearRect(0, 0, size.w, size.h)
+      ctx.save()
+      ctx.beginPath(); ctx.rect(rowHeaderW, headerH, size.w - rowHeaderW, size.h - headerH); ctx.clip()
+      ctx.lineWidth = 2
+      ctx.strokeStyle = '#ffffff'; ctx.setLineDash([])
+      ctx.strokeRect(x1 + 1, y1 + 1, Math.max(0, x2 - x1 - 2), Math.max(0, y2 - y1 - 2))
+      ctx.strokeStyle = '#107c41'; ctx.setLineDash([4, 4]); ctx.lineDashOffset = -(((t - t0) / 1000) * 14) % 8
+      ctx.strokeRect(x1 + 1, y1 + 1, Math.max(0, x2 - x1 - 2), Math.max(0, y2 - y1 - 2))
+      ctx.restore()
+      if (!reduce) raf = requestAnimationFrame(paint)
+    }
+    paint(t0)
+    return () => cancelAnimationFrame(raf)
+  }, [clip, size, scroll, z, sheet, colsAxis, rowsAxis, rowHeaderW, headerH, ui.viewMode]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---------- drawing ----------
   useLayoutEffect(() => {
@@ -1400,7 +1436,7 @@ export default function Grid() {
       if (e.altKey && e.key === '=') { cmd.autoSum(); e.preventDefault(); return }
       if (mod && !e.shiftKey && e.key === ';') { const a = sheet.selection.active; const d = new Date(); store.setRaw(sheet, a.r, a.c, `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`); e.preventDefault(); return }
       if (mod && e.shiftKey && (e.key === ':' || e.key === ';')) { const a = sheet.selection.active; const d = new Date(); store.setRaw(sheet, a.r, a.c, `${d.getHours() % 12 || 12}:${String(d.getMinutes()).padStart(2, '0')} ${d.getHours() >= 12 ? 'PM' : 'AM'}`); e.preventDefault(); return }
-      if (e.key === 'Escape') { setUi({ selectMode: 'none' }); e.preventDefault(); return }
+      if (e.key === 'Escape') { setUi({ selectMode: 'none' }); if (store.clipboard) { store.clipboard = null; store.notify() }; e.preventDefault(); return }
       // ---- number format shortcuts: Ctrl+Shift+~ ! @ # $ % ^ ----
       if (mod && e.key === '~') { cmd.applyNumFmtShortcut('general'); e.preventDefault(); return }
       if (mod && e.key === '!') { cmd.applyNumFmtShortcut('number'); e.preventDefault(); return }
@@ -1831,6 +1867,7 @@ export default function Grid() {
         <div style={{ width: sizerW, height: sizerH }} />
       </div>
       <canvas ref={canvasRef} className="xl-canvas" style={{ width: size.w, height: size.h }} />
+      <canvas ref={antsRef} className="xl-canvas" style={{ width: size.w, height: size.h }} />
       <ObjectOverlay sheet={sheet} geo={{ colsAxis, rowsAxis, frozen, scroll, z, rowHeaderW, headerH, viewport: size }} />
       <ChartOverlay
         sheet={sheet}
