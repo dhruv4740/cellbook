@@ -4,6 +4,7 @@ import type { ReactElement } from 'react'
 import { ChartSpec } from '../model/types'
 import { ExtractedChartData } from './dataExtraction'
 import { CHART_FONT, GRIDLINE_COLOR, AXIS_COLOR, TITLE_COLOR, TEXT_COLOR, colorSet } from './theme'
+import { comboSeriesOf, niceRange, waterfallSteps } from './chartCombo'
 
 export interface ChartRendererProps {
   spec: ChartSpec
@@ -72,6 +73,10 @@ export function ChartRenderer({ spec, data, width, height }: ChartRendererProps)
         <PieBody inner={inner} data={data} colors={colors} doughnut={isDoughnut(spec.subtype)} dataLabels={el.dataLabels} />
       ) : isScatter ? (
         <ScatterBody inner={inner} data={data} colors={colors} smooth={isSmooth(spec.subtype)} gridlines={el.gridlines} axes={el.axes} />
+      ) : spec.type === 'combo' ? (
+        <ComboBody inner={inner} data={data} colors={colors} spec={spec} gridlines={el.gridlines} axes={el.axes} dataLabels={el.dataLabels} />
+      ) : spec.type === 'waterfall' ? (
+        <WaterfallBody inner={inner} data={data} colors={colors} gridlines={el.gridlines} axes={el.axes} dataLabels={el.dataLabels} />
       ) : spec.type === 'line' ? (
         <LineBody inner={inner} data={data} colors={colors} subtype={spec.subtype} gridlines={el.gridlines} axes={el.axes} dataLabels={el.dataLabels} />
       ) : (
@@ -86,6 +91,7 @@ export function ChartRenderer({ spec, data, width, height }: ChartRendererProps)
 
 function legendNames(spec: ChartSpec, data: ExtractedChartData): string[] {
   if (spec.type === 'pie') return data.categories
+  if (spec.type === 'waterfall') return ['Increase', 'Decrease']
   return data.series.map((s) => s.name)
 }
 
@@ -356,6 +362,116 @@ function ScatterBody({ inner, data, colors, smooth, gridlines, axes }: {
           <line x1={inner.x} x2={inner.x} y1={inner.y} y2={inner.y + inner.h} stroke={AXIS_COLOR} />
           <line x1={inner.x} x2={inner.x + inner.w} y1={inner.y + inner.h} y2={inner.y + inner.h} stroke={AXIS_COLOR} />
           <ValueAxis inner={inner} max={maxY} ticks={scale.ticks} />
+          <CategoryAxis inner={inner} categories={data.categories} />
+        </>
+      )}
+    </g>
+  )
+}
+
+function ComboBody({ inner: box, data, colors, spec, gridlines, axes, dataLabels }: {
+  inner: { x: number; y: number; w: number; h: number }
+  data: ExtractedChartData; colors: string[]; spec: ChartSpec; gridlines: boolean; axes: boolean; dataLabels: boolean
+}) {
+  const kinds = comboSeriesOf(spec, data.series.length)
+  const hasSecondary = kinds.some((k, i) => k.secondary && i < data.series.length)
+  const inner = hasSecondary ? { ...box, w: box.w - 30 } : box
+  const n = Math.max(1, data.categories.length)
+  const maxOf = (secondary: boolean): number => {
+    let m = 1
+    data.series.forEach((s, i) => { if (!!kinds[i].secondary === secondary) for (const v of s.values) m = Math.max(m, v ?? 0) })
+    return m
+  }
+  const scales = [axisScale(maxOf(false)), axisScale(maxOf(true))]
+  const step = inner.w / n
+  const barSeries = data.series.map((_, i) => i).filter((i) => kinds[i].type === 'bar')
+  const groupPad = step * 0.18
+  const barW = (step - groupPad * 2) / Math.max(1, barSeries.length)
+  const shapes: ReactElement[] = []
+  const lineShapes: ReactElement[] = []
+  data.series.forEach((s, si) => {
+    const sc = scales[kinds[si].secondary ? 1 : 0]
+    const yOf = (v: number): number => inner.y + inner.h - (Math.max(0, v) / sc.max) * inner.h
+    const color = colors[si % colors.length]
+    if (kinds[si].type === 'bar') {
+      const slot = barSeries.indexOf(si)
+      s.values.forEach((v, i) => {
+        const y = yOf(v ?? 0)
+        const x = inner.x + step * i + groupPad + barW * slot
+        shapes.push(<rect key={si + '-' + i} x={x} y={y} width={Math.max(0, barW - 2)} height={Math.max(0, inner.y + inner.h - y)} fill={color} />)
+        if (dataLabels && v !== null) shapes.push(<text key={'l' + si + '-' + i} x={x + barW / 2 - 1} y={y - 3} textAnchor="middle" fontSize={9} fill={TEXT_COLOR}>{fmtVal(v)}</text>)
+      })
+    } else {
+      const pts: [number, number][] = s.values.map((v, i) => [inner.x + step * (i + 0.5), yOf(v ?? 0)])
+      const runs: [number, number][][] = [[]]
+      pts.forEach((pt, i) => { if (s.values[i] === null) runs.push([]); else runs[runs.length - 1].push(pt) })
+      runs.forEach((run, ri) => { if (run.length > 1) lineShapes.push(<path key={si + '_' + ri} d={pathFor(run, false)} fill="none" stroke={color} strokeWidth={2} />) })
+      pts.forEach(([x, y], i) => {
+        if (s.values[i] === null) return
+        lineShapes.push(<circle key={si + '-' + i} cx={x} cy={y} r={3} fill="#FFFFFF" stroke={color} strokeWidth={1.5} />)
+        if (dataLabels) lineShapes.push(<text key={'l' + si + '-' + i} x={x} y={y - 6} textAnchor="middle" fontSize={9} fill={TEXT_COLOR}>{fmtVal(s.values[i] ?? 0)}</text>)
+      })
+    }
+  })
+  return (
+    <g>
+      {gridlines && <Gridlines inner={inner} ticks={scales[0].ticks} />}
+      {shapes}
+      {lineShapes}
+      {axes && (
+        <>
+          <line x1={inner.x} x2={inner.x} y1={inner.y} y2={inner.y + inner.h} stroke={AXIS_COLOR} />
+          <line x1={inner.x} x2={inner.x + inner.w} y1={inner.y + inner.h} y2={inner.y + inner.h} stroke={AXIS_COLOR} />
+          <ValueAxis inner={inner} max={scales[0].max} ticks={scales[0].ticks} />
+          <CategoryAxis inner={inner} categories={data.categories} />
+          {hasSecondary && (
+            <g>
+              <line x1={inner.x + inner.w} x2={inner.x + inner.w} y1={inner.y} y2={inner.y + inner.h} stroke={AXIS_COLOR} />
+              {Array.from({ length: scales[1].ticks + 1 }, (_, i) => (
+                <text key={i} x={inner.x + inner.w + 6} y={inner.y + inner.h - (inner.h * i) / scales[1].ticks + 3} fontSize={9.5} fill={TEXT_COLOR}>{formatAxisNum((scales[1].max * i) / scales[1].ticks)}</text>
+              ))}
+            </g>
+          )}
+        </>
+      )}
+    </g>
+  )
+}
+
+function WaterfallBody({ inner, data, colors, gridlines, axes, dataLabels }: {
+  inner: { x: number; y: number; w: number; h: number }
+  data: ExtractedChartData; colors: string[]; gridlines: boolean; axes: boolean; dataLabels: boolean
+}) {
+  const steps = waterfallSteps(data.series[0]?.values ?? [])
+  const n = Math.max(1, steps.length)
+  let min = 0, max = 0
+  for (const s of steps) { min = Math.min(min, s.start, s.end); max = Math.max(max, s.start, s.end) }
+  const { lo, hi, step: unit } = niceRange(min, max)
+  const ticks = Math.max(1, Math.round((hi - lo) / unit))
+  const yOf = (v: number): number => inner.y + inner.h - ((v - lo) / (hi - lo)) * inner.h
+  const slot = inner.w / n
+  const barW = Math.max(1, slot * 0.64)
+  const shapes: ReactElement[] = []
+  steps.forEach((s, i) => {
+    const x = inner.x + slot * i + (slot - barW) / 2
+    const top = yOf(Math.max(s.start, s.end)), bot = yOf(Math.min(s.start, s.end))
+    shapes.push(<rect key={i} x={x} y={top} width={barW} height={Math.max(1, bot - top)} fill={s.kind === 'up' ? colors[0] : colors[1 % colors.length]} />)
+    // connector from this bar's end to the next bar
+    if (i < steps.length - 1) shapes.push(<line key={'c' + i} x1={x + barW} x2={x + slot} y1={yOf(s.end)} y2={yOf(s.end)} stroke={AXIS_COLOR} strokeWidth={0.75} />)
+    if (dataLabels) shapes.push(<text key={'l' + i} x={x + barW / 2} y={top - 3} textAnchor="middle" fontSize={9} fill={TEXT_COLOR}>{fmtVal(s.end - s.start)}</text>)
+  })
+  const zeroY = yOf(0)
+  return (
+    <g>
+      {gridlines && Array.from({ length: ticks + 1 }, (_, i) => <line key={i} x1={inner.x} x2={inner.x + inner.w} y1={yOf(lo + unit * i)} y2={yOf(lo + unit * i)} stroke={GRIDLINE_COLOR} strokeWidth={1} />)}
+      {shapes}
+      {axes && (
+        <>
+          <line x1={inner.x} x2={inner.x} y1={inner.y} y2={inner.y + inner.h} stroke={AXIS_COLOR} />
+          <line x1={inner.x} x2={inner.x + inner.w} y1={zeroY} y2={zeroY} stroke={AXIS_COLOR} />
+          {Array.from({ length: ticks + 1 }, (_, i) => (
+            <text key={i} x={inner.x - 6} y={yOf(lo + unit * i) + 3} textAnchor="end" fontSize={9.5} fill={TEXT_COLOR}>{formatAxisNum(lo + unit * i)}</text>
+          ))}
           <CategoryAxis inner={inner} categories={data.categories} />
         </>
       )}

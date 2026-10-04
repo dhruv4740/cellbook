@@ -1,6 +1,7 @@
 import type { ChartSpec, ChartSubtype, ChartType, LegendPosition, Range, SheetLayout } from '../model/types'
 import { normRange, colName } from '../model/types'
 import { extractChartData, CellReader } from '../charts/dataExtraction'
+import { comboSeriesOf, waterfallStack } from '../charts/chartCombo'
 import { decodeXmlEntities, parseRelationships, resolveRelTarget } from './fastXlsxXml'
 
 function escapeXmlAttr(s: string): string {
@@ -30,6 +31,23 @@ function mapLegendPos(pos: LegendPosition): string {
   if (pos === 'bottom') return 'b'
   if (pos === 'left') return 'l'
   return 'r'
+}
+
+/** A chart with both a barChart and a lineChart is a combo; a series is secondary when its block uses different axes than the first block. */
+export function parseComboSeries(chartXml: string): ChartSpec['comboSeries'] | null {
+  const blocks = [...chartXml.matchAll(/<c:(barChart|lineChart)\b[^>]*>([\s\S]*?)<\/c:\1>/g)]
+  if (!blocks.some((b) => b[1] === 'barChart') || !blocks.some((b) => b[1] === 'lineChart')) return null
+  const firstAx = /<c:axId\b[^>]*val="(\d+)"/.exec(blocks[0][2])?.[1]
+  const found: { idx: number; type: 'bar' | 'line'; secondary: boolean }[] = []
+  for (const b of blocks) {
+    const ax = /<c:axId\b[^>]*val="(\d+)"/.exec(b[2])?.[1]
+    for (const s of b[2].matchAll(/<c:ser>([\s\S]*?)<\/c:ser>/g)) {
+      const idx = Number(/<c:idx\b[^>]*val="(\d+)"/.exec(s[1])?.[1] ?? found.length)
+      found.push({ idx, type: b[1] === 'barChart' ? 'bar' : 'line', secondary: ax !== firstAx })
+    }
+  }
+  found.sort((a, b) => a.idx - b.idx)
+  return found.map((f) => ({ type: f.type, ...(f.secondary ? { secondary: true } : {}) }))
 }
 
 /** Builds the drawingml chartSpace XML for a ChartSpec. */
@@ -159,8 +177,50 @@ export function buildChartSpaceXml(
   let plotXml = ''
   const ax1 = 12345678
   const ax2 = 12345679
+  const ax3 = 12345680
+  const ax4 = 12345681
+  const comboKinds = comboSeriesOf(spec, extracted.series.length)
+  const hasSecondary = spec.type === 'combo' && comboKinds.some((k) => k.secondary)
 
-  if (spec.type === 'bar') {
+  if (spec.type === 'waterfall') {
+    // Excel's native waterfall is a chartex part we can't write, so save the nearest standard chart: a stacked column
+    // with an invisible base series and literal Increase / Decrease values (the running total, not linked to cells).
+    const { base, increase, decrease } = waterfallStack(extracted.series[0]?.values ?? [])
+    const cat = extracted.categories.length > 0
+      ? `<c:cat><c:strLit><c:ptCount val="${extracted.categories.length}"/>${extracted.categories.map((c, idx) => `<c:pt idx="${idx}"><c:v>${escapeXmlText(c)}</c:v></c:pt>`).join('')}</c:strLit></c:cat>`
+      : ''
+    const wser = (i: number, name: string, vals: number[], fill: string | null): string => `
+        <c:ser>
+          <c:idx val="${i}"/>
+          <c:order val="${i}"/>
+          <c:tx><c:v>${name}</c:v></c:tx>
+          <c:spPr>${fill ? `<a:solidFill><a:srgbClr val="${fill}"/></a:solidFill>` : '<a:noFill/>'}</c:spPr>
+          <c:invertIfNegative val="0"/>
+          ${cat}
+          <c:val><c:numLit><c:formatCode>General</c:formatCode><c:ptCount val="${vals.length}"/>${vals.map((v, idx) => `<c:pt idx="${idx}"><c:v>${v}</c:v></c:pt>`).join('')}</c:numLit></c:val>
+        </c:ser>`
+    plotXml = `
+      <c:barChart>
+        <c:barDir val="col"/>
+        <c:grouping val="stacked"/>
+        <c:varyColors val="0"/>
+        ${wser(0, 'Base', base, null)}${wser(1, 'Increase', increase, '4472C4')}${wser(2, 'Decrease', decrease, 'ED7D31')}
+        <c:gapWidth val="50"/>
+        <c:overlap val="100"/>
+        <c:axId val="${ax1}"/>
+        <c:axId val="${ax2}"/>
+      </c:barChart>`
+  } else if (spec.type === 'combo') {
+    const group = (kind: 'bar' | 'line', secondary: boolean): string => {
+      const sers = extracted.series.map((_, i) => i).filter((i) => comboKinds[i].type === kind && !!comboKinds[i].secondary === secondary).map((i) => seriesXmlList[i]).join('')
+      if (!sers) return ''
+      const axes = `<c:axId val="${secondary ? ax3 : ax1}"/><c:axId val="${secondary ? ax4 : ax2}"/>`
+      return kind === 'bar'
+        ? `<c:barChart><c:barDir val="col"/><c:grouping val="clustered"/><c:varyColors val="0"/>${sers}${axes}</c:barChart>`
+        : `<c:lineChart><c:grouping val="standard"/><c:varyColors val="0"/>${sers}<c:marker val="1"/>${axes}</c:lineChart>`
+    }
+    plotXml = group('bar', false) + group('bar', true) + group('line', false) + group('line', true)
+  } else if (spec.type === 'bar') {
     const grouping = isPercent ? 'percentStacked' : isStacked ? 'stacked' : 'clustered'
     const barDir = isBar ? 'bar' : 'col'
     plotXml = `
@@ -274,6 +334,31 @@ export function buildChartSpaceXml(
           <c:crosses val="autoZero"/>
           <c:crossBetween val="between"/>
         </c:valAx>`
+      if (hasSecondary) {
+        axesXml += `
+        <c:valAx>
+          <c:axId val="${ax4}"/>
+          <c:scaling><c:orientation val="minMax"/></c:scaling>
+          <c:delete val="0"/>
+          <c:axPos val="r"/>
+          <c:tickLblPos val="nextTo"/>
+          <c:crossAx val="${ax3}"/>
+          <c:crosses val="max"/>
+          <c:crossBetween val="between"/>
+        </c:valAx>
+        <c:catAx>
+          <c:axId val="${ax3}"/>
+          <c:scaling><c:orientation val="minMax"/></c:scaling>
+          <c:delete val="1"/>
+          <c:axPos val="b"/>
+          <c:tickLblPos val="nextTo"/>
+          <c:crossAx val="${ax4}"/>
+          <c:crosses val="autoZero"/>
+          <c:auto val="1"/>
+          <c:lblAlgn val="ctr"/>
+          <c:lblOffset val="100"/>
+        </c:catAx>`
+      }
     }
   }
 
@@ -283,6 +368,7 @@ export function buildChartSpaceXml(
     legendXml = `
       <c:legend>
         <c:legendPos val="${mapLegendPos(spec.legendPosition)}"/>
+        ${spec.type === 'waterfall' ? '<c:legendEntry><c:idx val="0"/><c:delete val="1"/></c:legendEntry>' : ''}
         <c:layout/>
         <c:overlay val="0"/>
       </c:legend>`
@@ -587,6 +673,9 @@ export function parseDrawingMlCharts(
       subtype = styleM && styleM[1].includes('smooth') ? 'scatterSmooth' : 'scatter'
     }
 
+    const comboSeries = parseComboSeries(chartXml)
+    if (comboSeries) { type = 'combo'; subtype = 'combo' }
+
     // Parse Series and Data Range
     const ranges: Range[] = []
     let detectedSeriesInColumns = true
@@ -641,6 +730,7 @@ export function parseDrawingMlCharts(
       width,
       height,
       legendPosition,
+      ...(comboSeries ? { comboSeries } : {}),
       elements: {
         title: hasTitle,
         legend: hasLegend,

@@ -7,7 +7,16 @@ export interface GalleryEntry {
   subtype: ChartSubtype
   type: ChartType
   label: string
+  /** Combo entries: put the line series on a secondary value axis. */
+  comboSecondary?: boolean
 }
+
+export const COMBO_GALLERY: GalleryEntry[] = [
+  { subtype: 'combo', type: 'combo', label: 'Clustered Column - Line' },
+  { subtype: 'combo', type: 'combo', label: 'Clustered Column - Line on Secondary Axis', comboSecondary: true }
+]
+
+export const WATERFALL_ENTRY: GalleryEntry = { subtype: 'waterfall', type: 'waterfall', label: 'Waterfall' }
 
 export const COLUMN_BAR_GALLERY: GalleryEntry[] = [
   { subtype: 'clusteredColumn', type: 'bar', label: 'Clustered Column' },

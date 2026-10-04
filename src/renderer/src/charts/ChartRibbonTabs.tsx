@@ -63,7 +63,10 @@ export function ChartDesignTab() {
       { label: 'Select Data', icon: <TableSettings20Regular fontSize={28} />, onClick: () => setChartRange(store, sheet, spec.id, spec.dataRange, spec.seriesInColumns) }
     ] },
     { label: 'Type', big: [
-      { label: 'Change Chart Type', icon: <ChartMultiple20Regular fontSize={28} />, menu: allChartTypeMenu((e) => updateChart(store, sheet, spec.id, { type: e.type, subtype: e.subtype }, 'Change Chart Type')) }
+      { label: 'Change Chart Type', icon: <ChartMultiple20Regular fontSize={28} />, menu: [
+        ...allChartTypeMenu((e) => updateChart(store, sheet, spec.id, { type: e.type, subtype: e.subtype }, 'Change Chart Type')),
+        { label: 'Combo...', onClick: () => setUi({ dialog: { kind: 'comboChart', props: { chartId: spec.id } } }) }
+      ] }
     ] },
     { label: 'Location', big: [
       { label: 'Move Chart', icon: <ArrowMove20Regular fontSize={28} /> }
