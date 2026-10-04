@@ -131,7 +131,10 @@ export interface SheetProtection {
   allow: Record<ProtectAllowKey, boolean>
 }
 
-export type CalcMode = 'auto' | 'autoNoTable' | 'manual'
+/** `ref` is a space-separated list of A1 ranges (Excel's sqref), e.g. "A1:B4 D6". */
+export interface EditRange { title: string; ref: string }
+
+export type CalcMode ='auto' | 'autoNoTable' | 'manual'
 
 export interface WorkbookProtection {
   password?: PasswordHash
@@ -164,6 +167,8 @@ export interface SheetLayout {
   outline?: { summaryBelow?: boolean; summaryRight?: boolean }
   /** Set while the sheet is protected (Review > Protect Sheet). */
   protection?: SheetProtection
+  /** Review > Allow Edit Ranges: cells that stay editable on a protected sheet. Kept while the sheet is unprotected. */
+  editRanges?: EditRange[]
   /** PivotTables whose output starts on this sheet (kept for Refresh; saved to .xlsx as values). */
   pivots?: import('../data/pivot').PivotDef[]
   autoFilter?: AutoFilter

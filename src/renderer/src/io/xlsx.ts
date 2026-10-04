@@ -698,7 +698,7 @@ export async function writeXlsx(data: WorkbookData, vba?: VbaProject): Promise<U
     : buf
   const linked = markDynamicArrays(fixLegacyDrawingOrder(injectHyperlinks(processed, data.sheets.map((sd) => sd.layout?.hyperlinks))))
   const named = data.names?.length ? injectDefinedNames(linked, data.names) : linked
-  return toBytes(injectDefaultFont(injectTables(injectScenarios(injectPictures(injectSparklines(injectPageSetup(injectOutline(injectProtection(named, data.sheets.map((sd) => sd.layout?.protection), data.protection, data.calcMode), data.sheets.map((sd) => sd.layout)), data.sheets.map((sd) => sd.layout?.pageSetup)), data.sheets.map((sd) => sd.layout?.sparklines), sheetNames), data.sheets.map((sd) => sd.layout?.pictures), data.sheets.map((sd) => sd.layout)), data.sheets.map((sd) => sd.layout?.scenarios)), data.sheets.map((sd) => sd.layout), data.sheets.map((sd) => sd.cells as never)), data.defaultFont))
+  return toBytes(injectDefaultFont(injectTables(injectScenarios(injectPictures(injectSparklines(injectPageSetup(injectOutline(injectProtection(named, data.sheets.map((sd) => sd.layout?.protection), data.protection, data.calcMode, data.sheets.map((sd) => sd.layout?.editRanges)), data.sheets.map((sd) => sd.layout)), data.sheets.map((sd) => sd.layout?.pageSetup)), data.sheets.map((sd) => sd.layout?.sparklines), sheetNames), data.sheets.map((sd) => sd.layout?.pictures), data.sheets.map((sd) => sd.layout)), data.sheets.map((sd) => sd.layout?.scenarios)), data.sheets.map((sd) => sd.layout), data.sheets.map((sd) => sd.cells as never)), data.defaultFont))
 }
 
 /** Same as writeXlsx, but big workbooks are built in a Web Worker (the UI stays responsive while saving). */
