@@ -61,6 +61,14 @@ export interface UiState {
   pickList: null | { r: number; c: number; x: number; y: number; values: string[] }
   /** Short message shown bottom-centre for a few seconds (e.g. a command Cellbook doesn't have yet). */
   toast: string | null
+  /** Draw tab: the active ink tool (null = normal cell editing). */
+  inkTool: import('../data/ink').InkTool | null
+  /** Pens added with Draw > Add > Add Pen (session only). */
+  customPens: import('../data/ink').Pen[]
+  /** Review > Hide Ink. */
+  hideInk: boolean
+  /** Ink Replay in progress: strokes before `shown` are complete, stroke `shown` is `frac` drawn. */
+  inkReplay: { order: string[]; shown: number; frac: number } | null
   /** Ctrl+8: hide the outline symbols (gutter) even when the sheet has groups. */
   outlineHidden: boolean
 }
@@ -69,7 +77,7 @@ let state: UiState = {
   backstage: false, ribbonTab: 'Home', ribbonCollapsed: false, hideFormulaBar: false, dialog: null,
   formatPainter: null, edit: null, noteEditor: null, commentPanel: null, selectedChart: null, selectedPicture: null, selectedObjects: [], selectionPaneOpen: false, selectObjectsMode: false,
   formulasVisible: false, validationCircles: null, traceArrows: null, watchOpen: false, viewMode: 'normal', watchItems: [], selectMode: 'none', backstageTab: null, scrollLock: false, endMode: false,
-  groupedSheets: null, pickList: null, toast: null, outlineHidden: false
+  groupedSheets: null, pickList: null, toast: null, outlineHidden: false, inkTool: null, customPens: [], hideInk: false, inkReplay: null
 }
 const listeners = new Set<() => void>()
 

@@ -7,11 +7,11 @@ export const shapesOf = (sheet: SheetState): ShapeDef[] => sheet.layout.shapes ?
 
 export const SHAPE_LABELS: Record<ShapeKind, string> = {
   rect: 'Rectangle', roundRect: 'Rectangle: Rounded Corners', ellipse: 'Oval', triangle: 'Isosceles Triangle', diamond: 'Diamond',
-  rightArrow: 'Arrow: Right', line: 'Line', arrow: 'Arrow', textbox: 'Text Box'
+  rightArrow: 'Arrow: Right', line: 'Line', arrow: 'Arrow', textbox: 'Text Box', ink: 'Ink'
 }
 
 const DEFAULT_SIZE: Record<ShapeKind, [number, number]> = {
-  rect: [120, 80], roundRect: [120, 80], ellipse: [120, 80], triangle: [100, 90], diamond: [110, 90], rightArrow: [130, 70], line: [140, 0.01], arrow: [140, 0.01], textbox: [150, 60]
+  rect: [120, 80], roundRect: [120, 80], ellipse: [120, 80], triangle: [100, 90], diamond: [110, 90], rightArrow: [130, 70], line: [140, 0.01], arrow: [140, 0.01], textbox: [150, 60], ink: [60, 60]
 }
 
 /** Excel's default style for an inserted shape: blue fill, darker outline, white text; a text box has no fill or outline. */

@@ -11,6 +11,7 @@ import { shapesOf, updateShape, deleteShape } from '../data/shapes'
 import { floatsOf } from '../data/arrange'
 import { arrangeOrder, commitMoveOfSelection, selectObject, selectObjects, selectedObjectIds } from '../data/arrangeActions'
 import { FloatBox, Box } from './FloatBox'
+import { Pt, addInk, eraseInks, pathD, pointInPolygon, screenPoints, strokeHit, truncate } from '../data/ink'
 
 const FILLS: [string, string | undefined][] = [['Blue', '#4472c4'], ['Orange', '#ed7d31'], ['Gray', '#a5a5a5'], ['Gold', '#ffc000'], ['Green', '#70ad47'], ['Red', '#c00000'], ['White', '#ffffff'], ['No Fill', undefined]]
 const LINES: [string, string | undefined][] = [['Dark Blue', '#2f528f'], ['Black', '#000000'], ['Red', '#c00000'], ['Green', '#548235'], ['Gray', '#7f7f7f'], ['No Outline', undefined]]
@@ -26,16 +27,18 @@ export function ObjectOverlay({ sheet, geo }: { sheet: SheetState; geo: ChartGeo
   const [band, setBand] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null)
   const [menu, setMenu] = useState<{ x: number; y: number; id: string } | null>(null)
   const [editing, setEditing] = useState<string | null>(null)
+  const [live, setLive] = useState<Pt[] | null>(null) // the stroke being drawn (host-relative px)
+  const [erased, setErased] = useState<string[]>([])
   const { colsAxis, rowsAxis, frozen, scroll, z, rowHeaderW, headerH, viewport } = geo
   const frozenW = colsAxis.totalSize(frozen.cols) * z
   const frozenH = rowsAxis.totalSize(frozen.rows) * z
 
   useEffect(() => {
-    if (!ui.selectObjectsMode) return
-    const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') setUi({ selectObjectsMode: false }) }
+    if (!ui.selectObjectsMode && !ui.inkTool) return
+    const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') setUi({ selectObjectsMode: false, inkTool: null }) }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [ui.selectObjectsMode])
+  }, [ui.selectObjectsMode, ui.inkTool])
 
   useEffect(() => {
     if (!selectedId || editing) return
@@ -50,7 +53,7 @@ export function ObjectOverlay({ sheet, geo }: { sheet: SheetState; geo: ChartGeo
     return () => window.removeEventListener('keydown', onKey)
   }, [selectedId, sheet, editing])
 
-  if (!floatsOf(sheet.layout).length) return null
+  if (!floatsOf(sheet.layout).length && !ui.inkTool) return null
   const sx = (c: number): number => (c < frozen.cols ? colsAxis.offset(c) * z : frozenW + colsAxis.offset(c) * z - colsAxis.offset(frozen.cols) * z - scroll.x)
   const sy = (r: number): number => (r < frozen.rows ? rowsAxis.offset(r) * z : frozenH + rowsAxis.offset(r) * z - rowsAxis.offset(frozen.rows) * z - scroll.y)
   const lx = (v: number): number => (v < frozenW ? v / z : colsAxis.offset(frozen.cols) + (v - frozenW + scroll.x) / z)
@@ -88,6 +91,49 @@ export function ObjectOverlay({ sheet, geo }: { sheet: SheetState; geo: ChartGeo
     window.addEventListener('mouseup', up)
   }
 
+  /** Draw tab: pen strokes become ink objects, the eraser removes whole strokes, the lasso selects the objects it encloses. */
+  const startInk = (e: React.MouseEvent<HTMLDivElement>): void => {
+    const tool = ui.inkTool
+    if (!tool || tool.kind === 'select') return
+    e.preventDefault()
+    const host = e.currentTarget.getBoundingClientRect()
+    const at = (ev: { clientX: number; clientY: number }): Pt => [ev.clientX - host.left, ev.clientY - host.top]
+    const pts: Pt[] = [at(e)]
+    const gone = new Set<string>()
+    const sweep = (p: Pt): void => {
+      for (const s of shapes) if (s.kind === 'ink' && !s.hidden && !gone.has(s.id) && strokeHit(screenPoints(s, boxOf(s)), p, 6 + ((s.lineWidth ?? 1) * z) / 2)) gone.add(s.id)
+      setErased([...gone])
+    }
+    if (tool.kind === 'eraser') sweep(pts[0])
+    setLive([...pts])
+    const move = (ev: MouseEvent): void => {
+      const p = at(ev)
+      pts.push(p)
+      if (tool.kind === 'eraser') sweep(p)
+      else setLive([...pts])
+    }
+    const up = (): void => {
+      window.removeEventListener('mousemove', move)
+      window.removeEventListener('mouseup', up)
+      setLive(null)
+      setErased([])
+      if (tool.kind === 'pen') addInk(sheet, pts.map((p) => [lx(p[0]), ly(p[1])] as Pt), tool.pen)
+      else if (tool.kind === 'eraser') eraseInks(sheet, [...gone])
+      else if (tool.kind === 'lasso') {
+        selectObjects(sheet, floatsOf(sheet.layout).filter((f) => { if (f.obj.hidden) return false; const b = boxOf(f.obj); return pointInPolygon([b.left + b.width / 2, b.top + b.height / 2], pts) }).map((f) => f.id))
+      }
+    }
+    window.addEventListener('mousemove', move)
+    window.addEventListener('mouseup', up)
+  }
+  /** Review > Hide Ink and Ink Replay decide which ink strokes show, and how much of each. */
+  const inkFrac = (id: string): number => {
+    const rp = ui.inkReplay
+    if (!rp) return 1
+    const i = rp.order.indexOf(id)
+    return i < 0 || i < rp.shown ? 1 : i === rp.shown ? rp.frac : -1
+  }
+
   const menuItems = (id: string): MenuItem[] => {
     const isShape = id.startsWith('shp_')
     const sh = shapes.find((s) => s.id === id)
@@ -95,7 +141,7 @@ export function ObjectOverlay({ sheet, geo }: { sheet: SheetState; geo: ChartGeo
       { label: 'Bring to &Front', onClick: () => arrangeOrder('front') },
       { label: 'S&end to Back', onClick: () => arrangeOrder('back') }
     ]
-    if (sh) {
+    if (sh && sh.kind !== 'ink') {
       const isLine = sh.kind === 'line' || sh.kind === 'arrow'
       items.push('separator', { label: 'Edit &Text', disabled: isLine, onClick: () => setEditing(id) })
       if (!isLine) {
@@ -112,6 +158,16 @@ export function ObjectOverlay({ sheet, geo }: { sheet: SheetState; geo: ChartGeo
   return (
     <div style={{ position: 'absolute', left: rowHeaderW, top: headerH, width: Math.max(0, viewport.w - rowHeaderW), height: Math.max(0, viewport.h - headerH), overflow: 'hidden', pointerEvents: 'none' }}>
       {ui.selectObjectsMode && <div onMouseDown={startBand} style={{ position: 'absolute', inset: 0, pointerEvents: 'auto', cursor: 'crosshair' }} />}
+      {ui.inkTool && ui.inkTool.kind !== 'select' && (
+        <div onMouseDown={startInk} style={{ position: 'absolute', inset: 0, pointerEvents: 'auto', cursor: 'crosshair', zIndex: 200000 }}>
+          {live && (
+            <svg width="100%" height="100%" style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
+              {ui.inkTool.kind === 'pen' && <path d={pathD(live)} fill="none" stroke={ui.inkTool.pen.color} strokeOpacity={ui.inkTool.pen.alpha ?? 1} strokeWidth={ui.inkTool.pen.width * z} strokeLinecap="round" strokeLinejoin="round" />}
+              {ui.inkTool.kind === 'lasso' && <path d={pathD(live) + ' Z'} fill="rgba(33,115,70,0.08)" stroke="#217346" strokeDasharray="4 3" />}
+            </svg>
+          )}
+        </div>
+      )}
       {band && <div style={{ position: 'absolute', left: Math.min(band.x0, band.x1), top: Math.min(band.y0, band.y1), width: Math.abs(band.x1 - band.x0), height: Math.abs(band.y1 - band.y0), border: '1px dashed #217346', background: 'rgba(33,115,70,0.08)', zIndex: 100000 }} />}
       {pics.filter((p) => !p.hidden).map((p) => (
         <FloatBox key={p.id} box={boxOf(p)} lockAspect zIndex={zOf.get(p.id)} rotation={p.rotation} selected={selIds.includes(p.id)} onSelect={(a) => select(p.id, a)}
@@ -119,11 +175,11 @@ export function ObjectOverlay({ sheet, geo }: { sheet: SheetState; geo: ChartGeo
           <img src={p.src} alt={p.alt ?? p.name} draggable={false} style={{ width: '100%', height: '100%', display: 'block', userSelect: 'none', transform: flipCss(p) }} />
         </FloatBox>
       ))}
-      {shapes.filter((s) => !s.hidden).map((s) => (
+      {shapes.filter((s) => !s.hidden && !(s.kind === 'ink' && (ui.hideInk || erased.includes(s.id) || inkFrac(s.id) < 0))).map((s) => (
         <FloatBox key={s.id} box={boxOf(s)} minSize={s.kind === 'line' || s.kind === 'arrow' ? 1 : 16} zIndex={zOf.get(s.id)} rotation={s.rotation} selected={selIds.includes(s.id)} onSelect={(a) => select(s.id, a)}
-          onDoubleClick={() => { if (s.kind !== 'line' && s.kind !== 'arrow') setEditing(s.id) }}
+          onDoubleClick={() => { if (s.kind !== 'line' && s.kind !== 'arrow' && s.kind !== 'ink') setEditing(s.id) }}
           onContext={(x, y) => { select(s.id); setMenu({ x, y, id: s.id }) }} onCommit={(b) => commit(s.id, b, () => updateShape(sheet, s.id, place(b), 'Move or Resize Shape'))}>
-          <ShapeView shape={s} z={z} box={boxOf(s)} editing={editing === s.id} onText={(t) => { updateShape(sheet, s.id, { text: t || undefined }, 'Edit Text'); setEditing(null) }} />
+          <ShapeView shape={s} z={z} box={boxOf(s)} frac={s.kind === 'ink' ? inkFrac(s.id) : 1} editing={editing === s.id} onText={(t) => { updateShape(sheet, s.id, { text: t || undefined }, 'Edit Text'); setEditing(null) }} />
         </FloatBox>
       ))}
       {menu && (
@@ -138,7 +194,7 @@ export function ObjectOverlay({ sheet, geo }: { sheet: SheetState; geo: ChartGeo
 /** CSS flip for the picture or a shape's outline (text stays upright). */
 const flipCss = (o: { flipH?: boolean; flipV?: boolean }): string | undefined => (o.flipH || o.flipV ? `scale(${o.flipH ? -1 : 1}, ${o.flipV ? -1 : 1})` : undefined)
 
-function ShapeView({ shape: s, z, box, editing, onText }: { shape: ShapeDef; z: number; box: Box; editing: boolean; onText: (t: string) => void }) {
+function ShapeView({ shape: s, z, box, frac, editing, onText }: { shape: ShapeDef; z: number; box: Box; frac: number; editing: boolean; onText: (t: string) => void }) {
   const w = box.width, h = box.height
   const fill = s.fill ?? 'none'
   const stroke = s.line ?? 'none'
@@ -161,6 +217,12 @@ function ShapeView({ shape: s, z, box, editing, onText }: { shape: ShapeDef; z: 
           </>
         )
       }
+      case 'ink': {
+        const pts = truncate(screenPoints(s, { left: 0, top: 0, width: w, height: h }), frac)
+        return pts.length === 1
+          ? <circle cx={pts[0][0]} cy={pts[0][1]} r={sw / 2} fill={stroke} fillOpacity={s.alpha ?? 1} />
+          : <path d={pathD(pts)} fill="none" stroke={stroke} strokeOpacity={s.alpha ?? 1} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" />
+      }
       case 'roundRect': return <rect x={sw / 2} y={sw / 2} width={Math.max(0, w - sw)} height={Math.max(0, h - sw)} rx={Math.min(w, h) * 0.1667} fill={fill} stroke={stroke} strokeWidth={sw} />
       default: return <rect x={sw / 2} y={sw / 2} width={Math.max(0, w - sw)} height={Math.max(0, h - sw)} fill={fill} stroke={stroke} strokeWidth={sw} />
     }
@@ -172,10 +234,10 @@ function ShapeView({ shape: s, z, box, editing, onText }: { shape: ShapeDef; z: 
     ...(s.textOutline ? { WebkitTextStroke: `${Math.max(0.5, z)}px ${s.textOutline}`, paintOrder: 'stroke fill' } : {}),
     ...(s.textShadow ? { textShadow: `${2 * z}px ${2 * z}px ${3 * z}px rgba(0,0,0,0.45)` } : {})
   }
-  const isLine = s.kind === 'line' || s.kind === 'arrow'
+  const isLine = s.kind === 'line' || s.kind === 'arrow' || s.kind === 'ink'
   return (
     <>
-      <svg width={w} height={h} style={{ position: 'absolute', left: 0, top: 0, overflow: 'visible', pointerEvents: isLine ? 'none' : 'auto', transform: isLine ? undefined : flipCss(s) }}>{geom}</svg>
+      <svg width={w} height={h} style={{ position: 'absolute', left: 0, top: 0, overflow: 'visible', pointerEvents: isLine ? 'none' : 'auto', transform: isLine && s.kind !== 'ink' ? undefined : flipCss(s) }}>{geom}</svg>
       {isLine && <div style={{ position: 'absolute', inset: -4, pointerEvents: 'auto' }} />}
       {!isLine && (
         <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: s.kind === 'textbox' ? 'flex-start' : 'center', justifyContent: align, padding: 4 * z, pointerEvents: editing ? 'auto' : 'none' }}>

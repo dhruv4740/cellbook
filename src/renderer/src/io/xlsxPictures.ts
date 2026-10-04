@@ -145,6 +145,11 @@ function parseShape(xml: string, connector: boolean, anchor: ShapeDef['anchor'],
   const fontFamily = rPr?.[2] ? /<(?:a:)?latin\b[^>]*typeface="([^"]*)"/.exec(rPr[2])?.[1] : undefined
   const algn = /<(?:a:)?pPr\b[^>]*\balgn="(\w+)"/.exec(xml)?.[1]
   const nm = /<(?:xdr:)?cNvPr\b[^>]*\bname="([^"]*)"/.exec(xml)?.[1] ?? 'Shape'
+  const ink = parseInk(spPr, width, height)
+  if (ink) {
+    const alpha = /<(?:a:)?alpha\b[^>]*val="(\d+)"/.exec(ln)?.[1]
+    return { name: unescapeXml(nm), kind: 'ink', anchor, width, height, points: ink, line: line ?? '#000000', lineWidth: lw ? Math.max(0.25, num(lw) / 12700) : 1, ...(alpha ? { alpha: num(alpha) / 100000 } : {}) }
+  }
   return {
     name: unescapeXml(nm), kind, anchor, width, height,
     ...(fill ? { fill } : {}), ...(line ? { line, lineWidth: lw ? Math.max(0.25, num(lw) / 12700) : 1 } : {}),
@@ -155,10 +160,19 @@ function parseShape(xml: string, connector: boolean, anchor: ShapeDef['anchor'],
   }
 }
 
+/** A freeform (a:custGeom) polyline's points scaled into a width x height px box; null when it has no path. */
+function parseInk(spPr: string, width: number, height: number): [number, number][] | null {
+  const path = /<(?:a:)?custGeom\b[\s\S]*?<(?:a:)?path\b([^>]*)>([\s\S]*?)<\/(?:a:)?path>/.exec(spPr)
+  if (!path) return null
+  const pw = num(/\bw="(\d+)"/.exec(path[1])?.[1]) || 1, ph = num(/\bh="(\d+)"/.exec(path[1])?.[1]) || 1
+  const pts = [...path[2].matchAll(/<(?:a:)?pt\b[^>]*\bx="(-?\d+)"[^>]*\by="(-?\d+)"/g)].map((m) => [(num(m[1]) / pw) * width, (num(m[2]) / ph) * height] as [number, number])
+  return pts.length ? pts : null
+}
+
 const unescapeXml = (s: string): string => s.replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
 const escapeXml = (s: string): string => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
-const PRST: Record<ShapeKind, string> = { rect: 'rect', roundRect: 'roundRect', ellipse: 'ellipse', triangle: 'triangle', diamond: 'diamond', rightArrow: 'rightArrow', line: 'line', arrow: 'line', textbox: 'rect' }
+const PRST: Record<ShapeKind, string> = { rect: 'rect', roundRect: 'roundRect', ellipse: 'ellipse', triangle: 'triangle', diamond: 'diamond', rightArrow: 'rightArrow', line: 'line', arrow: 'line', textbox: 'rect', ink: 'rect' }
 const rgb = (c: string): string => c.replace('#', '').toUpperCase()
 
 function shapeAnchorXml(s: ShapeDef, id: number): string {
@@ -170,7 +184,14 @@ function shapeAnchorXml(s: ShapeDef, id: number): string {
     ? `<a:ln w="${Math.round((s.lineWidth ?? 1) * 12700)}"><a:solidFill><a:srgbClr val="${rgb(s.line)}"/></a:solidFill>${s.kind === 'arrow' ? '<a:tailEnd type="triangle"/>' : ''}</a:ln>`
     : '<a:ln><a:noFill/></a:ln>'
   const xfrm = `<a:xfrm${xfrmAttrs(s)}><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm>`
-  const geom = `<a:prstGeom prst="${PRST[s.kind]}"><a:avLst/></a:prstGeom>`
+  let geom = `<a:prstGeom prst="${PRST[s.kind]}"><a:avLst/></a:prstGeom>`
+  let ln2 = ln
+  if (s.kind === 'ink') {
+    // Freeform polyline; Excel opens it as a freeform shape (it does not rebuild native ink strokes).
+    const pts = (s.points ?? []).map((p, i) => `<a:${i ? 'lnTo' : 'moveTo'}><a:pt x="${Math.round(p[0] * EMU)}" y="${Math.round(p[1] * EMU)}"/></a:${i ? 'lnTo' : 'moveTo'}>`).join('')
+    geom = `<a:custGeom><a:avLst/><a:gdLst/><a:ahLst/><a:cxnLst/><a:rect l="0" t="0" r="r" b="b"/><a:pathLst><a:path w="${cx}" h="${cy}" fill="none">${pts}</a:path></a:pathLst></a:custGeom>`
+    ln2 = `<a:ln w="${Math.round((s.lineWidth ?? 1) * 12700)}" cap="rnd"><a:solidFill><a:srgbClr val="${rgb(s.line ?? '#000000')}">${s.alpha !== undefined ? `<a:alpha val="${Math.round(s.alpha * 100000)}"/>` : ''}</a:srgbClr></a:solidFill><a:round/></a:ln>`
+  }
   const name = escapeXml(s.name)
   if (isLine) {
     return `<xdr:oneCellAnchor>${from}<xdr:cxnSp macro=""><xdr:nvCxnSpPr><xdr:cNvPr id="${id}" name="${name}"${hiddenAttr(s)}/><xdr:cNvCxnSpPr/></xdr:nvCxnSpPr><xdr:spPr>${xfrm}${geom}${ln}</xdr:spPr></xdr:cxnSp><xdr:clientData/></xdr:oneCellAnchor>`
@@ -178,7 +199,7 @@ function shapeAnchorXml(s: ShapeDef, id: number): string {
   const algn = s.align === 'ctr' ? 'ctr' : s.align === 'r' ? 'r' : 'l'
   const rPr = `<a:rPr lang="en-US" sz="${Math.round((s.fontSize ?? 11) * 100)}"${s.bold ? ' b="1"' : ''}${s.italic ? ' i="1"' : ''}>${s.textOutline ? `<a:ln w="9525"><a:solidFill><a:srgbClr val="${rgb(s.textOutline)}"/></a:solidFill></a:ln>` : ''}<a:solidFill><a:srgbClr val="${rgb(s.color ?? '#000000')}"/></a:solidFill>${s.textShadow ? '<a:effectLst><a:outerShdw blurRad="38100" dist="25400" dir="2700000" algn="tl" rotWithShape="0"><a:srgbClr val="000000"><a:alpha val="45000"/></a:srgbClr></a:outerShdw></a:effectLst>' : ''}${s.fontFamily ? `<a:latin typeface="${escapeXml(s.fontFamily)}"/>` : ''}</a:rPr>`
   const paras = (s.text ?? '').split('\n').map((t) => `<a:p><a:pPr algn="${algn}"/>${t ? `<a:r>${rPr}<a:t>${escapeXml(t)}</a:t></a:r>` : ''}</a:p>`).join('')
-  return `<xdr:oneCellAnchor>${from}<xdr:sp macro="" textlink=""><xdr:nvSpPr><xdr:cNvPr id="${id}" name="${name}"${hiddenAttr(s)}/><xdr:cNvSpPr${s.kind === 'textbox' ? ' txBox="1"' : ''}/></xdr:nvSpPr><xdr:spPr>${xfrm}${geom}${fill}${ln}</xdr:spPr>` +
+  return `<xdr:oneCellAnchor>${from}<xdr:sp macro="" textlink=""><xdr:nvSpPr><xdr:cNvPr id="${id}" name="${name}"${hiddenAttr(s)}/><xdr:cNvSpPr${s.kind === 'textbox' ? ' txBox="1"' : ''}/></xdr:nvSpPr><xdr:spPr>${xfrm}${geom}${s.kind === 'ink' ? '<a:noFill/>' : fill}${ln2}</xdr:spPr>` +
     `<xdr:txBody><a:bodyPr vertOverflow="clip" horzOverflow="clip" wrap="square" rtlCol="0" anchor="${s.kind === 'textbox' ? 't' : 'ctr'}"/><a:lstStyle/>${paras}</xdr:txBody></xdr:sp><xdr:clientData/></xdr:oneCellAnchor>`
 }
 

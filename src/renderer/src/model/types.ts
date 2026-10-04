@@ -487,7 +487,7 @@ export interface SheetTable {
   filter?: boolean
 }
 
-export type ShapeKind = 'rect' | 'roundRect' | 'ellipse' | 'triangle' | 'diamond' | 'rightArrow' | 'line' | 'arrow' | 'textbox'
+export type ShapeKind = 'rect' | 'roundRect' | 'ellipse' | 'triangle' | 'diamond' | 'rightArrow' | 'line' | 'arrow' | 'textbox' | 'ink'
 
 export interface ShapeDef extends ArrangeProps {
   id: string
@@ -512,6 +512,10 @@ export interface ShapeDef extends ArrangeProps {
   /** Text outline colour (#rrggbb). */
   textOutline?: string
   textShadow?: boolean
+  /** Freehand ink (kind 'ink'): the stroke's points in the shape's own px box, drawn with line / lineWidth. */
+  points?: [number, number][]
+  /** Ink opacity 0..1 (highlighter). */
+  alpha?: number
 }
 
 export interface PictureDef extends ArrangeProps {
