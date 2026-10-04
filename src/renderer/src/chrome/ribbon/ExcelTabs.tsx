@@ -493,8 +493,8 @@ export function ViewTab() {
       ],
       [
         { label: 'Split', icon: <SplitHorizontal20Regular />, onClick: () => notAvailable('Split') },
-        { label: 'Hide', icon: <EyeOff20Regular />, onClick: () => notAvailable('Hide window') },
-        { label: 'Unhide', icon: <Eye20Regular />, disabled: true }
+        { label: 'Hide', icon: <EyeOff20Regular />, onClick: () => { void window.api?.hideWindow?.().then((ok) => { if (!ok) showToast('Open another workbook window before hiding this one.') }) } },
+        { label: 'Unhide', icon: <Eye20Regular />, onClick: () => setUi({ dialog: { kind: 'unhideWindow' } }) }
       ],
       [
         { label: 'View Side by Side', icon: <AppsListDetail20Regular />, iconOnly: true, disabled: true },
