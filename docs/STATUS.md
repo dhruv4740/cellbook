@@ -74,3 +74,18 @@ outline and text, are not editable.
 - INDIRECT returns values only (no reference semantics, e.g. inside OFFSET or as a range argument to ROW).
 - Threaded-comment authors from Excel show as `tc={GUID}`.
 - Saving a very large workbook still runs on the UI thread (about 5 s at 50,000 rows).
+
+## UI crawl (real app, every ribbon control + context menus)
+
+`scripts/excel-oracle/ui_crawl.mjs <Tab>` clicks every ribbon control and dropdown item; `ui_context.mjs` does the cell, row, column and
+sheet-tab right-click menus. Latest run: 0 renderer errors across all tabs and menus (Home 62, Insert 31, Draw 17, Formulas 26,
+Data 32, Review 13, View 14, Help 7 controls). Added since: Forecast Sheet, Arrange (z-order, align, group, rotate, Selection Pane),
+Select Objects, Copy as Picture, Draw/ink (pens, eraser, lasso, Ink to Shape, replay, Hide Ink), WordArt/Signature/Equation galleries,
+Icons, Allow Edit Ranges, New Table Style, Custom Views, Themes/Colors/Fonts/Effects, Help links.
+
+Still "isn't available" on purpose: Power Query (Get Data, From Web, Recent Sources, Connections, Data Model, Relationships), VBA
+(Macros, View Code), Object, Maps, Stock/Online Pictures, 3D Models, Screenshot, SmartArt, Slicer, Timeline, Hierarchy/Statistic/
+Waterfall/Funnel/Stock/Surface/Radar/Combo charts, Thesaurus, Translate, Smart Lookup, Quick Analysis, Show Changes, Unshare Workbook,
+Split, Hide window, Ink to Math, Add-ins store, Sheet Background.
+Simplifications: ink saved as freeform shapes (not InkML); custom table styles in localStorage; Custom Views session-only;
+themes recolour new content only; WordArt/Equation are styled text boxes.
