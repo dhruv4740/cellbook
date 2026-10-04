@@ -6,6 +6,8 @@ export async function launch(tag) {
   const profile = path.resolve('scripts/excel-oracle/out/rt/profile-' + tag + '-' + Date.now())
   const app = await electron.launch({ executablePath: 'node_modules/electron/dist/electron.exe', args: ['.', '--user-data-dir=' + profile, '--disable-backgrounding-occluded-windows', '--disable-renderer-backgrounding', '--disable-features=CalculateNativeWinOcclusion'] })
   await app.firstWindow()
+  // keep test windows off-screen and unfocusable so they never steal the user's focus (SHOW=1 to see them)
+  if (!process.env.SHOW) await app.evaluate(({ BrowserWindow }) => { for (const w of BrowserWindow.getAllWindows()) { w.setFocusable(false); w.setPosition(-3000, -3000); w.setSize(1920, 1080) } })
   let win
   for (let i = 0; i < 100 && !win; i++) { for (const p of app.windows()) if (await p.evaluate(() => document.visibilityState === 'visible').catch(() => false)) win = p; if (!win) await new Promise((r) => setTimeout(r, 200)) }
   await win.waitForFunction(() => globalThis.store)
