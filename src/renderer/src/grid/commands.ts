@@ -11,6 +11,7 @@ import { seriesValues, SeriesType, DateUnit } from '../engine/series'
 import { flashFill } from '../data/flashFill'
 import { sortRange, detectHeaders, hasAdjacentData, findCurrentRegion } from '../data/sort'
 import { insertPictureFromDataUrl } from '../data/pictures'
+import type { TableStyleDef } from '../format/customTableStyles'
 
 export type PasteKind = 'all' | 'values' | 'formulas' | 'formats' | 'transpose' | 'noBorders' | 'columnWidths' | 'link'
 
@@ -1055,7 +1056,7 @@ export const TABLE_STYLES: { name: string; header: string; band: string; line: s
  * a filter on the header row, in one undo step. Cellbook stores this as ordinary formatting plus
  * an AutoFilter; it isn't saved as an Excel table object.
  */
-export function formatAsTable(styleIndex = 0): void {
+export function formatAsTable(styleIndex: number | TableStyleDef = 0): void {
   const sheet = store.active
   const n = normRange(activeRange())
   const region = n.r1 !== n.r2 || n.c1 !== n.c2 ? store.clampToUsed(sheet, n) : store.currentRegion(sheet, sheet.selection.active.r, sheet.selection.active.c)
@@ -1063,7 +1064,7 @@ export function formatAsTable(styleIndex = 0): void {
     setUi({ dialog: { kind: 'message', props: { text: 'Select a range with data first, then choose Format as Table.' } } })
     return
   }
-  const t = TABLE_STYLES[styleIndex] ?? TABLE_STYLES[0]
+  const t = typeof styleIndex === 'object' ? styleIndex : TABLE_STYLES[styleIndex] ?? TABLE_STYLES[0]
   const side = { style: 'thin' as const, color: t.line }
   store.transact('Format as Table', () => {
     store.applyStyle(sheet, [region], (s, r) => {
