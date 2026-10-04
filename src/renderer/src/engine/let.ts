@@ -2,7 +2,7 @@
 // reach the engine, substituting each name with its (parenthesised) value. The original text is kept for display and saving.
 
 /** Index of the parenthesis closing the one at `open`, skipping string literals; -1 if unbalanced. */
-function closeParen(s: string, open: number): number {
+export function closeParen(s: string, open: number): number {
   let depth = 0
   for (let i = open; i < s.length; i++) {
     const ch = s[i]
@@ -14,7 +14,7 @@ function closeParen(s: string, open: number): number {
 }
 
 /** Splits at top-level commas (not inside parentheses, braces or strings). */
-function splitArgs(s: string): string[] {
+export function splitArgs(s: string): string[] {
   const out: string[] = []
   let depth = 0, start = 0
   for (let i = 0; i < s.length; i++) {
@@ -28,9 +28,8 @@ function splitArgs(s: string): string[] {
   return out
 }
 
-/** Replaces whole-identifier occurrences of `name` (outside strings and sheet/cell qualifiers) with `value`. */
-function substitute(s: string, name: string, value: string): string {
-  const lower = name.toLowerCase()
+/** Replaces whole-identifier occurrences of the names in `map` (keys lower-case; outside strings and sheet/cell qualifiers) in one pass. */
+export function substituteAll(s: string, map: Map<string, string>): string {
   let out = ''
   for (let i = 0; i < s.length; i++) {
     const ch = s[i]
@@ -44,14 +43,15 @@ function substitute(s: string, name: string, value: string): string {
       while (j < s.length && /[A-Za-z0-9_.]/.test(s[j])) j++
       const word = s.slice(i, j)
       const prev = out[out.length - 1]
-      const isName = word.toLowerCase() === lower && !(prev && /[!$'.]/.test(prev)) && s[j] !== '(' && s[j] !== '!'
-      out += isName ? value : word
+      const val = map.get(word.toLowerCase())
+      out += val !== undefined && !(prev && /[!$'.]/.test(prev)) && s[j] !== '(' && s[j] !== '!' ? val : word
       i = j - 1; continue
     }
     out += ch
   }
   return out
 }
+const substitute = (s: string, name: string, value: string): string => substituteAll(s, new Map([[name.toLowerCase(), value]]))
 
 const IDENT = /^[A-Za-z_][A-Za-z0-9_.]*$/
 

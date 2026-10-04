@@ -50,3 +50,39 @@ describe('more functions', () => {
     expect([at(22, 0), at(23, 0), at(24, 0)]).toEqual([1, 2, 1]) // bins 1,3: <=1 -> 1, <=3 -> 2, above -> 1
   })
 })
+
+describe('text splitting, reshaping, CELL, INFO', () => {
+  const sh = (): typeof store.active => store.active
+  const at2 = (r: number, c: number): unknown => store.getValue(store.active, r, c)
+  beforeEach(() => {
+    store.newWorkbook()
+    ;[[3, 30], [1, 10], [2, 20], [5, 50]].forEach((row, r) => row.forEach((v, c) => store.setRaw(sh(), r, c, String(v))))
+    store.setRaw(sh(), 0, 5, 'a,b;c,d,e')
+  })
+  it('TEXTSPLIT from a literal and from a cell', () => {
+    store.setRaw(sh(), 10, 0, '=TEXTSPLIT("x-y-z","-")')
+    expect([at2(10, 0), at2(10, 1), at2(10, 2)]).toEqual(['x', 'y', 'z'])
+    store.setRaw(sh(), 12, 0, '=TEXTSPLIT(F1,",",";")')
+    expect([at2(12, 0), at2(12, 1), at2(12, 2), at2(13, 0), at2(13, 1), at2(13, 2)]).toMatchObject(['a', 'b', { error: '#N/A' }, 'c', 'd', 'e'])
+  })
+  it('WRAPROWS, WRAPCOLS, EXPAND', () => {
+    store.setRaw(sh(), 10, 0, '=WRAPROWS(A1:A4,2)')
+    expect([at2(10, 0), at2(10, 1), at2(11, 0), at2(11, 1)]).toEqual([3, 1, 2, 5])
+    store.setRaw(sh(), 10, 4, '=WRAPCOLS(A1:A4,2)')
+    expect([at2(10, 4), at2(10, 5), at2(11, 4), at2(11, 5)]).toEqual([3, 2, 1, 5])
+    store.setRaw(sh(), 20, 0, '=EXPAND(A1:B2,3,3,0)')
+    expect([at2(20, 2), at2(22, 0), at2(22, 2), at2(21, 1)]).toEqual([0, 0, 0, 10])
+  })
+  it('RANDARRAY, ARRAYTOTEXT, CELL, INFO', () => {
+    store.setRaw(sh(), 10, 0, '=RANDARRAY(2,2,5,5,TRUE)')
+    expect([at2(10, 0), at2(11, 1)]).toEqual([5, 5])
+    store.setRaw(sh(), 15, 0, '=ARRAYTOTEXT(A1:B2)')
+    expect(at2(15, 0)).toBe('3, 30, 1, 10')
+    store.setRaw(sh(), 16, 0, '=CELL("address",B3)')
+    expect(at2(16, 0)).toBe('$B$3')
+    store.setRaw(sh(), 17, 0, '=CELL("row",B3)+CELL("col",B3)')
+    expect(at2(17, 0)).toBe(5)
+    store.setRaw(sh(), 18, 0, '=INFO("system")')
+    expect(at2(18, 0)).toBe('pcdos')
+  })
+})
