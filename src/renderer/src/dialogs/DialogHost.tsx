@@ -26,6 +26,7 @@ import { HyperlinkDialog } from './HyperlinkDialog'
 import { SparklineDialog } from './SparklineDialog'
 import { QuickAnalysisDialog } from './QuickAnalysisDialog'
 import { UnhideWindowDialog } from './UnhideWindowDialog'
+import { ComboChartDialog } from './ComboChartDialog'
 import { SpellingDialog } from './SpellingDialog'
 import { EvaluateFormulaDialog } from './EvaluateFormulaDialog'
 import { SymbolDialog } from './SymbolDialog'
@@ -210,6 +211,8 @@ export default function DialogHost() {
       return <SpellingDialog onClose={close} />
     case 'sparkline':
       return <SparklineDialog type={d.props?.type as 'line' | 'column' | 'winloss'} onClose={close} />
+    case 'comboChart':
+      return <ComboChartDialog chartId={d.props?.chartId as string | undefined} onClose={close} />
     case 'unhideWindow':
       return <UnhideWindowDialog onClose={close} />
     case 'quickAnalysis':

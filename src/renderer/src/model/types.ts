@@ -197,7 +197,7 @@ export interface SheetLayout {
 }
 
 // ---------- Charts ----------
-export type ChartType = 'bar' | 'line' | 'pie' | 'scatter'
+export type ChartType = 'bar' | 'line' | 'pie' | 'scatter' | 'combo' | 'waterfall'
 export type ChartSubtype =
   | 'clusteredColumn' | 'stackedColumn' | 'percentStackedColumn'
   | 'clusteredBar' | 'stackedBar' | 'percentStackedBar'
@@ -205,6 +205,7 @@ export type ChartSubtype =
   | 'area' | 'stackedArea'
   | 'pie' | 'doughnut'
   | 'scatter' | 'scatterSmooth'
+  | 'combo' | 'waterfall'
 
 export type LegendPosition = 'right' | 'top' | 'bottom' | 'left' | 'none'
 
@@ -262,6 +263,8 @@ export interface ChartSpec extends ArrangeProps {
   hiddenSeriesIdx?: number[]
   /** Treat the first column (or row, when series are in rows) as category labels even when it is numeric, e.g. a timeline. */
   firstIsCategories?: boolean
+  /** Combo charts: per-series plot type (by series index) and whether it sits on the secondary value axis. */
+  comboSeries?: { type: 'bar' | 'line'; secondary?: boolean }[]
 }
 
 export type CellValue = number | string | boolean | null | CellError
