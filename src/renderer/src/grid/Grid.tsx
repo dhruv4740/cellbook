@@ -18,6 +18,7 @@ import * as cmd from './commands'
 import { shiftFormula } from '../engine/shiftFormula'
 import ChartOverlay from '../charts/ChartOverlay'
 import { ObjectOverlay } from './ObjectOverlay'
+import { SlicerOverlay } from './SlicerOverlay'
 import { insertChartFromSelection } from '../charts/insertChart'
 import { COLUMN_BAR_GALLERY } from '../charts/gallery'
 import { AutoFilterMenu } from './AutoFilterMenu'
@@ -1869,6 +1870,7 @@ export default function Grid() {
       <canvas ref={canvasRef} className="xl-canvas" style={{ width: size.w, height: size.h }} />
       <canvas ref={antsRef} className="xl-canvas" style={{ width: size.w, height: size.h }} />
       <ObjectOverlay sheet={sheet} geo={{ colsAxis, rowsAxis, frozen, scroll, z, rowHeaderW, headerH, viewport: size }} />
+      <SlicerOverlay sheet={sheet} geo={{ colsAxis, rowsAxis, frozen, scroll, z, rowHeaderW, headerH, viewport: size }} />
       <ChartOverlay
         sheet={sheet}
         geo={{ colsAxis, rowsAxis, frozen, scroll, z, rowHeaderW, headerH, viewport: size }}

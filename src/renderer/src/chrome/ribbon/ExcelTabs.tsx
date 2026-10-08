@@ -24,6 +24,7 @@ import { nextErrorCell } from '../../data/errorCheck'
 import { pickPictureFiles } from '../../data/pictures'
 import { pickSheetBackground, setSheetBackground } from '../../data/background'
 import { insertShape, SHAPE_LABELS } from '../../data/shapes'
+import { insertSlicer } from '../../data/slicers'
 import { THEMES, COLOR_SCHEMES, FONT_SCHEMES, EFFECT_SCHEMES } from '../../data/themes'
 import { WORDART_STYLES, insertWordArt, insertSignatureLine, EQUATIONS, NEW_EQUATION_TEXT, insertEquation } from '../../data/textObjects'
 import { colName } from '../../model/types'
@@ -125,8 +126,8 @@ export function InsertTab() {
       { label: 'Win/Loss', icon: big(ArrowRepeatAll20Regular), onClick: () => setUi({ dialog: { kind: 'sparkline', props: { type: 'winloss' } } }) }
     ] },
     { label: 'Filters', items: [
-      { label: 'Slicer', icon: big(Filter20Regular), onClick: () => notAvailable('Slicers') },
-      { label: 'Timeline', icon: big(DocumentPageBreak20Regular), onClick: () => notAvailable('Timelines') }
+      { label: 'Slicer', icon: big(Filter20Regular), onClick: () => insertSlicer('slicer') },
+      { label: 'Timeline', icon: big(DocumentPageBreak20Regular), onClick: () => insertSlicer('timeline') }
     ] },
     { label: 'Links', items: [{ label: 'Link', icon: big(Link20Regular), shortcut: 'Ctrl+K', onClick: () => setUi({ dialog: { kind: 'hyperlink' } }) }] },
     { label: 'Comments', items: [{ label: 'Comment', icon: big(CommentAdd20Regular), width: 58, onClick: () => { const a = store.active.selection.active; setUi({ commentPanel: { r: a.r, c: a.c } }) } }] },
