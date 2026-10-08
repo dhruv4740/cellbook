@@ -186,6 +186,8 @@ export interface SheetLayout {
   background?: string
   /** Insert > Shapes / Text Box. */
   shapes?: ShapeDef[]
+  /** Insert > Slicer / Timeline. */
+  slicers?: SlicerDef[]
   /** Excel tables (ListObjects) kept so a save writes them back; formulas already use plain ranges. */
   tables?: SheetTable[]
   /** Data > What-If Analysis > Scenario Manager. */
@@ -544,4 +546,16 @@ export interface SparklineDef {
   /** Source cells (same sheet); a row or a column. */
   src: { r1: number; c1: number; r2: number; c2: number }
   color: string
+}
+
+/** A slicer (item buttons) or timeline (period bar) filtering one AutoFilter column. Session-only: not saved to .xlsx. */
+export interface SlicerDef {
+  id: string; name: string; kind: 'slicer' | 'timeline'
+  col: number; header: string
+  anchor: { r: number; c: number; dx: number; dy: number }; width: number; height: number
+  /** Slicer: displayed values left visible (null = all). */
+  selected?: string[] | null
+  /** Timeline: level and the selected [first, last] date serial (null = all). */
+  period?: 'years' | 'quarters' | 'months' | 'days'
+  range?: [number, number] | null
 }
