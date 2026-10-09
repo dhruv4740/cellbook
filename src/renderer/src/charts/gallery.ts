@@ -45,11 +45,46 @@ export const SCATTER_BUBBLE_GALLERY: GalleryEntry[] = [
   { subtype: 'scatterSmooth', type: 'scatter', label: 'Scatter with Smooth Lines' }
 ]
 
+export const RADAR_GALLERY: GalleryEntry[] = [
+  { subtype: 'radar', type: 'radar', label: 'Radar' },
+  { subtype: 'radarMarkers', type: 'radar', label: 'Radar with Markers' },
+  { subtype: 'filledRadar', type: 'radar', label: 'Filled Radar' }
+]
+export const FUNNEL_ENTRY: GalleryEntry = { subtype: 'funnel', type: 'funnel', label: 'Funnel' }
+export const STOCK_GALLERY: GalleryEntry[] = [
+  { subtype: 'stockHLC', type: 'stock', label: 'High-Low-Close' },
+  { subtype: 'stockOHLC', type: 'stock', label: 'Open-High-Low-Close' }
+]
+export const SURFACE_GALLERY: GalleryEntry[] = [
+  { subtype: 'surface3D', type: 'surface', label: '3-D Surface' },
+  { subtype: 'wireSurface', type: 'surface', label: 'Wireframe 3-D Surface' },
+  { subtype: 'contour', type: 'surface', label: 'Contour' },
+  { subtype: 'wireContour', type: 'surface', label: 'Wireframe Contour' }
+]
+export const HIERARCHY_GALLERY: GalleryEntry[] = [
+  { subtype: 'treemap', type: 'hierarchy', label: 'Treemap' },
+  { subtype: 'sunburst', type: 'hierarchy', label: 'Sunburst' }
+]
+export const STATISTIC_GALLERY: GalleryEntry[] = [
+  { subtype: 'histogram', type: 'statistic', label: 'Histogram' },
+  { subtype: 'pareto', type: 'statistic', label: 'Pareto' },
+  { subtype: 'boxWhisker', type: 'statistic', label: 'Box and Whisker' }
+]
+
+/** Types whose legend Excel hides by default (one series coloured by point, or the body draws its own key). */
+export const NO_LEGEND_TYPES: ChartType[] = ['funnel', 'surface', 'hierarchy', 'statistic']
+
 export const ALL_GALLERIES = [
   { name: 'Column or Bar', entries: COLUMN_BAR_GALLERY },
   { name: 'Line or Area', entries: LINE_AREA_GALLERY },
   { name: 'Pie or Doughnut', entries: PIE_DOUGHNUT_GALLERY },
-  { name: 'Scatter (X, Y) or Bubble', entries: SCATTER_BUBBLE_GALLERY }
+  { name: 'Scatter (X, Y) or Bubble', entries: SCATTER_BUBBLE_GALLERY },
+  { name: 'Radar', entries: RADAR_GALLERY },
+  { name: 'Stock', entries: STOCK_GALLERY },
+  { name: 'Surface', entries: SURFACE_GALLERY },
+  { name: 'Hierarchy', entries: HIERARCHY_GALLERY },
+  { name: 'Statistic', entries: STATISTIC_GALLERY },
+  { name: 'Funnel', entries: [FUNNEL_ENTRY] }
 ]
 
 let nextChartId = 1

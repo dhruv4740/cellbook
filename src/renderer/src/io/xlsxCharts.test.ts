@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildChartSpaceXml, parseComboSeries } from './xlsxCharts'
-import { createChartSpec, COMBO_GALLERY, WATERFALL_ENTRY } from '../charts/gallery'
+import { createChartSpec, COMBO_GALLERY, WATERFALL_ENTRY, RADAR_GALLERY, STOCK_GALLERY, SURFACE_GALLERY, HIERARCHY_GALLERY, STATISTIC_GALLERY, FUNNEL_ENTRY } from '../charts/gallery'
 
 const grid = [
   ['', 'Sales', 'Margin'],
@@ -35,5 +35,15 @@ describe('waterfall chart xlsx', () => {
     expect(xml).toContain('<c:grouping val="stacked"/>')
     expect(xml).toContain('<a:noFill/>')
     expect(xml).toContain('<c:legendEntry><c:idx val="0"/><c:delete val="1"/></c:legendEntry>')
+  })
+})
+
+describe('extra chart families xlsx', () => {
+  it('writes radar and stock charts natively and every family produces a plot', () => {
+    for (const [e, tag] of [[RADAR_GALLERY[2], '<c:radarStyle val="filled"/>'], [STOCK_GALLERY[0], '<c:hiLowLines/>'], [STOCK_GALLERY[1], '<c:upDownBars>'], [SURFACE_GALLERY[0], '<c:lineChart>'], [HIERARCHY_GALLERY[0], '<c:barChart>'], [STATISTIC_GALLERY[0], '<c:gapWidth val="5"/>'], [STATISTIC_GALLERY[2], '<c:barChart>'], [FUNNEL_ENTRY, '<c:barChart>']] as const) {
+      const xml = buildChartSpaceXml(createChartSpec(e, range, anchor), 'Sheet1', reader)
+      expect(xml, e.label).toContain(tag)
+      expect(xml, e.label).toContain('<c:axId')
+    }
   })
 })

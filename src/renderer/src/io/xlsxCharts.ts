@@ -1,4 +1,5 @@
 import type { ChartSpec, ChartSubtype, ChartType, LegendPosition, Range, SheetLayout } from '../model/types'
+import { histogramBins, paretoOf } from '../charts/extraStats'
 import { normRange, colName } from '../model/types'
 import { extractChartData, CellReader } from '../charts/dataExtraction'
 import { comboSeriesOf, waterfallStack } from '../charts/chartCombo'
@@ -207,6 +208,68 @@ export function buildChartSpaceXml(
         ${wser(0, 'Base', base, null)}${wser(1, 'Increase', increase, '4472C4')}${wser(2, 'Decrease', decrease, 'ED7D31')}
         <c:gapWidth val="50"/>
         <c:overlap val="100"/>
+        <c:axId val="${ax1}"/>
+        <c:axId val="${ax2}"/>
+      </c:barChart>`
+  } else if (spec.type === 'radar') {
+    const style = spec.subtype === 'filledRadar' ? 'filled' : spec.subtype === 'radarMarkers' ? 'marker' : 'standard'
+    plotXml = `
+      <c:radarChart>
+        <c:radarStyle val="${style}"/>
+        <c:varyColors val="0"/>
+        ${seriesXmlList.join('')}
+        <c:axId val="${ax1}"/>
+        <c:axId val="${ax2}"/>
+      </c:radarChart>`
+  } else if (spec.type === 'stock') {
+    // High-Low-Close / Open-High-Low-Close: invisible series lines with high-low lines (and up/down bars for OHLC)
+    const sers = seriesXmlList.map((x) => x.replace('</c:tx>', '</c:tx><c:spPr><a:ln w="28575"><a:noFill/></a:ln></c:spPr><c:marker><c:symbol val="none"/></c:marker>')).join('').replace(/<c:marker><c:symbol val="circle"\/><c:size val="5"\/><\/c:marker>/g, '')
+    plotXml = `
+      <c:stockChart>
+        ${sers}
+        <c:hiLowLines/>
+        ${spec.subtype === 'stockOHLC' ? '<c:upDownBars><c:gapWidth val="150"/><c:upBars/><c:downBars/></c:upDownBars>' : ''}
+        <c:axId val="${ax1}"/>
+        <c:axId val="${ax2}"/>
+      </c:stockChart>`
+  } else if (spec.type === 'statistic' && (spec.subtype === 'histogram' || spec.subtype === 'pareto')) {
+    // Excel's native histogram/pareto are chartex parts we can't write: save the binned counts as a plain column chart.
+    const bins0 = histogramBins(extracted.series[0]?.values ?? [])
+    const rows = spec.subtype === 'pareto' ? paretoOf(bins0).map((r) => ({ label: r.label, count: r.count })) : bins0.map((b) => ({ label: b.label, count: b.count }))
+    plotXml = `
+      <c:barChart>
+        <c:barDir val="col"/>
+        <c:grouping val="clustered"/>
+        <c:varyColors val="0"/>
+        <c:ser>
+          <c:idx val="0"/>
+          <c:order val="0"/>
+          <c:tx><c:v>Count</c:v></c:tx>
+          <c:cat><c:strLit><c:ptCount val="${rows.length}"/>${rows.map((r, idx) => `<c:pt idx="${idx}"><c:v>${escapeXmlText(r.label)}</c:v></c:pt>`).join('')}</c:strLit></c:cat>
+          <c:val><c:numLit><c:formatCode>General</c:formatCode><c:ptCount val="${rows.length}"/>${rows.map((r, idx) => `<c:pt idx="${idx}"><c:v>${r.count}</c:v></c:pt>`).join('')}</c:numLit></c:val>
+        </c:ser>
+        <c:gapWidth val="5"/>
+        <c:axId val="${ax1}"/>
+        <c:axId val="${ax2}"/>
+      </c:barChart>`
+  } else if (spec.type === 'surface') {
+    // Surface charts need a series axis we don't write; save the nearest standard chart (one line per series).
+    plotXml = `
+      <c:lineChart>
+        <c:grouping val="standard"/>
+        <c:varyColors val="0"/>
+        ${seriesXmlList.join('')}
+        <c:axId val="${ax1}"/>
+        <c:axId val="${ax2}"/>
+      </c:lineChart>`
+  } else if (spec.type === 'funnel' || spec.type === 'hierarchy' || spec.type === 'statistic') {
+    // Funnel, treemap, sunburst and box & whisker are chartex parts in Excel; save the values as a clustered column chart.
+    plotXml = `
+      <c:barChart>
+        <c:barDir val="col"/>
+        <c:grouping val="clustered"/>
+        <c:varyColors val="0"/>
+        ${seriesXmlList.join('')}
         <c:axId val="${ax1}"/>
         <c:axId val="${ax2}"/>
       </c:barChart>`
