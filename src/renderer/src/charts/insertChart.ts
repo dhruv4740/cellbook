@@ -5,7 +5,7 @@ import { setUi } from '../chrome/ui'
 import { ChartSpec, MAX_COLS, MAX_ROWS } from '../model/types'
 import { resolveChartRange, extractChartData, defaultSeriesInColumns } from './dataExtraction'
 import { readerFor, insertChart as insertChartSpec } from './chartsStore'
-import { createChartSpec, GalleryEntry, DEFAULT_CHART_WIDTH, DEFAULT_CHART_HEIGHT, NO_LEGEND_TYPES } from './gallery'
+import { createChartSpec, GalleryEntry, DEFAULT_CHART_WIDTH, DEFAULT_CHART_HEIGHT, NO_LEGEND_TYPES, COLUMN_BAR_GALLERY } from './gallery'
 import { defaultComboSeries } from './chartCombo'
 
 function sourceFromSelection(store: WorkbookStore) {
@@ -40,6 +40,28 @@ export function insertChartFromSelection(store: WorkbookStore, entry: GalleryEnt
     if (spec.type !== 'pie' && spec.type !== 'waterfall') spec.elements.legend = false
   }
   if (NO_LEGEND_TYPES.includes(spec.type)) { spec.elements.legend = false; spec.elements.gridlines = spec.type === 'statistic'; spec.elements.axes = spec.type === 'statistic' }
+  insertChartSpec(store, sheet, spec)
+  setUi({ selectedChart: spec.id, ribbonTab: 'Chart Design' })
+}
+
+/** Insert > PivotChart: a clustered column chart of the PivotTable under the active cell (Grand Total row/column left out).
+ *  Without a PivotTable it opens the PivotTable dialog, like Excel's Create PivotChart. The chart plots the pivot's current
+ *  output range; it is not re-linked when the pivot's size changes. */
+export function insertPivotChart(store: WorkbookStore): void {
+  const sheet = store.active
+  const { r, c } = sheet.selection.active
+  const pv = (sheet.layout.pivots ?? []).find((p) => p.lastSize && r >= p.anchor.r && r < p.anchor.r + p.lastSize.rows && c >= p.anchor.c && c < p.anchor.c + p.lastSize.cols)
+  if (!pv || !pv.lastSize) { setUi({ dialog: { kind: 'pivot' } }); return }
+  let r2 = pv.anchor.r + pv.lastSize.rows - 1, c2 = pv.anchor.c + pv.lastSize.cols - 1
+  const text = (rr: number, cc: number): string => String(store.getValue(sheet, rr, cc) ?? '')
+  if (/^grand total$/i.test(text(r2, pv.anchor.c))) r2--
+  if (c2 > pv.anchor.c && /^grand total$/i.test(text(pv.anchor.r + (pv.cols.length ? 1 : 0), c2))) c2--
+  const dataRange = { r1: pv.anchor.r + (pv.cols.length ? 1 : 0), c1: pv.anchor.c, r2, c2 }
+  if (dataRange.r2 <= dataRange.r1 || dataRange.c2 <= dataRange.c1) return
+  const reader = readerFor(store, sheet)
+  const spec = createChartSpec(COLUMN_BAR_GALLERY[0], dataRange, { r: Math.min(MAX_ROWS - 1, r2 + 2), c: pv.anchor.c, dx: 0, dy: 0 })
+  const data = extractChartData(reader, dataRange, spec.seriesInColumns, spec.firstIsCategories)
+  if (data.series.length === 1 && data.series[0].name) { spec.title = data.series[0].name; spec.elements.legend = false }
   insertChartSpec(store, sheet, spec)
   setUi({ selectedChart: spec.id, ribbonTab: 'Chart Design' })
 }
