@@ -175,7 +175,7 @@ export function PageLayoutTab() {
   )
   const curColors = store.theme.colors?.name ?? 'Office'
   const curFonts = store.theme.fonts?.name ?? 'Office'
-  const chip = (cols: string[]): ReactNode => <span style={{ display: 'inline-flex' }}>{cols.slice(4).map((c) => <span key={c} style={{ width: 6, height: 12, background: '#' + c }} />)}</span>
+  const chip = (cols: string[]): ReactNode => <span style={{ display: 'inline-flex', marginRight: 22, flex: 'none' }}>{cols.slice(4).map((c) => <span key={c} style={{ width: 6, height: 12, background: '#' + c }} />)}</span>
   const themeMenus: Record<string, MenuItem[]> = {
     Themes: THEMES.map((t) => ({ label: t.name, checked: curColors === t.colors.name && curFonts === t.fonts.name, icon: chip(t.colors.colors), onClick: () => store.setTheme({ colors: t.colors, fonts: t.fonts }) })),
     Colors: COLOR_SCHEMES.map((c) => ({ label: c.name, checked: curColors === c.name, icon: chip(c.colors), onClick: () => store.setTheme({ colors: c }) })),
