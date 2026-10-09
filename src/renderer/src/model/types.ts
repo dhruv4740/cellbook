@@ -201,7 +201,7 @@ export interface SheetLayout {
 }
 
 // ---------- Charts ----------
-export type ChartType = 'bar' | 'line' | 'pie' | 'scatter' | 'combo' | 'waterfall'
+export type ChartType = 'bar' | 'line' | 'pie' | 'scatter' | 'combo' | 'waterfall' | 'radar' | 'funnel' | 'stock' | 'surface' | 'hierarchy' | 'statistic'
 export type ChartSubtype =
   | 'clusteredColumn' | 'stackedColumn' | 'percentStackedColumn'
   | 'clusteredBar' | 'stackedBar' | 'percentStackedBar'
@@ -210,6 +210,9 @@ export type ChartSubtype =
   | 'pie' | 'doughnut'
   | 'scatter' | 'scatterSmooth'
   | 'combo' | 'waterfall'
+  | 'radar' | 'radarMarkers' | 'filledRadar' | 'funnel' | 'stockHLC' | 'stockOHLC'
+  | 'surface3D' | 'wireSurface' | 'contour' | 'wireContour'
+  | 'treemap' | 'sunburst' | 'histogram' | 'pareto' | 'boxWhisker'
 
 export type LegendPosition = 'right' | 'top' | 'bottom' | 'left' | 'none'
 

@@ -5,7 +5,7 @@ import { setUi } from '../chrome/ui'
 import { ChartSpec, MAX_COLS, MAX_ROWS } from '../model/types'
 import { resolveChartRange, extractChartData, defaultSeriesInColumns } from './dataExtraction'
 import { readerFor, insertChart as insertChartSpec } from './chartsStore'
-import { createChartSpec, GalleryEntry, DEFAULT_CHART_WIDTH, DEFAULT_CHART_HEIGHT } from './gallery'
+import { createChartSpec, GalleryEntry, DEFAULT_CHART_WIDTH, DEFAULT_CHART_HEIGHT, NO_LEGEND_TYPES } from './gallery'
 import { defaultComboSeries } from './chartCombo'
 
 function sourceFromSelection(store: WorkbookStore) {
@@ -39,6 +39,7 @@ export function insertChartFromSelection(store: WorkbookStore, entry: GalleryEnt
     if (data.series[0].name) spec.title = data.series[0].name
     if (spec.type !== 'pie' && spec.type !== 'waterfall') spec.elements.legend = false
   }
+  if (NO_LEGEND_TYPES.includes(spec.type)) { spec.elements.legend = false; spec.elements.gridlines = spec.type === 'statistic'; spec.elements.axes = spec.type === 'statistic' }
   insertChartSpec(store, sheet, spec)
   setUi({ selectedChart: spec.id, ribbonTab: 'Chart Design' })
 }

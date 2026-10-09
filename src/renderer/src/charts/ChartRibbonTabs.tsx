@@ -4,7 +4,7 @@ import { useUi, setUi } from '../chrome/ui'
 import { GenericTab, GGroup } from '../chrome/ribbon/GenericTab'
 import { MenuItem } from '../components/Menu'
 import { chartsOf, updateChart, setChartRange } from './chartsStore'
-import { COLUMN_BAR_GALLERY, LINE_AREA_GALLERY, PIE_DOUGHNUT_GALLERY, SCATTER_BUBBLE_GALLERY, GalleryEntry } from './gallery'
+import { COLUMN_BAR_GALLERY, LINE_AREA_GALLERY, PIE_DOUGHNUT_GALLERY, SCATTER_BUBBLE_GALLERY, GalleryEntry, RADAR_GALLERY, STOCK_GALLERY, SURFACE_GALLERY, HIERARCHY_GALLERY, STATISTIC_GALLERY, FUNNEL_ENTRY } from './gallery'
 import {
   AddSquare20Regular, TableSimple20Regular, ColorBackground20Regular, PaintBrush20Regular,
   ArrowSwap20Regular, TableSettings20Regular, ChartMultiple20Regular, ArrowMove20Regular,
@@ -20,7 +20,13 @@ function allChartTypeMenu(onPick: (e: GalleryEntry) => void): MenuItem[] {
     section('Column or Bar', COLUMN_BAR_GALLERY),
     section('Line or Area', LINE_AREA_GALLERY),
     section('Pie or Doughnut', PIE_DOUGHNUT_GALLERY),
-    section('Scatter (X, Y) or Bubble', SCATTER_BUBBLE_GALLERY)
+    section('Scatter (X, Y) or Bubble', SCATTER_BUBBLE_GALLERY),
+    section('Radar', RADAR_GALLERY),
+    section('Stock', STOCK_GALLERY),
+    section('Surface', SURFACE_GALLERY),
+    section('Treemap / Sunburst', HIERARCHY_GALLERY),
+    section('Histogram / Pareto / Box and Whisker', STATISTIC_GALLERY),
+    { label: 'Funnel', onClick: () => onPick(FUNNEL_ENTRY) }
   ]
 }
 

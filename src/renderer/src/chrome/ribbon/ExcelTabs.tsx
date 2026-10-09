@@ -33,7 +33,7 @@ import { FUNCTION_CATEGORIES, RECENTLY_USED } from './functionCategories'
 import { MenuItem } from '../../components/Menu'
 import * as cmds from '../../grid/commands'
 import { arrangeOrder, arrangeAlign, arrangeDistribute, arrangeGroup, arrangeUngroup, arrangeTransform } from '../../data/arrangeActions'
-import { COLUMN_BAR_GALLERY, LINE_AREA_GALLERY, PIE_DOUGHNUT_GALLERY, SCATTER_BUBBLE_GALLERY, COMBO_GALLERY, WATERFALL_ENTRY, GalleryEntry } from '../../charts/gallery'
+import { COLUMN_BAR_GALLERY, LINE_AREA_GALLERY, PIE_DOUGHNUT_GALLERY, SCATTER_BUBBLE_GALLERY, COMBO_GALLERY, WATERFALL_ENTRY, GalleryEntry, HIERARCHY_GALLERY, STATISTIC_GALLERY, FUNNEL_ENTRY, STOCK_GALLERY, SURFACE_GALLERY, RADAR_GALLERY } from '../../charts/gallery'
 import { insertChartFromSelection } from '../../charts/insertChart'
 import { openFile } from '../../io/fileOps'
 import { refreshAllPivots } from '../../data/pivot'
@@ -102,15 +102,21 @@ export function InsertTab() {
         { label: 'Insert Pie or Doughnut Chart', icon: <DataPie20Regular />, iconOnly: true, menu: chartGalleryMenu(PIE_DOUGHNUT_GALLERY) }
       ],
       [
-        { label: 'Insert Hierarchy Chart', icon: <DataFunnel20Regular />, iconOnly: true, menu: na('Hierarchy charts') },
-        { label: 'Insert Statistic Chart', icon: <DataWhisker20Regular />, iconOnly: true, menu: na('Statistic charts') },
+        { label: 'Insert Hierarchy Chart', icon: <DataFunnel20Regular />, iconOnly: true, menu: chartGalleryMenu(HIERARCHY_GALLERY) },
+        { label: 'Insert Statistic Chart', icon: <DataWhisker20Regular />, iconOnly: true, menu: chartGalleryMenu(STATISTIC_GALLERY) },
         { label: 'Insert Scatter (X, Y) or Bubble Chart', icon: <DataScatter20Regular />, iconOnly: true, menu: chartGalleryMenu(SCATTER_BUBBLE_GALLERY) }
       ],
       [
         { label: 'Insert Waterfall, Funnel, Stock, Surface or Radar Chart', icon: <DataWaterfall20Regular />, iconOnly: true, menu: [
           { label: 'Waterfall', icon: <DataWaterfall20Regular />, onClick: () => insertChartFromSelection(store, WATERFALL_ENTRY) },
           'separator',
-          ...na('Funnel, stock, surface and radar charts')
+          { label: 'Funnel', icon: <DataWaterfall20Regular />, onClick: () => insertChartFromSelection(store, FUNNEL_ENTRY) },
+          'separator',
+          ...chartGalleryMenu(STOCK_GALLERY),
+          'separator',
+          ...chartGalleryMenu(SURFACE_GALLERY),
+          'separator',
+          ...chartGalleryMenu(RADAR_GALLERY)
         ] },
         { label: 'Insert Combo Chart', icon: <DataHistogram20Regular />, iconOnly: true, menu: [
           ...chartGalleryMenu(COMBO_GALLERY),

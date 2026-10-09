@@ -5,6 +5,7 @@ import { ChartSpec } from '../model/types'
 import { ExtractedChartData } from './dataExtraction'
 import { CHART_FONT, GRIDLINE_COLOR, AXIS_COLOR, TITLE_COLOR, TEXT_COLOR, colorSet } from './theme'
 import { comboSeriesOf, niceRange, waterfallSteps } from './chartCombo'
+import { RadarBody, FunnelBody, StockBody, SurfaceBody, TreemapBody, SunburstBody, HistogramBody, ParetoBody, BoxBody } from './ExtraCharts'
 
 export interface ChartRendererProps {
   spec: ChartSpec
@@ -60,7 +61,8 @@ export function axisScaleRange(min: number, max: number): { min: number; max: nu
 
 export function ChartRenderer({ spec, data, width, height }: ChartRendererProps) {
   // Pie/doughnut charts have one series but color each category slice separately.
-  const colorCount = spec.type === 'pie' ? data.categories.length : data.series.length
+  const byPoint = spec.type === 'pie' || spec.type === 'funnel' || spec.type === 'hierarchy'
+  const colorCount = byPoint ? data.categories.length : data.series.length
   const colors = colorSet(spec.colorSetId ?? 0, Math.max(1, colorCount || 1))
   const el = spec.elements
   const titleH = el.title ? 26 : 6
@@ -97,6 +99,24 @@ export function ChartRenderer({ spec, data, width, height }: ChartRendererProps)
         <ScatterBody inner={inner} data={data} colors={colors} smooth={isSmooth(spec.subtype)} gridlines={el.gridlines} axes={el.axes} />
       ) : spec.type === 'combo' ? (
         <ComboBody inner={inner} data={data} colors={colors} spec={spec} gridlines={el.gridlines} axes={el.axes} dataLabels={el.dataLabels} />
+      ) : spec.type === 'radar' ? (
+        <RadarBody inner={inner} data={data} colors={colors} subtype={spec.subtype} gridlines={el.gridlines} axes={el.axes} dataLabels={el.dataLabels} />
+      ) : spec.type === 'funnel' ? (
+        <FunnelBody inner={inner} data={data} colors={colors} gridlines={el.gridlines} axes={el.axes} dataLabels={el.dataLabels} />
+      ) : spec.type === 'stock' ? (
+        <StockBody inner={inner} data={data} colors={colors} subtype={spec.subtype} gridlines={el.gridlines} axes={el.axes} dataLabels={el.dataLabels} />
+      ) : spec.type === 'surface' ? (
+        <SurfaceBody inner={inner} data={data} colors={colors} subtype={spec.subtype} gridlines={el.gridlines} axes={el.axes} dataLabels={el.dataLabels} />
+      ) : spec.subtype === 'treemap' ? (
+        <TreemapBody inner={inner} data={data} colors={colors} gridlines={el.gridlines} axes={el.axes} dataLabels={el.dataLabels} />
+      ) : spec.subtype === 'sunburst' ? (
+        <SunburstBody inner={inner} data={data} colors={colors} gridlines={el.gridlines} axes={el.axes} dataLabels={el.dataLabels} />
+      ) : spec.subtype === 'histogram' ? (
+        <HistogramBody inner={inner} data={data} colors={colors} gridlines={el.gridlines} axes={el.axes} dataLabels={el.dataLabels} />
+      ) : spec.subtype === 'pareto' ? (
+        <ParetoBody inner={inner} data={data} colors={colors} gridlines={el.gridlines} axes={el.axes} dataLabels={el.dataLabels} />
+      ) : spec.subtype === 'boxWhisker' ? (
+        <BoxBody inner={inner} data={data} colors={colors} gridlines={el.gridlines} axes={el.axes} dataLabels={el.dataLabels} />
       ) : spec.type === 'waterfall' ? (
         <WaterfallBody inner={inner} data={data} colors={colors} gridlines={el.gridlines} axes={el.axes} dataLabels={el.dataLabels} />
       ) : spec.type === 'line' ? (
@@ -114,6 +134,7 @@ export function ChartRenderer({ spec, data, width, height }: ChartRendererProps)
 function legendNames(spec: ChartSpec, data: ExtractedChartData): string[] {
   if (spec.type === 'pie') return data.categories
   if (spec.type === 'waterfall') return ['Increase', 'Decrease']
+  if (spec.type === 'funnel' || spec.type === 'hierarchy') return data.categories
   return data.series.map((s) => s.name)
 }
 
