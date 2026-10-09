@@ -32,6 +32,26 @@ export function patchHyperFormulaGraph(): void {
       }
       if (rest !== null && rest.length) orig.call(this, rest, endVertex)
     }
+    // Recalculation seeds every changed cell. A plain value (or empty) cell that nothing depends on has nothing to recompute,
+    // so leave it out of the topological sort: writing a million constants (sort, paste, dedupe) skipped a million DFS runs.
+    const gp = Object.getPrototypeOf(probe.dependencyGraph.graph)
+    const origTop = gp.getTopSortedWithSccSubgraphFrom
+    if (typeof origTop === 'function') {
+      gp.getTopSortedWithSccSubgraphFrom = function (this: any, nodes: any[], op: unknown, onCycle: unknown): unknown {
+        const keep = nodes.filter((n) => {
+          if (n.idInGraph === undefined) return false
+          const e = this.edgesSparseArray[n.idInGraph]
+          return (e !== undefined && e.length > 0) || typeof n.isComputed === 'function' || typeof n.clearCache === 'function'
+        })
+        return origTop.call(this, keep, op, onCycle)
+      }
+    }
+    // HyperFormula records every changed cell so it can report them to 'valuesUpdated' listeners and as the return value of
+    // setCellContents. Cellbook reads values straight from the engine and uses neither, and the bookkeeping cost a second
+    // per million cells written.
+    const cc = probe._evaluator?.partialRun?.([])
+    const ccp = cc ? Object.getPrototypeOf(cc) : null
+    if (ccp && typeof ccp.add === 'function') ccp.add = function (): void { /* untracked */ }
     // Parsing raw text (number? date? percentage? boolean?) dominates bulk writes such as sorting; the same strings recur
     // constantly (station codes, statuses), so remember the parse result per string.
     const cp = Object.getPrototypeOf(probe._cellContentParser)
