@@ -142,7 +142,7 @@ export function InsertTab() {
       { label: 'Header & Footer', icon: <PanelLeftText20Regular />, onClick: () => openPageSetup('Header/Footer') },
       { label: 'WordArt', submenu: WORDART_STYLES.map((w) => ({ label: w.label, icon: <b style={{ color: w.patch.color, WebkitTextStroke: w.patch.textOutline ? `0.5px ${w.patch.textOutline}` : undefined, textShadow: w.patch.textShadow ? '1px 1px 1px #666' : undefined }}>A</b>, onClick: () => insertWordArt(w) })) },
       { label: 'Signature Line', onClick: () => insertSignatureLine() },
-      { label: 'Object', onClick: () => notAvailable('Object') }
+      { label: 'Object', onClick: () => setUi({ dialog: { kind: 'object' } }) }
     ] }] },
     { label: 'Symbols', items: [{ label: 'Symbols', icon: big(MathSymbols20Regular), menu: [
       { label: 'Equation', icon: <MathFormula20Regular />, submenu: [
