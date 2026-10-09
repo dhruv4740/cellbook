@@ -95,3 +95,10 @@ Combo and Waterfall charts (saved as bar+line / stacked column), AutoFilter Date
 charts (value axis spans min..max). Fixed: Text/Number custom-filter dialogs closed instantly under the menu scrim; pen strokes moved the
 cell selection. Removed from the "on purpose" list: Quick Analysis, Hide window, Combo, Waterfall, Background.
 Still open: Split, Slicer, Timeline, SmartArt, Sort/Filter by Color, Sheet View in the filter menu, scatter charts with negatives.
+
+## Update: Slicer, Timeline, Split, verification (latest)
+- Added: Insert > Slicer / Timeline (floating panels driving the AutoFilter column; `data/slicers.ts`, `grid/SlicerOverlay.tsx`; driver `ui_slicer.mjs` passes: item pick, Ctrl multi-select, Timeline month pick + Shift range, clear, remove). View > Split (divider at the active cell).
+- Verified: Themes palettes (Office 2007-2010, Blue, Green) match the installed Office theme XMLs; Themes menu, Allow Edit Ranges and Icons dialogs open with 0 renderer errors.
+- Simplifications: Slicers/Timelines are session-only (not saved to .xlsx; the AutoFilter they set is saved), one filter column each, no slicer styles/columns/multi-select toggle button. Split shares one scroll position across panes (acts like Freeze Panes), not independent scrolling. "Office 2023" palette is not in the installed theme files, so it is unverified.
+- Unverified: Copy as Picture clipboard result. The OS clipboard is unusable in this session (PowerShell Set-Clipboard fails too), so only the "Copied" toast was seen.
+- Still not built: SmartArt, Hierarchy/Statistic/Funnel/Stock/Surface/Radar charts, Power Query family, VBA/Macros, Maps, 3D Models, Stock/Online Images, Screenshot, Thesaurus, Translate, Smart Lookup, Show Changes, Unshare Workbook.
