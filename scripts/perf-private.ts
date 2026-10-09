@@ -82,7 +82,7 @@ async function run(n: number): Promise<void> {
 
   t = performance.now()
   const rg = { r1: 0, c1: 0, r2: last, c2: cols - 1 }
-  sortRange(store, sh, rg, { hasHeaders: true, levels: [{ column: srcCol, order: 'asc' } as never] } as never)
+  sortRange(store, sh, rg, { hasHeaders: true, levels: [{ columnIndex: srcCol, sortOn: 'values', order: 'asc' }] })
   line('sort by SOURCE', t)
 
   t = performance.now()
