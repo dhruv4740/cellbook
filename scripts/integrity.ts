@@ -91,6 +91,21 @@ check('sort: undo restores every cell', d1 === '', d1)
 store.redo(); store.undo()
 check('sort: redo/undo round trip', firstDiff(before, snap(rows, cols)) === '')
 
+// ---- sort through the AutoFilter menu (a separate code path) ----
+store.toggleAutoFilter(sh)
+store.sortFilterRange(sh, keyCol, 'desc')
+const afterMenu = snap(rows, cols)
+const km = afterMenu.slice(1).map((r) => JSON.parse(r[keyCol].val))
+let desc = true
+for (let i = 1; i < km.length; i++) { const x = km[i - 1], y = km[i]; if (typeof x === 'number' && typeof y === 'number' && x < y) { desc = false; break } }
+check('menu sort: key column descending', desc)
+const dm = sameBag(bag(dataBefore, f), bag(afterMenu.slice(1), f))
+check('menu sort: same rows, none lost / duplicated / altered', dm === 0, dm ? dm + ' distinct rows differ' : '')
+store.undo()
+const dmu = firstDiff(before, snap(rows, cols))
+check('menu sort: undo restores every cell', dmu === '', dmu)
+store.toggleAutoFilter(sh)
+
 // ---- remove duplicates on column 6 ----
 const dedupeCol = 6
 const seen = new Set<string>(); let expectKept = 0
