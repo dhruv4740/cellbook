@@ -24,10 +24,11 @@ export function removeDuplicates(
   const uniqueRows: { origRow: number; cells: { col: number; raw: string; style?: CellStyle }[] }[] = []
   let removedCount = 0
 
+  const read = store.rawReader(sheet, (n.r2 - startRow + 1) * (n.c2 - n.c1 + 1))
   for (let r = startRow; r <= n.r2; r++) {
     const keyParts = columnIndices.map((col) => {
       const v = store.getValue(sheet, r, col)
-      return String(v ?? store.getRaw(sheet, r, col)).toLowerCase()
+      return String(v ?? read(r, col)).toLowerCase()
     })
     const compositeKey = keyParts.join('\x1F')
 
@@ -39,7 +40,7 @@ export function removeDuplicates(
       for (let c = n.c1; c <= n.c2; c++) {
         cells.push({
           col: c,
-          raw: store.getRaw(sheet, r, c),
+          raw: read(r, c),
           style: store.getStyle(sheet, r, c)
         })
       }
