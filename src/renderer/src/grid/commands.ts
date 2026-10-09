@@ -7,6 +7,7 @@ import { CellStyle, Range, normRange, colName, MAX_ROWS, MAX_COLS, parseA1 } fro
 import { shiftFormula } from '../engine/shiftFormula'
 import { generateSeries } from '../engine/autofill'
 import { adjustDecimals } from '../format/decimals'
+import { formatValue } from '../format/numfmt'
 import { seriesValues, SeriesType, DateUnit } from '../engine/series'
 import { flashFill } from '../data/flashFill'
 import { sortRange, detectHeaders, hasAdjacentData, findCurrentRegion } from '../data/sort'
@@ -48,10 +49,11 @@ function readRange(rg: Range, sheet: SheetState = store.active, skip?: Set<numbe
   const out: ClipCell[] = []
   if (!n) return out
   let pr = n.r1
+  const read = store.rawReader(sheet, (n.r2 - n.r1 + 1) * (n.c2 - n.c1 + 1))
   for (let r = n.r1; r <= n.r2; r++) {
     if (skip?.has(r)) continue
     for (let c = n.c1; c <= n.c2; c++)
-      out.push({ r, c, raw: store.getRaw(sheet, r, c), style: store.getStyle(sheet, r, c), pr })
+      out.push({ r, c, raw: read(r, c), style: store.getStyle(sheet, r, c), pr })
     pr++
   }
   return out
@@ -70,10 +72,11 @@ function clipboardStrings(rg: Range): { tsv: string; html: string } {
     const cells: string[] = []
     let tr = '<tr>'
     for (let c = n.c1; c <= n.c2; c++) {
-      const t = store.getDisplay(sheet, r, c).text
+      const v = store.getValue(sheet, r, c)
+      const style = store.getStyle(sheet, r, c)
+      const t = formatValue(v, style?.numFmt).text
       // Like Excel: a cell holding a tab, line break or quote is wrapped in quotes so it stays one cell.
       cells.push(/[\t\n"]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t)
-      const style = store.getStyle(sheet, r, c)
       const css: string[] = []
       if (style?.bold) css.push('font-weight:bold')
       if (style?.italic) css.push('font-style:italic')
@@ -81,7 +84,6 @@ function clipboardStrings(rg: Range): { tsv: string; html: string } {
       if (style?.fill) css.push('background-color:' + style.fill)
       // Excel's own markers: text stays text (keeps "00012"), line breaks stay inside the cell.
       // (only on text Excel would otherwise read as a number or date, so other cells keep General).
-      const v = store.getValue(sheet, r, c)
       if (typeof v === 'string' && /\d/.test(v) && /^[-+\d\s.,/:%₹$()E]+$/i.test(v)) css.push('mso-number-format:"\\@"')
       const body = t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\n/g, '<br style="mso-data-placement:same-cell;"/>')
       tr += `<td style='${css.join(';')}'>${body}</td>`
