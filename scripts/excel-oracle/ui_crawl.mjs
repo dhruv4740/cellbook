@@ -46,7 +46,7 @@ const closeAll = async () => {
   await win.evaluate(() => globalThis.__ui.setUi({ dialog: null, edit: null, backstage: false }))
 }
 let curTab = 'Home'
-const reset = async () => { await seed(); await closeAll(); await win.locator('.xl-tab', { hasText: new RegExp('^' + curTab) }).first().click({ timeout: 3000, force: true }).catch(() => {}); await win.waitForTimeout(120) }
+const reset = async () => { await win.evaluate(() => globalThis.__ui?.setUi?.({ toast: null })).catch(() => {}); await seed(); await closeAll(); await win.locator('.xl-tab', { hasText: new RegExp('^' + curTab) }).first().click({ timeout: 3000, force: true }).catch(() => {}); await win.waitForTimeout(120) }
 const report = []
 const tabs = ['Home', 'Insert', 'Draw', 'Page Layout', 'Formulas', 'Data', 'Review', 'View', 'Help']
 const label = (el) => (el.getAttribute('aria-label') || el.innerText || el.title || '').replace(/\s+/g, ' ').trim()
