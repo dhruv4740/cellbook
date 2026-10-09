@@ -385,26 +385,22 @@ export class WorkbookStore {
     if (!af) return
     if (sheet.layout.protection && (!this.allows(sheet, 'sort') || !this.canEditRange(sheet, af.range))) return
     const n = af.range
-    const rows: { r: number; cells: { raw: string; style?: CellStyle }[] }[] = []
+    const rows: { r: number; cells: { raw: string; style?: CellStyle }[]; k: [number, number | string]; rank: number }[] = []
+    const read = this.rawReader(sheet, (n.r2 - n.r1) * (n.c2 - n.c1 + 1))
     for (let r = n.r1 + 1; r <= n.r2; r++) {
       const cells: { raw: string; style?: CellStyle }[] = []
-      for (let c = n.c1; c <= n.c2; c++) cells.push({ raw: this.getRaw(sheet, r, c), style: this.getStyle(sheet, r, c) })
-      rows.push({ r, cells })
+      for (let c = n.c1; c <= n.c2; c++) cells.push({ raw: read(r, c), style: this.getStyle(sheet, r, c) })
+      // Sort keys are looked up once per row, not once per comparison.
+      const v = byColor ? null : this.getValue(sheet, r, col)
+      const k: [number, number | string] = v === null || v === undefined || v === '' ? [2, ''] : typeof v === 'number' ? [0, v] : [1, String(v).toLowerCase()]
+      const st = byColor ? this.getStyle(sheet, r, col) : undefined
+      const rank = byColor ? (((byColor.kind === 'fill' ? st?.fill : st?.color) ?? null) === byColor.color ? 0 : 1) : 0
+      rows.push({ r, cells, k, rank })
     }
-    const key = (row: (typeof rows)[number]): [number, number | string] => {
-      const v = this.getValue(sheet, row.r, col)
-      if (v === null || v === undefined || v === '') return [2, '']
-      if (typeof v === 'number') return [0, v]
-      return [1, String(v).toLowerCase()]
-    }
-    const colorRank = (row: (typeof rows)[number]): number => {
-      const st = this.getStyle(sheet, row.r, col)
-      return ((byColor!.kind === 'fill' ? st?.fill : st?.color) ?? null) === byColor!.color ? 0 : 1
-    }
-    const sorted = [...rows].sort((a, b) => {
-      if (byColor) return colorRank(a) - colorRank(b)
-      const [ta, va] = key(a)
-      const [tb, vb] = key(b)
+    const sorted = rows.sort((a, b) => {
+      if (byColor) return a.rank - b.rank
+      const [ta, va] = a.k
+      const [tb, vb] = b.k
       if (ta !== tb) return ta - tb
       const cmp = va < vb ? -1 : va > vb ? 1 : 0
       return order === 'asc' ? cmp : -cmp
