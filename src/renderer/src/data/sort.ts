@@ -255,12 +255,11 @@ export function sortRange(
     return ia - ib // stable
   })
   const sortedRows = order.map((i) => rows[i])
-  rows.splice(0, rows.length, ...sortedRows)
 
   // Apply new sorted order in a single transaction
   store.transact('Sort', () => {
     const updates: { r: number; c: number; raw: string; style?: CellStyle }[] = []
-    rows.forEach((row, i) => {
+    sortedRows.forEach((row, i) => {
       const targetRow = startRow + i
       const dr = targetRow - row.origRow
       row.cells.forEach((cell) => {
@@ -274,6 +273,6 @@ export function sortRange(
     })
 
     store.setCells(sheet, updates, 'Sort')
-    store.moveRowAnnotations(sheet, new Map(rows.map((row, i) => [row.origRow, startRow + i])), n.c1, n.c2, 'Sort')
+    store.moveRowAnnotations(sheet, new Map(sortedRows.map((row, i) => [row.origRow, startRow + i])), n.c1, n.c2, 'Sort')
   })
 }
