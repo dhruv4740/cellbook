@@ -124,4 +124,4 @@ Still open: Split, Slicer, Timeline, SmartArt, Sort/Filter by Color, Sheet View 
 - 50k x 21 sheet (scaled despatch file): scroll 60fps, no frame >50ms; filter 0.1s; sort 5.1s; undo sort 3.0s; Ctrl+C 1.4s; Ctrl+V 2.7s; select-all bold 1.9s; insert/delete rows ~1s. Typical ~500-row files are instant.
 - Integrity (`scripts/integrity.ts`) passes at 3k (with formulas) and 20k rows; vitest 454/454.
 - Known limits: sorting 200k x 21 runs out of memory; HF-bound paths (dedupe tail clear, row insert with many formulas) stay ~1s+ per 50k rows.
-- Installer: `release/Cellbook Setup 0.1.0.exe` (unsigned: Windows SmartScreen will warn; "More info" > "Run anyway").
+- Installer: `release/Cellbook Setup 0.1.0.exe` (NotSigned per Get-AuthenticodeSignature; SmartScreen will likely warn: More info > Run anyway). Packaged-app check: scripts/packaged-roundtrip.mjs (open, edit, Ctrl+S, compare with original: no differences on the despatch file).
