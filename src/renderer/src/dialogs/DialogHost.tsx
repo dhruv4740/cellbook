@@ -36,6 +36,8 @@ import { NewTableStyleDialog } from './NewTableStyleDialog'
 import { AddPenDialog } from './AddPenDialog'
 import { CustomViewsDialog } from './CustomViewsDialog'
 import { MacrosDialog, ConnectionsDialog } from './EmptyListDialogs'
+import { WebDialog } from './WebDialog'
+import { ScreenshotDialog, ScreenClipOverlay } from './ScreenshotDialogs'
 import { AccessibilityDialog } from './AccessibilityDialog'
 import { DataTableDialog, ScenarioManagerDialog } from './WhatIfDialogs'
 import { SubtotalDialog } from './SubtotalDialog'
@@ -200,6 +202,12 @@ export default function DialogHost() {
       return <AddPenDialog onClose={close} />
     case 'newTableStyle':
       return <NewTableStyleDialog onClose={close} />
+    case 'web':
+      return <WebDialog onClose={close} />
+    case 'screenshot':
+      return <ScreenshotDialog onClose={close} />
+    case 'screenClip':
+      return <ScreenClipOverlay src={String(d.props?.src)} onClose={close} />
     case 'macros':
       return <MacrosDialog onClose={close} />
     case 'connections':

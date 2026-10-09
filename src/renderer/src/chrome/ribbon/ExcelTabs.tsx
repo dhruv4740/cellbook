@@ -34,7 +34,7 @@ import { MenuItem } from '../../components/Menu'
 import * as cmds from '../../grid/commands'
 import { arrangeOrder, arrangeAlign, arrangeDistribute, arrangeGroup, arrangeUngroup, arrangeTransform } from '../../data/arrangeActions'
 import { COLUMN_BAR_GALLERY, LINE_AREA_GALLERY, PIE_DOUGHNUT_GALLERY, SCATTER_BUBBLE_GALLERY, COMBO_GALLERY, WATERFALL_ENTRY, GalleryEntry, HIERARCHY_GALLERY, STATISTIC_GALLERY, FUNNEL_ENTRY, STOCK_GALLERY, SURFACE_GALLERY, RADAR_GALLERY } from '../../charts/gallery'
-import { insertChartFromSelection } from '../../charts/insertChart'
+import { insertChartFromSelection, insertPivotChart } from '../../charts/insertChart'
 import { openFile } from '../../io/fileOps'
 import { refreshAllPivots } from '../../data/pivot'
 import { autoOutline, clearAllOutlines, outlineCommand } from '../../grid/outlineCommands'
@@ -91,7 +91,7 @@ export function InsertTab() {
       ],
       [
         { label: 'SmartArt', icon: <FlowchartCircle20Regular />, onClick: () => notAvailable('SmartArt') },
-        { label: 'Screenshot', icon: <Camera20Regular />, menu: na('Screenshot') }
+        { label: 'Screenshot', icon: <Camera20Regular />, onClick: () => setUi({ dialog: { kind: 'screenshot' } }) }
       ]
     ] },
     { label: 'Charts', launcher: true, onLauncher: () => insertChartFromSelection(store, COLUMN_BAR_GALLERY[0]), items: [
@@ -124,7 +124,7 @@ export function InsertTab() {
         ] }
       ],
       { label: 'Maps', icon: big(DataBarHorizontal20Regular), menu: na('Maps') },
-      { label: 'PivotChart', icon: big(DataHistogram20Regular), menu: na('PivotChart') }
+      { label: 'PivotChart', icon: big(DataHistogram20Regular), onClick: () => insertPivotChart(store) }
     ] },
     { label: 'Sparklines', items: [
       { label: 'Line', icon: big(ArrowSort20Regular), onClick: () => setUi({ dialog: { kind: 'sparkline', props: { type: 'line' } } }) },
@@ -349,10 +349,14 @@ export function DataTab() {
   const filtered = !!store.active.layout.autoFilter
   const groups: GGroup[] = [
     { label: 'Get & Transform Data', items: [
-      { label: 'Get Data', icon: big(Database20Regular), width: 44, menu: na('Get Data') },
+      { label: 'Get Data', icon: big(Database20Regular), width: 44, menu: [
+        { label: 'From Text/CSV', onClick: () => void openFile() },
+        { label: 'From Web', onClick: () => setUi({ dialog: { kind: 'web' } }) },
+        { label: 'From Table/Range', onClick: () => cmds.formatAsTable(0) }
+      ] },
       [
         { label: 'From Text/CSV', icon: <ClipboardTextLtr20Regular />, onClick: () => void openFile() },
-        { label: 'From Web', icon: <Link20Regular />, onClick: () => notAvailable('From Web') },
+        { label: 'From Web', icon: <Link20Regular />, onClick: () => setUi({ dialog: { kind: 'web' } }) },
         { label: 'From Table/Range', icon: <Table20Regular />, onClick: () => cmds.formatAsTable(0) }
       ],
       [

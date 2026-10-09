@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, ClipboardItem, dialog, ipcMain, nativeImage, screen, shell } from 'electron'
+import { app, BrowserWindow, clipboard, ClipboardItem, desktopCapturer, dialog, ipcMain, nativeImage, net, screen, shell } from 'electron'
 import { join, basename } from 'path'
 import { promises as fs, existsSync } from 'fs'
 import { canHideWindow, hiddenWindows, WinVis } from './windowVisibility'
@@ -563,6 +563,32 @@ ipcMain.handle('clipboard:write', (_e, data: { text: string; html?: string }) =>
   clipboard.write([new ClipboardItem(data.html ? { 'text/plain': data.text, 'text/html': data.html } : { 'text/plain': data.text })])
 )
 ipcMain.handle('clipboard:writeImage', (_e, dataUrl: string) => clipboard.write([new ClipboardItem({ 'image/png': new Blob([new Uint8Array(nativeImage.createFromDataURL(dataUrl).toPNG())], { type: 'image/png' }) })]))
+// Insert > Screenshot: thumbnails of the other open windows, and a full-screen grab taken with this window out of the way.
+ipcMain.handle('screen:windows', async () => {
+  const own = BrowserWindow.getAllWindows().map((w) => w.getMediaSourceId())
+  const src = await desktopCapturer.getSources({ types: ['window'], thumbnailSize: { width: 1600, height: 1000 }, fetchWindowIcons: false })
+  return src.filter((s) => !own.includes(s.id) && s.name.trim() && !s.thumbnail.isEmpty()).map((s) => ({ name: s.name, dataUrl: s.thumbnail.toDataURL() }))
+})
+ipcMain.handle('screen:grab', async (e) => {
+  const win = BrowserWindow.fromWebContents(e.sender)
+  const d = screen.getDisplayNearestPoint(win ? win.getBounds() : screen.getCursorScreenPoint())
+  win?.minimize()
+  await new Promise((r) => setTimeout(r, 500))
+  try {
+    const src = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: Math.round(d.size.width * d.scaleFactor), height: Math.round(d.size.height * d.scaleFactor) } })
+    const s = src.find((x) => x.display_id === String(d.id)) ?? src[0]
+    return s ? s.thumbnail.toDataURL() : null
+  } finally { win?.restore() }
+})
+// Data > From Web: fetch a page in the main process (no CORS), capped at 20 MB.
+ipcMain.handle('web:fetch', async (_e, url: string) => {
+  if (!/^https?:\/\//i.test(url)) throw new Error('Enter an http:// or https:// address.')
+  const r = await net.fetch(url, { signal: AbortSignal.timeout(20000) })
+  if (!r.ok) throw new Error(`The server returned ${r.status} ${r.statusText}.`)
+  const buf = await r.arrayBuffer()
+  if (buf.byteLength > 20 * 1024 * 1024) throw new Error('The page is larger than 20 MB.')
+  return { body: new TextDecoder().decode(buf), contentType: r.headers.get('content-type') ?? '' }
+})
 ipcMain.handle('file:read', async (_e, path: string) => new Uint8Array(await fs.readFile(path)))
 
 // AutoRecover: while a workbook has unsaved changes its window writes a backup here every minute;
