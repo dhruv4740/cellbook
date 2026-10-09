@@ -102,3 +102,8 @@ Still open: Split, Slicer, Timeline, SmartArt, Sort/Filter by Color, Sheet View 
 - Simplifications: Slicers/Timelines are session-only (not saved to .xlsx; the AutoFilter they set is saved), one filter column each, no slicer styles/columns/multi-select toggle button. Split shares one scroll position across panes (acts like Freeze Panes), not independent scrolling. "Office 2023" palette is not in the installed theme files, so it is unverified.
 - Unverified: Copy as Picture clipboard result. The OS clipboard is unusable in this session (PowerShell Set-Clipboard fails too), so only the "Copied" toast was seen.
 - Still not built: SmartArt, Hierarchy/Statistic/Funnel/Stock/Surface/Radar charts, Power Query family, VBA/Macros, Maps, 3D Models, Stock/Online Images, Screenshot, Thesaurus, Translate, Smart Lookup, Show Changes, Unshare Workbook.
+
+### Corrections and verification (latest)
+- Re-crawled Insert (31 controls) and View (15) on the current build: 0 renderer errors. Slicer, Timeline, Split, Hide and Combo are real features, not stubs (an earlier read of stale crawl files said otherwise). Remaining stubs: View > Macros; Insert > SmartArt, Hierarchy/Statistic/Funnel-Stock-Surface-Radar charts, Maps, PivotChart, Text > Object, and the Microsoft-account/online items (Stock Images, Online Pictures, 3D Models, Screenshot, external data/data model sources).
+- Copy as Picture verified end to end: the PNG lands on the OS clipboard (384x160 for a 4x3 range) with gridlines, left text and right numbers (`ui_copypic.mjs`).
+- Known simplification: View > Split is saved to xlsx as frozen panes, so Excel reopens it frozen. Split panes do not scroll independently.
