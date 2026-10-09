@@ -749,10 +749,21 @@ export function freezePanes(kind: 'panes' | 'topRow' | 'firstColumn' | 'unfreeze
   const sheet = store.active
   const active = sheet.selection.active
   store.updateLayout(sheet, 'Freeze Panes', (l) => {
+    l.split = false
     if (kind === 'unfreeze') l.frozen = { rows: 0, cols: 0 }
     else if (kind === 'topRow') l.frozen = { rows: 1, cols: 0 }
     else if (kind === 'firstColumn') l.frozen = { rows: 0, cols: 1 }
     else l.frozen = { rows: active.r, cols: active.c }
+  })
+}
+
+/** View > Split: toggles a divider at the active cell. Simplification: the panes share one scroll position (like Freeze Panes), not independent ones. */
+export function toggleSplit(): void {
+  const sheet = store.active
+  const active = sheet.selection.active
+  store.updateLayout(sheet, 'Split', (l) => {
+    if (l.split) { l.split = false; l.frozen = { rows: 0, cols: 0 } }
+    else { l.split = true; l.frozen = { rows: active.r, cols: active.c } }
   })
 }
 

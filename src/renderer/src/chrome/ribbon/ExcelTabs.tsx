@@ -500,7 +500,7 @@ export function ViewTab() {
         ] }
       ],
       [
-        { label: 'Split', icon: <SplitHorizontal20Regular />, onClick: () => notAvailable('Split') },
+        { label: 'Split', icon: <SplitHorizontal20Regular />, active: !!store.active.layout.split, onClick: () => cmds.toggleSplit() },
         { label: 'Hide', icon: <EyeOff20Regular />, onClick: () => { void window.api?.hideWindow?.().then((ok) => { if (!ok) showToast('Open another workbook window before hiding this one.') }) } },
         { label: 'Unhide', icon: <Eye20Regular />, onClick: () => setUi({ dialog: { kind: 'unhideWindow' } }) }
       ],

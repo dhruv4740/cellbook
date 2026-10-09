@@ -149,6 +149,8 @@ export interface SheetLayout {
   hiddenCols: Record<number, true>
   merges: Range[]
   frozen: { rows: number; cols: number }
+  /** View > Split is on: the divider drawn at `frozen` came from Split rather than Freeze Panes. */
+  split?: boolean
   showGridlines: boolean
   showHeadings: boolean
   zoom: number // 10..400 percent
