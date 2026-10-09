@@ -35,6 +35,7 @@ import { EditRangesDialog } from './EditRangesDialog'
 import { NewTableStyleDialog } from './NewTableStyleDialog'
 import { AddPenDialog } from './AddPenDialog'
 import { CustomViewsDialog } from './CustomViewsDialog'
+import { MacrosDialog, ConnectionsDialog } from './EmptyListDialogs'
 import { AccessibilityDialog } from './AccessibilityDialog'
 import { DataTableDialog, ScenarioManagerDialog } from './WhatIfDialogs'
 import { SubtotalDialog } from './SubtotalDialog'
@@ -199,6 +200,10 @@ export default function DialogHost() {
       return <AddPenDialog onClose={close} />
     case 'newTableStyle':
       return <NewTableStyleDialog onClose={close} />
+    case 'macros':
+      return <MacrosDialog onClose={close} />
+    case 'connections':
+      return <ConnectionsDialog title={String(d.props?.title)} message={String(d.props?.message)} onClose={close} />
     case 'customViews':
       return <CustomViewsDialog onClose={close} />
     case 'editRanges':

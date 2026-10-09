@@ -350,8 +350,8 @@ export function DataTab() {
         { label: 'From Table/Range', icon: <Table20Regular />, onClick: () => cmds.formatAsTable(0) }
       ],
       [
-        { label: 'Recent Sources', icon: <ArrowRepeatAll20Regular />, onClick: () => notAvailable('Recent Sources') },
-        { label: 'Existing Connections', icon: <DataArea20Regular />, onClick: () => notAvailable('Existing Connections') }
+        { label: 'Recent Sources', icon: <ArrowRepeatAll20Regular />, onClick: () => setUi({ dialog: { kind: 'connections', props: { title: 'Recent Sources', message: 'No recent data sources. Sources you import from appear here.' } } }) },
+        { label: 'Existing Connections', icon: <DataArea20Regular />, onClick: () => setUi({ dialog: { kind: 'connections', props: { title: 'Existing Connections', message: 'There are no connections in this workbook.' } } }) }
       ]
     ] },
     { label: 'Queries & Connections', items: [
@@ -360,7 +360,7 @@ export function DataTab() {
         { label: 'Refresh', onClick: () => refreshAll() }
       ], onClick: () => refreshAll() },
       [
-        { label: 'Queries & Connections', icon: <DataArea20Regular />, onClick: () => notAvailable('Queries & Connections') },
+        { label: 'Queries & Connections', icon: <DataArea20Regular />, onClick: () => setUi({ dialog: { kind: 'connections', props: { title: 'Queries & Connections', message: 'There are no queries or connections in this workbook.' } } }) },
         { label: 'Properties', icon: <Settings20Regular />, disabled: true },
         { label: 'Workbook Links', icon: <Link20Regular />, disabled: true }
       ]
@@ -511,7 +511,7 @@ export function ViewTab() {
       ],
       { label: 'Switch Windows', icon: big(AppsListDetail20Regular), width: 62, menu: switchWindowsMenu }
     ] },
-    { label: 'Macros', items: [{ label: 'Macros', icon: big(CodeBlock20Regular), width: 48, menu: na('Macros') }] }
+    { label: 'Macros', items: [{ label: 'Macros', icon: big(CodeBlock20Regular), width: 48, menu: [{ label: 'View Macros...', onClick: () => setUi({ dialog: { kind: 'macros' } }) }] }] }
   ]
   return <GenericTab groups={groups} />
 }
