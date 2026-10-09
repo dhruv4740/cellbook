@@ -37,6 +37,7 @@ import { AddPenDialog } from './AddPenDialog'
 import { CustomViewsDialog } from './CustomViewsDialog'
 import { MacrosDialog, ConnectionsDialog } from './EmptyListDialogs'
 import { WebDialog } from './WebDialog'
+import { ObjectDialog } from './ObjectDialog'
 import { ScreenshotDialog, ScreenClipOverlay } from './ScreenshotDialogs'
 import { AccessibilityDialog } from './AccessibilityDialog'
 import { DataTableDialog, ScenarioManagerDialog } from './WhatIfDialogs'
@@ -202,6 +203,8 @@ export default function DialogHost() {
       return <AddPenDialog onClose={close} />
     case 'newTableStyle':
       return <NewTableStyleDialog onClose={close} />
+    case 'object':
+      return <ObjectDialog onClose={close} />
     case 'web':
       return <WebDialog onClose={close} />
     case 'screenshot':
