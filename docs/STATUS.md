@@ -117,3 +117,11 @@ Still open: Split, Slicer, Timeline, SmartArt, Sort/Filter by Color, Sheet View 
 - Integrity (`scripts/integrity.ts [rows] [formulas]`): sort, dedupe, insert/delete rows, filter, paste, undo/redo and save+reopen checked against an independent model at 2k/3k/20k rows, with and without formulas: all pass.
 - Scale (despatch file repeated, engine level, `scripts/perf-private.ts`): lookups/filter/pivot stay under ~1.5 s up to 100k rows. Sort 1.4 s at 5k, 9.7 s at 50k, 28 s at 100k; Remove Duplicates 1.3/11/28 s; insert rows 0.5/2.7/5.3 s; 200k rows x 21 cols runs out of memory at the sort. The floor is HyperFormula's cell-write + recalculation (whole-sheet replace is no faster). In the running app at 50k rows: scrolling 16.7 ms/frame, no dropped frames; Ctrl+C 20kx21 1.8 s; Ctrl+V 3.5 s; select-all bold 2.1 s.
 - Still not built: SmartArt, Relationships / Manage Data Model, plus exempt Microsoft-service items.
+
+## Speed pass for real-data testing (2026-10-09)
+- HyperFormula patches (`engine/hfPatches.ts`): topsort seed filter, no-op change tracking for plain writes (~2.7x faster cell writes).
+- Sort (dialog + AutoFilter menu), Remove Duplicates, copy read cells in bulk via `store.rawReader`; 50k-row menu sort 10.3s -> ~5.1s.
+- 50k x 21 sheet (scaled despatch file): scroll 60fps, no frame >50ms; filter 0.1s; sort 5.1s; undo sort 3.0s; Ctrl+C 1.4s; Ctrl+V 2.7s; select-all bold 1.9s; insert/delete rows ~1s. Typical ~500-row files are instant.
+- Integrity (`scripts/integrity.ts`) passes at 3k (with formulas) and 20k rows; vitest 454/454.
+- Known limits: sorting 200k x 21 runs out of memory; HF-bound paths (dedupe tail clear, row insert with many formulas) stay ~1s+ per 50k rows.
+- Installer: `release/Cellbook Setup 0.1.0.exe` (unsigned: Windows SmartScreen will warn; "More info" > "Run anyway").
