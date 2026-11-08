@@ -1,10 +1,18 @@
+﻿import { moveRefs } from '../engine/moveRefs'
 // Commands that act on the active sheet's current selection. Called from the grid (keyboard,
 // right-click menus) and from the ribbon, so both stay consistent.
 import { store, SheetState } from '../model/store'
-import { setUi, getUi } from '../chrome/ui'
+import { setUi, getUi, runMaybeBusy} from '../chrome/ui'
 import { CellStyle, Range, normRange, colName, MAX_ROWS, MAX_COLS, parseA1 } from '../model/types'
 import { shiftFormula } from '../engine/shiftFormula'
 import { generateSeries } from '../engine/autofill'
+import { adjustDecimals } from '../format/decimals'
+import { formatValue } from '../format/numfmt'
+import { seriesValues, SeriesType, DateUnit } from '../engine/series'
+import { flashFill } from '../data/flashFill'
+import { sortRange, detectHeaders, hasAdjacentData, findCurrentRegion } from '../data/sort'
+import { insertPictureFromDataUrl } from '../data/pictures'
+import type { TableStyleDef } from '../format/customTableStyles'
 
 export type PasteKind = 'all' | 'values' | 'formulas' | 'formats' | 'transpose' | 'noBorders' | 'columnWidths' | 'link'
 
@@ -16,7 +24,16 @@ function activeRange(): Range {
 }
 
 // ---------- clipboard ----------
-interface ClipCell { r: number; c: number; raw: string; style?: CellStyle }
+interface ClipCell { r: number; c: number; raw: string; style?: CellStyle; pr?: number }
+
+/** Rows a copy skips: with a filter on, Excel copies only the visible rows. */
+function skippedRows(sheet: SheetState, rg: Range): Set<number> {
+  const out = new Set<number>()
+  if (!sheet.layout.autoFilter?.filteredOutRows?.length) return out
+  const n = normRange(rg)
+  for (const k of Object.keys(sheet.layout.hiddenRows ?? {})) { const r = +k; if (r >= n.r1 && r <= n.r2) out.add(r) }
+  return out
+}
 
 /** Intersection of a range with the sheet's used range (cells outside it are empty). */
 function clampUsed(sheet: SheetState, rg: Range): Range | null {
@@ -27,54 +44,63 @@ function clampUsed(sheet: SheetState, rg: Range): Range | null {
   return out.r1 > out.r2 || out.c1 > out.c2 ? null : out
 }
 
-function readRange(rg: Range, sheet: SheetState = store.active): ClipCell[] {
+function readRange(rg: Range, sheet: SheetState = store.active, skip?: Set<number>): ClipCell[] {
   const n = clampUsed(sheet, rg)
   const out: ClipCell[] = []
   if (!n) return out
-  for (let r = n.r1; r <= n.r2; r++)
+  let pr = n.r1
+  const read = store.rawReader(sheet, (n.r2 - n.r1 + 1) * (n.c2 - n.c1 + 1))
+  for (let r = n.r1; r <= n.r2; r++) {
+    if (skip?.has(r)) continue
     for (let c = n.c1; c <= n.c2; c++)
-      out.push({ r, c, raw: store.getRaw(sheet, r, c), style: store.getStyle(sheet, r, c) })
+      out.push({ r, c, raw: read(r, c), style: store.getStyle(sheet, r, c), pr })
+    pr++
+  }
   return out
 }
 
-function toTSV(rg: Range): string {
+/** Plain text (tab/newline separated) and HTML (styled table) for a range, built in a single pass over the cells. */
+function clipboardStrings(rg: Range): { tsv: string; html: string } {
   const n = clampUsed(store.active, rg)
-  if (!n) return ''
-  const rows: string[] = []
+  if (!n) return { tsv: '', html: '<table></table>' }
+  const sheet = store.active
+  const skip = skippedRows(sheet, n)
+  const lines: string[] = []
+  const htmlRows: string[] = []
   for (let r = n.r1; r <= n.r2; r++) {
+    if (skip.has(r)) continue
     const cells: string[] = []
-    for (let c = n.c1; c <= n.c2; c++) cells.push(store.getDisplay(store.active, r, c).text)
-    rows.push(cells.join('\t'))
-  }
-  return rows.join('\n')
-}
-
-function toHTML(rg: Range): string {
-  const n = clampUsed(store.active, rg)
-  if (!n) return '<table></table>'
-  let html = '<table>'
-  for (let r = n.r1; r <= n.r2; r++) {
-    html += '<tr>'
+    let tr = '<tr>'
     for (let c = n.c1; c <= n.c2; c++) {
-      const style = store.getStyle(store.active, r, c)
-      const disp = store.getDisplay(store.active, r, c)
+      const v = store.getValue(sheet, r, c)
+      const style = store.getStyle(sheet, r, c)
+      const t = formatValue(v, style?.numFmt).text
+      // Like Excel: a cell holding a tab, line break or quote is wrapped in quotes so it stays one cell.
+      cells.push(/[\t\n"]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t)
       const css: string[] = []
       if (style?.bold) css.push('font-weight:bold')
       if (style?.italic) css.push('font-style:italic')
       if (style?.color) css.push('color:' + style.color)
       if (style?.fill) css.push('background-color:' + style.fill)
-      html += `<td style="${css.join(';')}">${disp.text.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</td>`
+      // Excel's own markers: text stays text (keeps "00012"), line breaks stay inside the cell.
+      // (only on text Excel would otherwise read as a number or date, so other cells keep General).
+      if (typeof v === 'string' && /\d/.test(v) && /^[-+\d\s.,/:%₹$()E]+$/i.test(v)) css.push('mso-number-format:"\\@"')
+      const body = t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\n/g, '<br style="mso-data-placement:same-cell;"/>')
+      tr += `<td style='${css.join(';')}'>${body}</td>`
     }
-    html += '</tr>'
+    lines.push(cells.join('\t'))
+    htmlRows.push(tr + '</tr>')
   }
-  return html + '</table>'
+  return { tsv: lines.join('\n'), html: '<table>' + htmlRows.join('') + '</table>' }
 }
 
 async function writeSystemClipboard(rg: Range): Promise<void> {
+  const { tsv, html } = clipboardStrings(rg)
+  if (store.clipboard) store.clipboard.text = tsv
   try {
-    const tsv = toTSV(rg)
-    const html = toHTML(rg)
-    if (navigator.clipboard && 'write' in navigator.clipboard && typeof ClipboardItem !== 'undefined') {
+    if (window.api?.clipboardWrite) {
+      await window.api.clipboardWrite({ text: tsv, html })
+    } else if (navigator.clipboard && 'write' in navigator.clipboard && typeof ClipboardItem !== 'undefined') {
       await navigator.clipboard.write([
         new ClipboardItem({
           'text/plain': new Blob([tsv], { type: 'text/plain' }),
@@ -85,7 +111,7 @@ async function writeSystemClipboard(rg: Range): Promise<void> {
       await navigator.clipboard.writeText(tsv)
     }
   } catch {
-    // Clipboard API unavailable (no permission / non-secure context) — internal clipboard still works.
+    // Clipboard API unavailable (no permission / non-secure context) â€” internal clipboard still works.
   }
 }
 
@@ -109,7 +135,7 @@ function pasteCellsAt(dest: Range, src: ClipCell[], srcRange: Range, kind: Paste
   const transpose = kind === 'transpose'
   const cells: { r: number; c: number; raw: string; style?: CellStyle }[] = []
   for (const cell of src) {
-    const ro = cell.r - n.r1
+    const ro = (cell.pr ?? cell.r) - n.r1
     const co = cell.c - n.c1
     const dr = dest.r1 + (transpose ? co : ro)
     const dc = dest.c1 + (transpose ? ro : co)
@@ -132,8 +158,40 @@ function pasteCellsAt(dest: Range, src: ClipCell[], srcRange: Range, kind: Paste
   store.setCells(sheet, cells, 'Paste')
 }
 
+/** Cut + Paste: moves the cells unchanged and re-points every formula that referenced them. */
+function cutMove(srcSheet: SheetState, range: Range, dest: Range): void {
+  const destSheet = store.active
+  const n = normRange(range)
+  const dr = dest.r1 - n.r1, dc = dest.c1 - n.c1
+  const src = readRange(n, srcSheet)
+  store.transact('Paste', () => {
+    const clears: { r: number; c: number; raw: string; style?: CellStyle }[] = []
+    const u = clampUsed(srcSheet, n)
+    if (u) for (let r = u.r1; r <= u.r2; r++) for (let c = u.c1; c <= u.c2; c++) clears.push({ r, c, raw: '', style: undefined })
+    store.setCells(srcSheet, clears, 'Paste')
+    const moved = src
+      .map((cell) => ({ r: cell.r + dr, c: cell.c + dc, raw: cell.raw, style: cell.style }))
+      .filter((c) => c.r < MAX_ROWS && c.c < MAX_COLS)
+    store.setCells(destSheet, moved, 'Paste')
+    // Re-point formulas (including the moved ones) at the cells' new home.
+    for (const sh of store.sheets) {
+      const formulas = store.hf.getSheetFormulas(store.hfId(sh))
+      const edits: { r: number; c: number; raw: string; style?: CellStyle }[] = []
+      formulas.forEach((row, r) => row?.forEach((f, c) => {
+        if (!f) return
+        const next = moveRefs(f, sh.name, srcSheet.name, n, dr, dc, destSheet.name)
+        if (next !== f) edits.push({ r, c, raw: next, style: store.getStyle(sh, r, c) })
+      }))
+      if (edits.length) store.setCells(sh, edits, 'Paste')
+    }
+  })
+  store.setSelection({ ranges: [{ r1: dest.r1, c1: dest.c1, r2: dest.r1 + n.r2 - n.r1, c2: dest.c1 + n.c2 - n.c1 }], active: { r: dest.r1, c: dest.c1 } })
+}
+
+
 async function readSystemClipboardText(): Promise<string | null> {
   try {
+    if (window.api?.clipboardReadText) return await window.api.clipboardReadText()
     return (await navigator.clipboard?.readText?.()) ?? null
   } catch {
     return null
@@ -143,11 +201,29 @@ async function readSystemClipboardText(): Promise<string | null> {
 export async function paste(kind: PasteKind = 'all'): Promise<void> {
   const sheet = store.active
   const dest = activeRange()
-  const clip = store.clipboard
+  let clip = store.clipboard
+  const sysText = await readSystemClipboardText()
+  // Something new was copied in another app since our Copy: Excel drops its own clipboard then too.
+  // (An empty system clipboard - blocked by clipboard-protection software, say - is not "something else was copied".)
+  if (clip && sysText && clip.text !== undefined && norm(sysText) !== norm(clip.text)) {
+    store.clipboard = clip = null
+    store.notify()
+  }
   if (clip && clip.sheetUid !== undefined) {
     const srcSheet = store.sheetByUid(clip.sheetUid)
     if (srcSheet) {
-      const src = readRange(clip.range, srcSheet)
+      const skip = clip.cut ? undefined : skippedRows(srcSheet, clip.range)
+      const src = readRange(clip.range, srcSheet, skip)
+      if (clip.cut) {
+        cutMove(srcSheet, clip.range, dest)
+        store.clipboard = null
+        store.notify()
+        return
+      }
+      const sn = normRange(clip.range)
+      const used = clampUsed(srcSheet, sn)
+      const skipped = skip ? [...skip].filter((r) => r <= (used?.r2 ?? sn.r2)).length : 0
+      const targets = tileTargets(dest, Math.max(1, Math.min(sn.r2, used?.r2 ?? sn.r2) - sn.r1 + 1 - skipped), sn.c2 - sn.c1 + 1, kind === 'transpose')
       store.transact('Paste', () => {
         if (clip.cut) {
           // Clear the source first so an overlapping destination keeps the pasted cells.
@@ -157,25 +233,139 @@ export async function paste(kind: PasteKind = 'all'): Promise<void> {
           store.setCells(srcSheet, clears, 'Paste')
           store.clipboard = null
         }
-        pasteCellsAt(dest, src, clip.range, clip.cut ? 'all' : kind, srcSheet)
+        for (const d of targets) pasteCellsAt(d, src, clip.range, clip.cut ? 'all' : kind, srcSheet)
       })
+      selectPasted(dest, targets)
+      store.notify()
       return
     }
   }
   // Fall back to the system clipboard (TSV) for cross-app paste.
-  const text = await readSystemClipboardText()
-  if (!text) return
-  const rows = text.replace(/\r/g, '').split('\n')
-  while (rows.length && rows[rows.length - 1] === '') rows.pop()
-  const raws = rows.map((row) => row.split('\t'))
-  store.setRangeRaw(sheet, dest.r1, dest.c1, raws, 'Paste')
+  if (!sysText) {
+    // A screenshot or copied image: paste it as a picture at the active cell.
+    const img = await window.api?.clipboardReadImage?.().catch(() => '')
+    if (img) await insertPictureFromDataUrl(img, 'Picture')
+    return
+  }
+  const raws = parseTsv(sysText)
+  if (!raws.length) return
+  // Excel's HTML says which cells are Text-formatted; the plain text alone would turn "00012" into 12.
+  const textCells = excelTextCells((await window.api?.clipboardReadHTML?.().catch(() => '')) ?? '')
+  if (textCells && textCells.length === raws.length) {
+    raws.forEach((row, i) => row.forEach((raw, j) => {
+      if (textCells[i]?.[j] && raw !== '' && !raw.startsWith("'")) row[j] = "'" + raw
+    }))
+  }
+  const width = Math.max(...raws.map((r) => r.length))
+  const targets = tileTargets(dest, raws.length, width, false)
+  store.transact('Paste', () => {
+    for (const d of targets) store.setRangeRaw(sheet, d.r1, d.c1, raws, 'Paste')
+  })
+  selectPasted(dest, targets)
+}
+
+/** Excel leaves the pasted block selected. */
+function selectPasted(dest: Range, targets: Range[]): void {
+  const d = normRange(dest)
+  const last = targets[targets.length - 1]
+  const r2 = Math.max(d.r2, last.r2), c2 = Math.max(d.c2, last.c2)
+  store.setSelection({ ranges: [{ r1: d.r1, c1: d.c1, r2: Math.min(r2, MAX_ROWS - 1), c2: Math.min(c2, MAX_COLS - 1) }], active: { r: d.r1, c: d.c1 } })
+}
+
+function norm(t: string): string {
+  return t.replace(/\r/g, '').replace(/\n+$/, '')
+}
+
+/** From Excel's clipboard HTML, which cells are Text-formatted (mso-number-format:"\@" inline or via a
+ *  class in its <style>). Null when there is no simple table (merged cells etc.). */
+export function excelTextCells(html: string): boolean[][] | null {
+  if (!html || !/<td/i.test(html)) return null
+  const isText = (css: string): boolean => /mso-number-format:\s*"?\\?\\@"?/i.test(css)
+  const textClasses = new Set<string>()
+  for (const m of html.matchAll(/\.([\w-]+)\s*\{([^}]*)\}/g)) if (isText(m[2])) textClasses.add(m[1])
+  const rows: boolean[][] = []
+  for (const tr of html.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)) {
+    const row: boolean[] = []
+    for (const td of tr[1].matchAll(/<td\b([^>]*)>/gi)) {
+      const attrs = td[1]
+      if (/\b(?:col|row)span\s*=\s*["']?(?:[2-9]|\d\d)/i.test(attrs)) return null
+      const cls = /\bclass\s*=\s*["']?([\w-]+)/i.exec(attrs)?.[1]
+      const style = /\bstyle\s*=\s*(?:'([^']*)'|"([^"]*)")/i.exec(attrs)
+      row.push((cls !== undefined && textClasses.has(cls)) || isText(style?.[1] ?? style?.[2] ?? ''))
+    }
+    rows.push(row)
+  }
+  return rows.length ? rows : null
+}
+
+/** Excel's clipboard text: tab/newline separated, fields holding tabs/newlines/quotes wrapped in "..." with "" escapes. */
+export function parseTsv(text: string): string[][] {
+  const rows: string[][] = []
+  let row: string[] = []
+  let field = ''
+  let i = 0
+  const t = text.replace(/\r\n?/g, '\n')
+  while (i < t.length) {
+    const ch = t[i]
+    if (field === '' && ch === '"') {
+      const end = findQuoteEnd(t, i + 1)
+      if (end !== -1 && (end + 1 === t.length || t[end + 1] === '\t' || t[end + 1] === '\n')) {
+        field = t.slice(i + 1, end).replace(/""/g, '"')
+        i = end + 1
+        continue
+      }
+    }
+    if (ch === '\t') { row.push(field); field = '' }
+    else if (ch === '\n') { row.push(field); rows.push(row); row = []; field = '' }
+    else field += ch
+    i++
+  }
+  if (field !== '' || row.length) { row.push(field); rows.push(row) }
+  return rows
+}
+function findQuoteEnd(t: string, from: number): number {
+  for (let i = from; i < t.length; i++) {
+    if (t[i] === '"') {
+      if (t[i + 1] === '"') { i++; continue }
+      return i
+    }
+  }
+  return -1
+}
+
+/** Excel repeats the copied block across the selection when the selection is an exact multiple of it. */
+export function tileTargets(dest: Range, h: number, w: number, transpose: boolean): Range[] {
+  const d = normRange(dest)
+  const bh = transpose ? w : h
+  const bw = transpose ? h : w
+  const dh = d.r2 - d.r1 + 1
+  const dw = d.c2 - d.c1 + 1
+  if (dh % bh !== 0 || dw % bw !== 0 || (dh === bh && dw === bw) || dh * dw > 1_000_000) {
+    return [{ r1: d.r1, c1: d.c1, r2: d.r1 + bh - 1, c2: d.c1 + bw - 1 }]
+  }
+  const out: Range[] = []
+  for (let r = d.r1; r <= d.r2; r += bh) for (let c = d.c1; c <= d.c2; c += bw) out.push({ r1: r, c1: c, r2: r + bh - 1, c2: c + bw - 1 })
+  return out
 }
 
 // ---------- insert / delete ----------
+// Whole rows/columns selected: Excel inserts/deletes straight away, no dialog.
+function wholeLines(): 'rows' | 'cols' | null {
+  const rs = sel().map(normRange)
+  if (rs.every((r) => r.c1 === 0 && r.c2 >= MAX_COLS - 1)) return 'rows'
+  if (rs.every((r) => r.r1 === 0 && r.r2 >= MAX_ROWS - 1)) return 'cols'
+  return null
+}
 export function insertCellsDialog(): void {
+  const w = wholeLines()
+  if (w === 'rows') return insertSheetRows()
+  if (w === 'cols') return insertSheetColumns()
   setUi({ dialog: { kind: 'insertCells' } })
 }
 export function deleteCellsDialog(): void {
+  const w = wholeLines()
+  if (w === 'rows') return deleteSheetRows()
+  if (w === 'cols') return deleteSheetColumns()
   setUi({ dialog: { kind: 'deleteCells' } })
 }
 
@@ -260,8 +450,49 @@ export function deleteShift(kind: 'left' | 'up' | 'row' | 'col'): void {
 }
 
 // ---------- clear / sort ----------
-export function clearSelection(what: 'all' | 'contents' | 'formats'): void {
-  store.clear(store.active, sel(), what)
+export function clearSelection(what: 'all' | 'contents' | 'formats' | 'notes' | 'hyperlinks'): void {
+  const sheet = store.active
+  if (what === 'notes' || what === 'hyperlinks') {
+    const ranges = sel().map(normRange)
+    const inSel = (key: string) => { const [r, c] = key.split(',').map(Number); return ranges.some((g) => r >= g.r1 && r <= g.r2 && c >= g.c1 && c <= g.c2) }
+    if (what === 'notes') {
+      store.updateLayout(sheet, 'Clear Comments and Notes', (l) => {
+        l.notes = Object.fromEntries(Object.entries(l.notes).filter(([k]) => !inSel(k)))
+        l.comments = Object.fromEntries(Object.entries(l.comments).filter(([k]) => !inSel(k)))
+      })
+    } else {
+      // Excel's Clear Hyperlinks removes the link but keeps the text and its formatting.
+      store.updateLayout(sheet, 'Clear Hyperlinks', (l) => {
+        if (l.hyperlinks) l.hyperlinks = Object.fromEntries(Object.entries(l.hyperlinks).filter(([k]) => !inSel(k)))
+      })
+    }
+    return
+  }
+  store.clear(sheet, sel(), what)
+}
+
+export function openSortDialog(): void {
+  const rg = activeRange()
+  const sheet = store.active
+  const n = normRange(rg)
+  if (hasAdjacentData(store, sheet, n)) {
+    setUi({
+      dialog: {
+        kind: 'sortWarning',
+        props: {
+          onSort: (expand: boolean) => {
+            if (expand) {
+              const exp = findCurrentRegion(store, sheet, n)
+              store.setSelection({ ranges: [exp], active: sheet.selection.active })
+            }
+            setUi({ dialog: { kind: 'sort' } })
+          }
+        }
+      }
+    })
+  } else {
+    setUi({ dialog: { kind: 'sort' } })
+  }
 }
 
 export function sortSelection(order: 'asc' | 'desc'): void {
@@ -269,33 +500,67 @@ export function sortSelection(order: 'asc' | 'desc'): void {
   const sheet = store.active
   const n = clampUsed(sheet, rg)
   if (!n) return
-  const rows: ClipCell[][] = []
-  for (let r = n.r1; r <= n.r2; r++) {
-    const row: ClipCell[] = []
-    for (let c = n.c1; c <= n.c2; c++) row.push({ r, c, raw: store.getRaw(sheet, r, c), style: store.getStyle(sheet, r, c) })
-    rows.push(row)
-  }
-  const key = (row: ClipCell[]): [number, number | string] => {
-    const v = store.getValue(sheet, row[0].r, row[0].c)
-    if (v === null || v === undefined || v === '') return [2, '']
-    if (typeof v === 'number') return [0, v]
-    return [1, String(v).toLowerCase()]
-  }
-  const sorted = [...rows].sort((a, b) => {
-    const [ta, va] = key(a)
-    const [tb, vb] = key(b)
-    if (ta !== tb) return ta - tb
-    const cmp = va < vb ? -1 : va > vb ? 1 : 0
-    return order === 'asc' ? cmp : -cmp
-  })
-  const cells: { r: number; c: number; raw: string; style?: CellStyle }[] = []
-  sorted.forEach((row, i) =>
-    row.forEach((cell, j) => {
-      const r = n.r1 + i
-      cells.push({ r, c: n.c1 + j, raw: cell.raw.startsWith('=') ? shiftFormula(cell.raw, r - cell.r, 0) : cell.raw, style: cell.style })
+
+  if (hasAdjacentData(store, sheet, n)) {
+    setUi({
+      dialog: {
+        kind: 'sortWarning',
+        props: {
+          onSort: (expand: boolean) => {
+            const target = expand ? findCurrentRegion(store, sheet, n) : n
+            if (expand) {
+              store.setSelection({ ranges: [target], active: sheet.selection.active })
+            }
+            const activeCol = sheet.selection.active.c
+            const hasHeaders = detectHeaders(store, sheet, target)
+            runMaybeBusy(cellCount(target), 'Sorting...', () => sortRange(store, sheet, target, {
+              hasHeaders,
+              levels: [{ columnIndex: activeCol, sortOn: 'values', order }]
+            }))
+          }
+        }
+      }
     })
-  )
-  store.setCells(sheet, cells, 'Sort')
+    return
+  }
+
+  const activeCol = sheet.selection.active.c
+  const hasHeaders = detectHeaders(store, sheet, n)
+  runMaybeBusy(cellCount(n), 'Sorting...', () => sortRange(store, sheet, n, {
+    hasHeaders,
+    levels: [{ columnIndex: activeCol, sortOn: 'values', order }]
+  }))
+}
+
+const cellCount = (r: Range): number => (r.r2 - r.r1 + 1) * (r.c2 - r.c1 + 1)
+
+/** Home > Fill > Justify: re-flows the text of the selected cells into lines that fit the selection's width. */
+export function justifySelection(): void {
+  const sheet = store.active
+  const n = normRange(activeRange())
+  if (!store.allows(sheet, 'formatCells')) return
+  const words: string[] = []
+  const lastRow = Math.min(n.r2, n.r1 + 5000)
+  for (let r = n.r1; r <= lastRow; r++) for (let c = n.c1; c <= n.c2; c++) {
+    const raw = store.getRaw(sheet, r, c)
+    if (raw && !raw.startsWith('=') && typeof store.getValue(sheet, r, c) === 'string') words.push(...raw.split(/\s+/).filter(Boolean))
+  }
+  if (!words.length) return
+  let width = 0
+  for (let c = n.c1; c <= Math.min(n.c2, n.c1 + 500); c++) if (!sheet.layout.hiddenCols[c]) width += store.colWidth(sheet, c) / 7
+  const max = Math.max(1, Math.floor(width * 0.95))
+  const lines: string[] = []
+  let cur = ''
+  for (const w of words) {
+    if (cur && cur.length + 1 + w.length > max) { lines.push(cur); cur = w } else cur = cur ? cur + ' ' + w : w
+  }
+  lines.push(cur)
+  const cells: { r: number; c: number; raw: string; style?: CellStyle }[] = []
+  const style = store.getStyle(sheet, n.r1, n.c1)
+  const end = Math.max(lastRow, n.r1 + lines.length - 1)
+  for (let r = n.r1; r <= end; r++) cells.push({ r, c: n.c1, raw: lines[r - n.r1] ?? '', style })
+  store.setCells(sheet, cells, 'Justify')
+  store.setSelection({ ranges: [{ r1: n.r1, c1: n.c1, r2: end, c2: n.c2 }], active: { r: n.r1, c: n.c1 } })
 }
 
 // ---------- fill ----------
@@ -467,12 +732,14 @@ export function autoFitRows(): void {
   store.setRowHeight(store.active, rows, 20)
 }
 export function hideRows(hide: boolean): void {
+  if (!store.allows(store.active, 'formatRows')) return
   const rows = selectedRows()
   store.updateLayout(store.active, hide ? 'Hide' : 'Unhide', (l) => {
     rows.forEach((r) => { if (hide) l.hiddenRows[r] = true; else delete l.hiddenRows[r] })
   })
 }
 export function hideColumns(hide: boolean): void {
+  if (!store.allows(store.active, 'formatColumns')) return
   const cols = selectedCols()
   store.updateLayout(store.active, hide ? 'Hide' : 'Unhide', (l) => {
     cols.forEach((c) => { if (hide) l.hiddenCols[c] = true; else delete l.hiddenCols[c] })
@@ -484,10 +751,21 @@ export function freezePanes(kind: 'panes' | 'topRow' | 'firstColumn' | 'unfreeze
   const sheet = store.active
   const active = sheet.selection.active
   store.updateLayout(sheet, 'Freeze Panes', (l) => {
+    l.split = false
     if (kind === 'unfreeze') l.frozen = { rows: 0, cols: 0 }
     else if (kind === 'topRow') l.frozen = { rows: 1, cols: 0 }
     else if (kind === 'firstColumn') l.frozen = { rows: 0, cols: 1 }
     else l.frozen = { rows: active.r, cols: active.c }
+  })
+}
+
+/** View > Split: toggles a divider at the active cell. Simplification: the panes share one scroll position (like Freeze Panes), not independent ones. */
+export function toggleSplit(): void {
+  const sheet = store.active
+  const active = sheet.selection.active
+  store.updateLayout(sheet, 'Split', (l) => {
+    if (l.split) { l.split = false; l.frozen = { rows: 0, cols: 0 } }
+    else { l.split = true; l.frozen = { rows: active.r, cols: active.c } }
   })
 }
 
@@ -594,10 +872,14 @@ export function collapseToActiveCell(): void {
 // ---------- merge ----------
 export function mergeCells(kind: 'center' | 'across' | 'merge' | 'unmerge'): void {
   const sheet = store.active
+  if (!store.allows(sheet, 'formatCells')) return
   const rg = normRange(activeRange())
-  if (kind === 'unmerge') {
+  const overlaps = (m: Range) => !(m.r2 < rg.r1 || m.r1 > rg.r2 || m.c2 < rg.c1 || m.c1 > rg.c2)
+  // Merge & Center on a merged cell unmerges it (the button is a toggle in Excel).
+  const already = sheet.layout.merges.some((m) => { const x = normRange(m); return x.r1 === rg.r1 && x.r2 === rg.r2 && x.c1 === rg.c1 && x.c2 === rg.c2 })
+  if (kind === 'unmerge' || (kind === 'center' && already)) {
     store.updateLayout(sheet, 'Unmerge Cells', (l) => {
-      l.merges = l.merges.filter((m) => !(m.r1 >= rg.r1 && m.r2 <= rg.r2 && m.c1 >= rg.c1 && m.c2 <= rg.c2))
+      l.merges = l.merges.filter((m) => !overlaps(normRange(m)))
     })
     return
   }
@@ -620,7 +902,9 @@ export function mergeCells(kind: 'center' | 'across' | 'merge' | 'unmerge'): voi
         if (clears.length) store.setCells(sheet, clears, 'Merge Cells')
       }
       store.updateLayout(sheet, 'Merge Cells', (l) => {
-        for (const m of ranges) l.merges.push(normRange(m))
+        // Existing merges touching the selection are replaced, never stacked.
+        l.merges = l.merges.filter((m) => !overlaps(normRange(m)))
+        for (const m of ranges) { const n = normRange(m); if (n.r1 !== n.r2 || n.c1 !== n.c2) l.merges.push(n) }
       })
       if (kind === 'center') store.applyStyle(sheet, ranges, { hAlign: 'center' }, 'Merge Cells')
     })
@@ -765,4 +1049,155 @@ export function pickListValues(): string[] {
     if (!seen.has(disp)) { seen.add(disp); out.push(disp) }
   }
   return out
+}
+
+// ---------- Home > Format as Table / Insert > Table ----------
+/** Excel's built-in table style families: [header fill, band fill, border colour]. */
+export const TABLE_STYLES: { name: string; header: string; band: string; line: string; headerFont: string }[] = [
+  { name: 'Blue, Table Style Medium 2', header: '#4472C4', band: '#D9E1F2', line: '#8EA9DB', headerFont: '#FFFFFF' },
+  { name: 'Orange, Table Style Medium 3', header: '#ED7D31', band: '#FCE4D6', line: '#F4B084', headerFont: '#FFFFFF' },
+  { name: 'Gray, Table Style Medium 4', header: '#A5A5A5', band: '#EDEDED', line: '#C9C9C9', headerFont: '#FFFFFF' },
+  { name: 'Gold, Table Style Medium 5', header: '#FFC000', band: '#FFF2CC', line: '#FFD966', headerFont: '#FFFFFF' },
+  { name: 'Light Blue, Table Style Medium 6', header: '#5B9BD5', band: '#DDEBF7', line: '#9BC2E6', headerFont: '#FFFFFF' },
+  { name: 'Green, Table Style Medium 7', header: '#70AD47', band: '#E2EFDA', line: '#A9D08E', headerFont: '#FFFFFF' },
+  { name: 'Light Blue, Table Style Light 9', header: '#4472C4', band: '#FFFFFF', line: '#4472C4', headerFont: '#FFFFFF' },
+  { name: 'Black, Table Style Medium 1', header: '#000000', band: '#D9D9D9', line: '#000000', headerFont: '#FFFFFF' }
+]
+
+/**
+ * Formats the selection (or the current region around the active cell) as a banded table with
+ * a filter on the header row, in one undo step. Cellbook stores this as ordinary formatting plus
+ * an AutoFilter; it isn't saved as an Excel table object.
+ */
+export function formatAsTable(styleIndex: number | TableStyleDef = 0): void {
+  const sheet = store.active
+  const n = normRange(activeRange())
+  const region = n.r1 !== n.r2 || n.c1 !== n.c2 ? store.clampToUsed(sheet, n) : store.currentRegion(sheet, sheet.selection.active.r, sheet.selection.active.c)
+  if (region.r2 <= region.r1 && region.c1 === region.c2 && !store.getRaw(sheet, region.r1, region.c1)) {
+    setUi({ dialog: { kind: 'message', props: { text: 'Select a range with data first, then choose Format as Table.' } } })
+    return
+  }
+  const t = typeof styleIndex === 'object' ? styleIndex : TABLE_STYLES[styleIndex] ?? TABLE_STYLES[0]
+  const side = { style: 'thin' as const, color: t.line }
+  store.transact('Format as Table', () => {
+    store.applyStyle(sheet, [region], (s, r) => {
+      const next: CellStyle = { ...s, borders: { top: side, bottom: side, left: side, right: side } }
+      if (r === region.r1) Object.assign(next, { bold: true, fill: t.header, color: t.headerFont })
+      else next.fill = (r - region.r1) % 2 === 1 ? t.band : undefined
+      return next
+    })
+    if (sheet.layout.autoFilter) store.toggleAutoFilter(sheet)
+    store.setSelection({ ranges: [region], active: { r: region.r1, c: region.c1 } })
+    store.toggleAutoFilter(sheet)
+  })
+}
+
+// ---------- Home > Fill > Series... ----------
+export interface SeriesOptions { byRows: boolean; type: SeriesType; unit: DateUnit; step: number; stop?: number }
+
+/** Fills each row/column of the selection from its first cell, as Excel's Series dialog. */
+export function fillSeries(o: SeriesOptions): string | null {
+  const sheet = store.active
+  const n = normRange(activeRange())
+  const cells: { r: number; c: number; raw: string; style?: CellStyle }[] = []
+  const lanes = o.byRows ? [n.r1, n.r2] : [n.c1, n.c2]
+  for (let lane = lanes[0]; lane <= lanes[1]; lane++) {
+    const r0 = o.byRows ? lane : n.r1, c0 = o.byRows ? n.c1 : lane
+    const v = store.getValue(sheet, r0, c0)
+    if (typeof v !== 'number') continue
+    let count = o.byRows ? n.c2 - n.c1 : n.r2 - n.r1
+    if (count === 0) {
+      if (o.stop === undefined) continue
+      if ((o.type === 'growth' && Math.abs(o.step) <= 1) || (o.type !== 'growth' && o.step === 0)) return 'That step value would never reach the stop value.'
+      count = o.byRows ? MAX_COLS - 1 - c0 : Math.min(MAX_ROWS - 1 - r0, 1_000_000)
+    }
+    const vals = seriesValues(v, count, o.type, o.step, o.stop, o.unit)
+    const style = store.getStyle(sheet, r0, c0)
+    vals.forEach((x, k) => cells.push({ r: o.byRows ? r0 : r0 + k + 1, c: o.byRows ? c0 + k + 1 : c0, raw: String(x), style }))
+  }
+  if (!cells.length) return 'Select a range whose first cell contains a number or date (and, for a single cell, enter a Stop value).'
+  store.setCells(sheet, cells, 'Series')
+  return null
+}
+
+/** View > Zoom to Selection: zooms so the selected range fills the grid area. */
+export function zoomToSelection(): void {
+  const sheet = store.active
+  const n = normRange(activeRange())
+  let w = 0, h = 0
+  for (let c = n.c1; c <= Math.min(n.c2, n.c1 + 500); c++) if (!sheet.layout.hiddenCols[c]) w += store.colWidth(sheet, c)
+  for (let r = n.r1; r <= Math.min(n.r2, n.r1 + 2000); r++) if (!sheet.layout.hiddenRows[r]) h += store.rowHeight(sheet, r)
+  const host = document.querySelector('.grid-host') as HTMLElement | null
+  const W = (host?.clientWidth ?? window.innerWidth) - 60, H = (host?.clientHeight ?? window.innerHeight - 250) - 40
+  const z = Math.max(10, Math.min(400, Math.floor(100 * Math.min(W / Math.max(1, w), H / Math.max(1, h)))))
+  store.updateLayout(sheet, 'Zoom', (l) => (l.zoom = z))
+}
+
+/** Home > Increase / Decrease Decimal, based on the active cell's format (as Excel). */
+export function adjustDecimal(delta: 1 | -1): void {
+  const sheet = store.active
+  const a = sheet.selection.active
+  const fmt = adjustDecimals(store.getStyle(sheet, a.r, a.c)?.numFmt, store.getDisplay(sheet, a.r, a.c).text, delta)
+  store.applyStyle(sheet, sel(), { numFmt: fmt }, delta > 0 ? 'Increase Decimal' : 'Decrease Decimal')
+}
+
+/** Home > Borders presets. Edge presets (Bottom, Top, Left, Right...) apply to the outer edge of
+ *  each selected range, like Excel; All Borders applies to every cell. One undo step. */
+export function applyBorderPreset(kind: string): void {
+  const sheet = store.active
+  const thin = { style: 'thin', color: '#000000' } as const
+  const thick = { style: 'medium', color: '#000000' } as const
+  const dbl = { style: 'double', color: '#000000' } as const
+  store.transact('Borders', () => {
+    for (const rg of sel()) {
+      const n = normRange(rg)
+      store.applyStyle(sheet, [rg], (s, r, c) => {
+        const b: NonNullable<CellStyle['borders']> = { ...s.borders }
+        const top = r === n.r1, bottom = r === n.r2, left = c === n.c1, right = c === n.c2
+        switch (kind) {
+          case 'bottom': if (bottom) b.bottom = thin; break
+          case 'top': if (top) b.top = thin; break
+          case 'left': if (left) b.left = thin; break
+          case 'right': if (right) b.right = thin; break
+          case 'none': delete b.top; delete b.right; delete b.bottom; delete b.left; break
+          case 'all': b.top = thin; b.bottom = thin; b.left = thin; b.right = thin; break
+          case 'outside': if (top) b.top = thin; if (bottom) b.bottom = thin; if (left) b.left = thin; if (right) b.right = thin; break
+          case 'thickOutside': if (top) b.top = thick; if (bottom) b.bottom = thick; if (left) b.left = thick; if (right) b.right = thick; break
+          case 'bottomDouble': if (bottom) b.bottom = dbl; break
+          case 'thickBottom': if (bottom) b.bottom = thick; break
+          case 'topBottom': if (top) b.top = thin; if (bottom) b.bottom = thin; break
+          case 'topThickBottom': if (top) b.top = thin; if (bottom) b.bottom = thick; break
+          case 'topDoubleBottom': if (top) b.top = thin; if (bottom) b.bottom = dbl; break
+        }
+        return { ...s, borders: Object.keys(b).length ? b : undefined }
+      }, 'Borders')
+    }
+  })
+}
+
+/** Data > Flash Fill / Ctrl+E: fills the active column below the typed examples by pattern. */
+export function flashFillSelection(): void {
+  const sheet = store.active
+  const { r, c } = sheet.selection.active
+  const region = (col: number): Range | null => (col >= 0 && col < MAX_COLS && store.getRaw(sheet, r, col) !== '' ? store.currentRegion(sheet, r, col) : null)
+  // Sources are the columns of the adjoining data block: left of the target, else right of it.
+  const src: number[] = []
+  let rows: Range | null = null
+  const left = region(c - 1)
+  if (left) { rows = left; for (let k = left.c1; k < c; k++) src.push(k) }
+  else {
+    const right = region(c + 1)
+    if (right) { rows = right; for (let k = c + 1; k <= right.c2; k++) src.push(k) }
+  }
+  if (!rows || !src.length) return
+  const r1 = rows.r1, r2 = rows.r2
+  const data: string[][] = [], targets: string[] = []
+  for (let rr = r1; rr <= r2; rr++) {
+    data.push(src.map((k) => store.getDisplay(sheet, rr, k).text))
+    targets.push(store.getRaw(sheet, rr, c))
+  }
+  const out = flashFill(data, targets)
+  if (!out) return
+  const cells = out.map((v, i) => (v === null ? null : { r: r1 + i, c, raw: v })).filter((x): x is { r: number; c: number; raw: string } => x !== null)
+  if (cells.length) store.setCells(sheet, cells, 'Flash Fill')
 }

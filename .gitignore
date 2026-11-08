@@ -3,3 +3,8 @@ out
 dist
 *.log
 release
+
+samples/private/
+__pycache__/
+scripts/out/
+*.cpuprofile

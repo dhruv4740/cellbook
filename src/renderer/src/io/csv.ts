@@ -1,8 +1,11 @@
 // RFC 4180 CSV read/write.
 import type { WorkbookData } from '../model/store'
+import type { CellStyle } from '../model/types'
+import { detectInputFormat } from '../format/numfmt'
 
 /** Parses CSV text (comma-delimited, quoted fields, CRLF or LF) into a single-sheet WorkbookData. */
 export function readCsv(text: string): WorkbookData {
+  if (text.charCodeAt(0) === 0xfeff) text = text.slice(1) // UTF-8 BOM (Excel's "CSV UTF-8") is not data
   const rows: string[][] = []
   let row: string[] = []
   let field = ''
@@ -40,10 +43,15 @@ export function readCsv(text: string): WorkbookData {
   // last field/row (avoid a trailing empty row if the file ended with a newline)
   if (field.length > 0 || row.length > 0) pushRow()
 
-  const cells: Record<string, { raw?: string }> = {}
+  const cells: Record<string, { raw?: string; style?: CellStyle }> = {}
   rows.forEach((r, ri) => {
     r.forEach((v, ci) => {
-      if (v !== '') cells[ri + ',' + ci] = { raw: v }
+      if (v === '') return
+      // Like Excel opening a CSV: "1,234" is the number 1234, and dates/percent/currency keep a
+      // matching number format so they display (and save back) as typed, not as serial numbers.
+      const t = /^-?\d{1,3}(,\d{3})+(\.\d+)?$/.test(v.trim()) ? v.trim().replace(/,/g, '') : v
+      const fmt = detectInputFormat(v.trim())
+      cells[ri + ',' + ci] = fmt ? { raw: t, style: { numFmt: fmt } } : { raw: t }
     })
   })
 

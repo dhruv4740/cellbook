@@ -26,13 +26,16 @@ export default function StatusBar() {
   const used = store.usedRange(sheet)
   for (const raw of used ? sheet.selection.ranges : []) {
     const rg = normRange(raw) // ranges dragged up/left arrive reversed
-    for (let r = rg.r1; r <= Math.min(rg.r2, used!.r2); r++)
+    for (let r = rg.r1; r <= Math.min(rg.r2, used!.r2); r++) {
+      if (sheet.layout.hiddenRows?.[r]) continue // Excel's status bar only counts visible cells
       for (let c = rg.c1; c <= Math.min(rg.c2, used!.c2); c++) {
+        if (sheet.layout.hiddenCols?.[c]) continue
         const v = store.getValue(sheet, r, c)
         if (v === null || v === '') continue
         count++
         if (typeof v === 'number') { sum += v; numCount++; if (v < min) min = v; if (v > max) max = v }
       }
+    }
   }
   const showStats = count >= 2 && numCount >= 1
 
@@ -81,7 +84,7 @@ export default function StatusBar() {
     <div className="xl-statusbar" onContextMenu={(e) => { e.preventDefault(); openMenu(e) }}>
       <div className="xl-status-left">
         <span className="xl-status-mode">
-          {ui.selectMode === 'extend' ? 'Extend Selection' : ui.selectMode === 'add' ? 'Add to Selection' : store.mode}
+          {ui.selectMode === 'extend' ? 'Extend Selection' : ui.selectMode === 'add' ? 'Add to Selection' : ui.busy ? ui.busy : store.calcPending && store.mode === 'Ready' ? 'Calculate' : store.mode}
         </span>
         {ui.scrollLock && <span className="xl-status-records">Scroll Lock</span>}
         {ui.endMode && <span className="xl-status-records">End Mode</span>}
@@ -100,9 +103,9 @@ export default function StatusBar() {
       </div>
       <div className="xl-status-right">
         <div className="xl-view-btns">
-          <button className="xl-viewbtn active" title="Normal"><TableSimple20Regular /></button>
+          <button className={'xl-viewbtn' + (ui.viewMode === 'normal' ? ' active' : '')} title="Normal" onClick={() => setUi({ viewMode: 'normal' })}><TableSimple20Regular /></button>
           <button className="xl-viewbtn" title="Page Layout"><PageFit20Regular /></button>
-          <button className="xl-viewbtn" title="Page Break Preview"><DocumentPageBreak20Regular /></button>
+          <button className={'xl-viewbtn' + (ui.viewMode === 'pageBreak' ? ' active' : '')} title="Page Break Preview" onClick={() => setUi({ viewMode: 'pageBreak' })}><DocumentPageBreak20Regular /></button>
         </div>
         <div className="xl-zoom">
           <button className="xl-zoombtn" onClick={() => setZoom(zoom - 10)}><Subtract20Regular fontSize={12} /></button>

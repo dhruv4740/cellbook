@@ -1,9 +1,10 @@
+import { addFuturePrefixes } from '../engine/xlfn'
 // XLSX read/write via exceljs, mapping to/from the app's WorkbookData model.
 import { shiftFormula } from '../engine/shiftFormula'
 import ExcelJS from 'exceljs'
 import { unzipSync } from 'fflate'
-import type { CellStyle, BorderLineStyle, BorderSide, FilterCriteria, SheetLayout, Range, NoteData, CommentThread } from '../model/types'
-import { DEFAULT_ROW_HEIGHT } from '../model/types'
+import type { CellStyle, BorderLineStyle, BorderSide, FilterCriteria, SheetLayout, Range, NoteData, CommentThread, CfRule } from '../model/types'
+import { DEFAULT_COL_WIDTH, DEFAULT_ROW_HEIGHT, rangeA1, parseA1 } from '../model/types'
 import type { WorkbookData } from '../model/store'
 import { DEFAULT_AUTHOR, defaultLayout } from '../model/defaults'
 import {
@@ -12,7 +13,13 @@ import {
 } from './xlsxShared'
 import { extractSection, parseAttrs, parseRelationships, resolveRelTarget } from './fastXlsxXml'
 import type { VbaProject } from './xlsxPostProcess'
-import { postProcessXlsx } from './xlsxPostProcess'
+import { injectPictures } from './xlsxPictures'
+import { injectTables } from './xlsxTables'
+import { toBytes, fixLegacyDrawingOrder, markDynamicArrays, injectDefinedNames, injectHyperlinks, injectOutline, injectDefaultFont, injectTheme, injectScenarios, injectSparklines, injectPageSetup, injectProtection, postProcessPkg } from './xlsxPostProcess'
+import { parseDataValidations } from './fastXlsx'
+import { injectBulkCells, fastWriteThreshold, BulkRows } from './bulkCells'
+
+const EXCEL_ERRORS = new Set(['#NULL!', '#DIV/0!', '#VALUE!', '#REF!', '#NAME?', '#NUM!', '#N/A', '#GETTING_DATA', '#SPILL!', '#CALC!'])
 
 // Re-exported for existing `from './xlsx'` call sites (the fast reader/worker import these
 // directly from xlsxShared instead, so they don't pull exceljs into their bundle - see fastXlsx.ts).
@@ -266,7 +273,7 @@ export async function readXlsxExceljs(data: Uint8Array): Promise<WorkbookData> {
     for (let i = 1; i <= colCount; i++) {
       const col = ws.getColumn(i)
       if (col.hidden) hiddenCols[i - 1] = true
-      if (col.width !== undefined && col.isCustomWidth) colWidths[i - 1] = colWidthToPx(col.width)
+      if (col.width !== undefined) colWidths[i - 1] = colWidthToPx(col.width)
     }
     layout.colWidths = colWidths
     layout.hiddenCols = hiddenCols
@@ -342,10 +349,77 @@ export async function readXlsxExceljs(data: Uint8Array): Promise<WorkbookData> {
       if (view.showRowColHeaders !== undefined) layout.showHeadings = view.showRowColHeaders
       if (view.zoomScale !== undefined) layout.zoom = view.zoomScale
     }
+    if (ws.state === 'hidden' || ws.state === 'veryHidden') layout.sheetHidden = ws.state
     const tabColor = (ws.properties as ExcelJS.WorksheetProperties | undefined)?.tabColor as ExcelColor | undefined
     if (tabColor) {
       const c = colorToHex(tabColor)
       if (c) layout.tabColor = c
+    }
+
+    const rawCfs = (ws as any).conditionalFormattings || []
+    if (rawCfs.length > 0) {
+      const cfs: CfRule[] = []
+      let pCounter = 1
+      for (const cf of rawCfs) {
+        const refStr = cf.ref || ''
+        const ranges = refStr
+          .split(/\s+/)
+          .map((r: string) => parseA1(r))
+          .filter((r: Range | null): r is Range => r !== null)
+        if (!ranges.length) continue
+
+        for (const rule of cf.rules || []) {
+          const id = 'cf_' + Math.random().toString(36).slice(2, 9)
+          const priority = rule.priority ?? pCounter++
+          const stopIfTrue = Boolean(rule.stopIfTrue)
+          const format: Partial<CellStyle> = {}
+          if (rule.style?.fill?.bgColor) {
+            format.fill = colorToHex(rule.style.fill.bgColor)
+          } else if (rule.style?.fill?.fgColor) {
+            format.fill = colorToHex(rule.style.fill.fgColor)
+          }
+          if (rule.style?.font) {
+            if (rule.style.font.color) format.color = colorToHex(rule.style.font.color)
+            if (rule.style.font.bold) format.bold = true
+            if (rule.style.font.italic) format.italic = true
+          }
+
+          let cfRule: CfRule = {
+            id,
+            priority,
+            ranges,
+            stopIfTrue,
+            type: (rule.type as any) || 'cellIs',
+            format: Object.keys(format).length > 0 ? format : undefined
+          }
+
+          if (rule.type === 'cellIs') {
+            cfRule.operator = rule.operator
+            if (Array.isArray(rule.formulae)) {
+              cfRule.value = String(rule.formulae[0] ?? '')
+              if (rule.formulae[1] !== undefined) cfRule.value2 = String(rule.formulae[1])
+            }
+          } else if (rule.type === 'expression') {
+            cfRule.formula = Array.isArray(rule.formulae) ? rule.formulae[0] : rule.formula
+          } else if (rule.type === 'top10') {
+            cfRule.rank = rule.rank
+            cfRule.percent = rule.percent
+            cfRule.bottom = rule.bottom
+          } else if (rule.type === 'aboveAverage') {
+            cfRule.above = rule.aboveAverage ?? true
+            cfRule.equalOrAbove = rule.equalAverage
+          }
+
+          cfs.push(cfRule)
+        }
+      }
+      if (cfs.length > 0) layout.conditionalFormats = cfs
+    }
+
+    const sheetXml = sheetXmlByName.get(ws.name)
+    if (sheetXml) {
+      const dvs = parseDataValidations(sheetXml)
+      if (dvs.length > 0) layout.dataValidations = dvs
     }
 
     sheets.push({ name: ws.name, cells, layout })
@@ -388,16 +462,49 @@ export async function writeXlsx(data: WorkbookData, vba?: VbaProject): Promise<U
   wb.created = new Date()
   wb.calcProperties.fullCalcOnLoad = true
 
+  // Big sheets: their plain cells are written as XML by bulkCells.ts instead of through exceljs objects.
+  const bulk: (BulkRows | undefined)[] = []
+  const threshold = fastWriteThreshold()
   data.sheets.forEach((sd, i) => {
     const ws = wb.addWorksheet(sd.name || 'Sheet' + (i + 1))
     const layout = { ...defaultLayout(), ...sd.layout }
 
-    for (const [key, cell] of Object.entries(sd.cells)) {
-      const [r, c] = key.split(',').map(Number)
+    // Cells that need exceljs objects (notes, comments, merged areas) stay on the exceljs path.
+    let special: Set<string> | undefined
+    if (Object.keys(sd.cells).length >= threshold) {
+      special = new Set<string>([...Object.keys(layout.notes ?? {}), ...Object.keys(layout.comments ?? {})])
+      let mergedCells = 0
+      for (const m of layout.merges ?? []) mergedCells += (m.r2 - m.r1 + 1) * (m.c2 - m.c1 + 1)
+      if (mergedCells > 50000) special = undefined
+      else for (const m of layout.merges ?? []) for (let r = m.r1; r <= m.r2; r++) for (let c = m.c1; c <= m.c2; c++) special.add(`${r},${c}`)
+    }
+    const rows: BulkRows | undefined = special ? new Map() : undefined
+    bulk[i] = rows
+
+    for (const key in sd.cells) {
+      const cell = sd.cells[key]
+      const comma = key.indexOf(',')
+      const r = +key.slice(0, comma), c = +key.slice(comma + 1)
+      if (rows && !special!.has(key)) {
+        let row = rows.get(r)
+        if (!row) rows.set(r, (row = []))
+        row.push({ c, cell })
+        continue
+      }
       const target = ws.getCell(r + 1, c + 1)
       if (cell.raw !== undefined && cell.raw !== '') {
-        if (cell.raw.startsWith('=')) {
-          target.value = { formula: cell.raw.slice(1) }
+        if (cell.raw.startsWith("'")) {
+          target.value = cell.raw.slice(1) // quote-prefixed text
+        } else if (cell.raw.startsWith('=')) {
+          // Store the computed result too, as Excel does: Protected View, previews and other tools
+          // read it without recalculating.
+          const v = cell.value
+          // Only Excel's own error codes may be cached; e.g. HyperFormula's "#ERROR!" makes Excel refuse the file.
+          const err = v && typeof v === 'object' ? (v as { error: string }).error : undefined
+          const result = v === null || v === undefined || (err !== undefined && !EXCEL_ERRORS.has(err)) ? undefined : err !== undefined ? { error: err } : v
+          const formula = addFuturePrefixes(cell.raw.slice(1))
+          const spill = cell.spill ? { shareType: 'array', ref: cell.spill } : {}
+          target.value = (result === undefined ? { formula, ...spill } : { formula, result, ...spill }) as ExcelJS.CellValue
         } else if (cell.style?.numFmt && isDateFormat(cell.style.numFmt) && /^-?\d+(\.\d+)?$/.test(cell.raw)) {
           target.value = serialToDate(Number(cell.raw))
         } else if (cell.raw === 'TRUE' || cell.raw === 'FALSE') {
@@ -438,9 +545,32 @@ export async function writeXlsx(data: WorkbookData, vba?: VbaProject): Promise<U
       // so the hidden flag round-trips through the file.
       if (row.height === undefined) row.height = pxToPt(layout.rowHeights[+r] ?? DEFAULT_ROW_HEIGHT)
     }
+    // Group levels. ExcelJS derives `collapsed` wrongly, so injectOutline() rewrites those flags afterwards.
+    for (const [r, n] of Object.entries(layout.rowLevels ?? {})) {
+      const row = ws.getRow(+r + 1)
+      row.outlineLevel = n
+      if (!row.hasValues && row.height === undefined) row.height = pxToPt(layout.rowHeights[+r] ?? DEFAULT_ROW_HEIGHT)
+    }
+    for (const [c, n] of Object.entries(layout.colLevels ?? {})) {
+      const col = ws.getColumn(+c + 1)
+      col.outlineLevel = n
+      if (col.width === undefined) col.width = pxToColWidth(layout.colWidths[+c] ?? DEFAULT_COL_WIDTH)
+    }
+    ws.properties.outlineLevelRow = Math.max(0, ...Object.values(layout.rowLevels ?? {}))
+    ws.properties.outlineLevelCol = Math.max(0, ...Object.values(layout.colLevels ?? {}))
+    for (const r of Object.keys(layout.collapsedRows ?? {})) {
+      const row = ws.getRow(+r + 1)
+      if (!row.hasValues && row.height === undefined) row.height = pxToPt(layout.rowHeights[+r] ?? DEFAULT_ROW_HEIGHT)
+    }
+    for (const c of Object.keys(layout.collapsedCols ?? {})) {
+      const col = ws.getColumn(+c + 1)
+      if (col.width === undefined) col.width = pxToColWidth(layout.colWidths[+c] ?? DEFAULT_COL_WIDTH)
+    }
+    if (layout.outline) ws.properties.outlineProperties = { summaryBelow: layout.outline.summaryBelow !== false, summaryRight: layout.outline.summaryRight !== false }
     for (const m of layout.merges) {
       ws.mergeCells(m.r1 + 1, m.c1 + 1, m.r2 + 1, m.c2 + 1)
     }
+    if (layout.sheetHidden) ws.state = layout.sheetHidden
     if (layout.tabColor) {
       ws.properties.tabColor = { argb: hexToArgb(layout.tabColor) }
     }
@@ -449,6 +579,77 @@ export async function writeXlsx(data: WorkbookData, vba?: VbaProject): Promise<U
       ws.autoFilter = {
         from: { row: range.r1 + 1, column: range.c1 + 1 },
         to: { row: range.r2 + 1, column: range.c2 + 1 }
+      }
+    }
+    if (layout.conditionalFormats && layout.conditionalFormats.length > 0) {
+      for (const cfRule of layout.conditionalFormats) {
+        const ref = cfRule.ranges.map(rangeA1).join(' ')
+        const style: any = {}
+        if (cfRule.format) {
+          if (cfRule.format.fill) {
+            style.fill = {
+              type: 'pattern',
+              pattern: 'solid',
+              bgColor: { argb: hexToArgb(cfRule.format.fill) }
+            }
+          }
+          if (cfRule.format.color || cfRule.format.bold || cfRule.format.italic) {
+            style.font = {}
+            if (cfRule.format.color) style.font.color = { argb: hexToArgb(cfRule.format.color) }
+            if (cfRule.format.bold) style.font.bold = true
+            if (cfRule.format.italic) style.font.italic = true
+          }
+        }
+        const ruleObj: any = {
+          priority: cfRule.priority,
+          stopIfTrue: cfRule.stopIfTrue
+        }
+        if (cfRule.type === 'cellIs') {
+          ruleObj.type = 'cellIs'
+          ruleObj.operator = cfRule.operator
+          ruleObj.formulae = cfRule.value2 !== undefined ? [cfRule.value, cfRule.value2] : [cfRule.value]
+          ruleObj.style = style
+        } else if (cfRule.type === 'expression') {
+          ruleObj.type = 'expression'
+          ruleObj.formulae = [cfRule.formula?.replace(/^=/, '')]
+          ruleObj.style = style
+        } else if (cfRule.type === 'top10') {
+          ruleObj.type = 'top10'
+          ruleObj.rank = cfRule.rank || 10
+          ruleObj.percent = cfRule.percent
+          ruleObj.bottom = cfRule.bottom
+          ruleObj.style = style
+        } else if (cfRule.type === 'aboveAverage') {
+          ruleObj.type = 'aboveAverage'
+          ruleObj.aboveAverage = cfRule.above ?? true
+          ruleObj.equalAverage = cfRule.equalOrAbove
+          ruleObj.style = style
+        } else if (cfRule.type === 'dataBar') {
+          // ExcelJS needs the min/max thresholds; without them it throws while saving.
+          ruleObj.type = 'dataBar'
+          ruleObj.cfvo = [{ type: 'min' }, { type: 'max' }]
+          ruleObj.color = { argb: hexToArgb(cfRule.dataBar?.color ?? '#638EC6') }
+        } else if (cfRule.type === 'colorScale') {
+          const cs = cfRule.colorScale ?? { minColor: '#F8696B', maxColor: '#63BE7B' }
+          ruleObj.type = 'colorScale'
+          ruleObj.cfvo = cs.midColor ? [{ type: 'min' }, { type: 'percentile', value: 50 }, { type: 'max' }] : [{ type: 'min' }, { type: 'max' }]
+          ruleObj.color = (cs.midColor ? [cs.minColor, cs.midColor, cs.maxColor] : [cs.minColor, cs.maxColor]).map((c) => ({ argb: hexToArgb(c) }))
+        } else if (cfRule.type === 'iconSet') {
+          const name = cfRule.iconSet?.name ?? '3TrafficLights1'
+          const n = parseInt(name, 10) || 3
+          ruleObj.type = 'iconSet'
+          ruleObj.iconSet = name
+          ruleObj.reverse = cfRule.iconSet?.reverse
+          ruleObj.showValue = cfRule.iconSet?.showValue
+          ruleObj.cfvo = Array.from({ length: n }, (_, i) => ({ type: 'percent', value: Math.round((i * 100) / n) }))
+        } else {
+          ruleObj.type = cfRule.type
+          ruleObj.style = style
+        }
+        ;(ws as any).addConditionalFormatting({
+          ref,
+          rules: [ruleObj]
+        })
       }
     }
 
@@ -468,15 +669,60 @@ export async function writeXlsx(data: WorkbookData, vba?: VbaProject): Promise<U
     ws.views = [view]
   })
 
-  wb.views = [{ x: 0, y: 0, width: 25000, height: 15000, firstSheet: 0, activeTab: data.activeSheet ?? 0, visibility: 'visible' }]
+  // Excel refuses a workbook whose sheets are all hidden, or whose active tab is hidden.
+  const isVisible = (i: number) => !data.sheets[i]?.layout?.sheetHidden
+  if (!data.sheets.some((_, i) => isVisible(i))) wb.worksheets[0].state = 'visible'
+  let activeTab = data.activeSheet ?? 0
+  if (!isVisible(activeTab)) activeTab = Math.max(0, data.sheets.findIndex((_, i) => isVisible(i)))
+  wb.views = [{ x: 0, y: 0, width: 25000, height: 15000, firstSheet: 0, activeTab, visibility: 'visible' }]
 
-  const buf = new Uint8Array(await wb.xlsx.writeBuffer() as ArrayBuffer)
+  const anyBulk = bulk.some(Boolean)
+  const raw = new Uint8Array(await wb.xlsx.writeBuffer(anyBulk ? ({ zip: { compression: 'STORE' } } as never) : undefined) as ArrayBuffer)
+  const buf = anyBulk ? injectBulkCells(raw, bulk) : raw
 
   // AutoFilter per-column criteria and the VBA project part both need editing the raw package -
   // exceljs's object model can express neither. Skip the unzip/rezip when there's nothing to add.
   const sheetFilters = data.sheets.map((sd) => sd.layout?.autoFilter)
+  const sheetValidations = data.sheets.map((sd) => sd.layout?.dataValidations)
+  const sheetCharts = data.sheets.map((sd) => sd.layout?.charts)
+  const sheetNames = data.sheets.map((sd, i) => sd.name || `Sheet${i + 1}`)
+  const sheetCells = data.sheets.map((sd) => sd.cells)
+  const sheetLayouts = data.sheets.map((sd) => sd.layout)
+
   const hasCriteria = sheetFilters.some((af) => af && Object.keys(af.columns).length)
-  return hasCriteria || vba ? postProcessXlsx(buf, sheetFilters, vba) : buf
+  const hasValidations = sheetValidations.some((dv) => dv && dv.length > 0)
+  const hasCharts = sheetCharts.some((c) => c && c.length > 0)
+
+  const processed = hasCriteria || hasValidations || hasCharts || vba
+    ? postProcessPkg(buf, sheetFilters, vba, sheetValidations, sheetCharts, sheetNames, sheetCells, sheetLayouts)
+    : buf
+  const linked = markDynamicArrays(fixLegacyDrawingOrder(injectHyperlinks(processed, data.sheets.map((sd) => sd.layout?.hyperlinks))))
+  const named = injectTheme(data.names?.length ? injectDefinedNames(linked, data.names) : linked, data.theme)
+  return toBytes(injectDefaultFont(injectTables(injectScenarios(injectPictures(injectSparklines(injectPageSetup(injectOutline(injectProtection(named, data.sheets.map((sd) => sd.layout?.protection), data.protection, data.calcMode, data.sheets.map((sd) => sd.layout?.editRanges)), data.sheets.map((sd) => sd.layout)), data.sheets.map((sd) => sd.layout?.pageSetup)), data.sheets.map((sd) => sd.layout?.sparklines), sheetNames), data.sheets.map((sd) => sd.layout?.pictures), data.sheets.map((sd) => sd.layout)), data.sheets.map((sd) => sd.layout?.scenarios)), data.sheets.map((sd) => sd.layout), data.sheets.map((sd) => sd.cells as never)), data.defaultFont))
+}
+
+/** Same as writeXlsx, but big workbooks are built in a Web Worker (the UI stays responsive while saving). */
+export async function writeXlsxOffThread(data: WorkbookData, vba?: VbaProject): Promise<Uint8Array> {
+  let cells = 0
+  for (const s of data.sheets) cells += Object.keys(s.cells).length
+  if (cells < 20000 || typeof Worker === 'undefined' || typeof window === 'undefined') return writeXlsx(data, vba)
+  try {
+    return await new Promise<Uint8Array>((resolve, reject) => {
+      const worker = new Worker(new URL('./xlsxWrite.worker.ts', import.meta.url), { type: 'module' })
+      worker.onmessage = (ev: MessageEvent<{ ok: true; bytes: Uint8Array } | { ok: false; error: string }>): void => {
+        worker.terminate()
+        if (ev.data.ok) resolve(ev.data.bytes)
+        else reject(new Error(ev.data.error))
+      }
+      worker.onerror = (ev: ErrorEvent): void => {
+        worker.terminate()
+        reject(ev.error instanceof Error ? ev.error : new Error(ev.message || 'xlsx write worker failed'))
+      }
+      worker.postMessage({ data, vba })
+    })
+  } catch {
+    return writeXlsx(data, vba) // the worker could not run here: build it on this thread instead
+  }
 }
 
 // ---------- read (fast path) ----------

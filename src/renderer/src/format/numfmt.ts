@@ -1,3 +1,4 @@
+import { SHORT_DATE_FORMAT, LAKH_GROUPING, DAY_FIRST } from '../engine/locale'
 // Excel number-format engine (en-US). Dependency-free implementation of the Format-Cells
 // number-format grammar: sections, conditions, colors, digit placeholders, percent, scientific,
 // fractions, dates/times and text placeholders. Parsed format codes are cached.
@@ -646,7 +647,9 @@ function renderIntWithGrouping(pattern: string[], intDigitsStr: string, thousand
   const lead = core.slice(0, i)
   const digits = core.slice(i)
   if (!digits) return core
-  const grouped = digits.replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+  const grouped = LAKH_GROUPING && digits.length > 3
+    ? digits.slice(0, -3).replace(/\B(?=(\d{2})+(?!\d))/g, ',') + ',' + digits.slice(-3)
+    : digits.replace(/\B(?=(\d{3})+(?!\d))/g, ',')
   return lead + grouped
 }
 
@@ -938,8 +941,10 @@ export function detectInputFormat(raw: string): string | undefined {
   }
 
   // Date: 1/31/2025, 1/31, 31-Jan, Jan 2025
-  m = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/.exec(s)
-  if (m) return 'm/d/yyyy'
+  m = /^(\d{1,2})([/.-])(\d{1,2})\2(\d{2,4})$/.exec(s)
+  if (m) return SHORT_DATE_FORMAT
+  m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(s)
+  if (m) return 'yyyy-mm-dd'
   m = /^(\d{1,2})\/(\d{1,2})$/.exec(s)
   if (m) return 'd-mmm'
   m = /^(\d{1,2})-([A-Za-z]{3,9})$/.exec(s)
@@ -952,8 +957,30 @@ export function detectInputFormat(raw: string): string | undefined {
   // Thousands: 1,234 / 1,234.5
   m = /^-?\d{1,3}(,\d{3})+(\.\d+)?$/.exec(s)
   if (m) return m[2] ? '#,##0.00' : '#,##0'
+  // Lakh grouping on an English (India) PC: 12,34,567.89
+  m = LAKH_GROUPING ? /^-?\d{1,2}(,\d{2})*,\d{3}(\.\d+)?$/.exec(s) : null
+  if (m) return m[2] ? '#,##0.00' : '#,##0'
+  // Rupees: ₹5,000 / ₹ 12,34,567.50
+  m = /^-?₹\s*-?\d[\d,]*(\.\d+)?$/.exec(s)
+  if (m && groupedNumber(s.replace(/[₹\s-]/g, ''))) return m[1] ? '₹ #,##0.00;[Red]₹ -#,##0.00' : '₹ #,##0;[Red]₹ -#,##0'
 
   return undefined
+}
+
+function groupedNumber(s: string): boolean {
+  return /^\d+(\.\d+)?$/.test(s) || /^\d{1,3}(,\d{3})+(\.\d+)?$/.test(s) || (LAKH_GROUPING && /^\d{1,2}(,\d{2})*,\d{3}(\.\d+)?$/.test(s))
+}
+
+/** Excel stores "1,234.50", "12,34,567" (India) or "₹5,000" as the number, not as text. Returns the
+ *  plain number to store for such input, or undefined when the input isn't a grouped/currency number. */
+export function numericInput(raw: string): string | undefined {
+  const s = raw.trim()
+  const neg = /^-/.test(s) || /^₹\s*-/.test(s)
+  const body = s.replace(/^-/, '').replace(/^₹\s*-?/, '')
+  if (body === s.replace(/^-/, '') && !body.includes(',')) return undefined // plain numbers need no help
+  if (!groupedNumber(body)) return undefined
+  const n = body.replace(/,/g, '')
+  return neg ? '-' + n : n
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -985,6 +1012,18 @@ export const FORMAT_CATEGORIES: Record<string, FormatEntry[]> = {
     { label: ' 1,234.00 ', code: '_(* #,##0.00_);_(* (#,##0.00);_(* "-"??_);_(@_)' }
   ],
   Date: [
+    // A day-first PC (India, UK...) lists its regional formats first, as Excel does.
+    ...(DAY_FIRST
+      ? [
+          { label: '14-03-2012', code: 'dd-mm-yyyy' },
+          { label: '14/03/2012', code: 'dd/mm/yyyy' },
+          { label: '14 March 2012', code: 'dd mmmm yyyy' },
+          { label: '14-03-12', code: 'dd-mm-yy' },
+          { label: '14-Mar-2012', code: 'dd-mmm-yyyy' },
+          { label: '14.03.2012', code: 'dd.mm.yyyy' },
+          { label: '14-03-2012 13:30', code: 'dd-mm-yyyy hh:mm' }
+        ]
+      : []),
     { label: '3/14/2012', code: 'm/d/yyyy' },
     { label: 'Wednesday, March 14, 2012', code: 'dddd, mmmm d, yyyy' },
     { label: '3/14', code: 'm/d' },

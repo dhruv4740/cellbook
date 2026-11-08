@@ -1,0 +1,43 @@
+/* Motion that mirrors Excel's Fluent UI: short, decelerating fades/slides that never delay input.
+   Everything here is CSS-only (no JS timers) and switched off under prefers-reduced-motion. */
+:root {
+  --xl-ease-out: cubic-bezier(0.1, 0.9, 0.2, 1);
+  --xl-fast: 83ms;
+  --xl-normal: 167ms;
+}
+
+@keyframes xl-fade-in { from { opacity: 0 } to { opacity: 1 } }
+@keyframes xl-menu-in { from { opacity: 0; transform: translateY(-6px) } to { opacity: 1; transform: none } }
+@keyframes xl-flyout-in { from { opacity: 0; transform: translateX(-6px) } to { opacity: 1; transform: none } }
+@keyframes xl-dialog-in { from { opacity: 0; transform: translate(-50%, -50%) scale(0.97) } to { opacity: 1; transform: translate(-50%, -50%) } }
+@keyframes xl-backstage-in { from { opacity: 0; transform: translateX(-16px) } to { opacity: 1; transform: none } }
+@keyframes xl-ribbon-in { from { height: 0; opacity: 0 } to { height: 94px; opacity: 1 } }
+@keyframes xl-popup-in { from { opacity: 0; transform: scale(0.98) } to { opacity: 1; transform: none } }
+
+/* dropdowns, galleries and context menus */
+.xl-menu { animation: xl-menu-in var(--xl-normal) var(--xl-ease-out) backwards; }
+.xl-menu .xl-menu { animation-name: xl-flyout-in; }
+.xl-menu-header { animation: xl-menu-in var(--xl-normal) var(--xl-ease-out) backwards; }
+.xl-afmenu { animation: xl-menu-in var(--xl-normal) var(--xl-ease-out) backwards; }
+.xl-group-popup { animation: xl-popup-in var(--xl-fast) var(--xl-ease-out) backwards; }
+
+/* dialogs */
+.xl-dialog { animation: xl-dialog-in var(--xl-fast) var(--xl-ease-out) backwards; }
+
+/* File (backstage) view */
+.bs-root { animation: xl-fade-in var(--xl-normal) linear backwards; }
+.bs-nav { animation: xl-backstage-in var(--xl-normal) var(--xl-ease-out) backwards; }
+
+/* ribbon: expanding it, and switching tabs */
+.xl-ribbon-body { overflow: hidden; animation: xl-ribbon-in var(--xl-normal) var(--xl-ease-out) backwards; }
+.xl-ribbon-groups { animation: xl-fade-in 110ms linear backwards; }
+
+/* hover / press feedback */
+.xl-tab, .xl-big-btn, .xl-small-btn, .xl-small-split-main, .xl-btn, .xl-dialog-tbtn, .xl-menu-item, .xl-ribbon-display, .xl-tab-action, .xl-afmenu-item {
+  transition: background-color var(--xl-fast) linear, border-color var(--xl-fast) linear, box-shadow var(--xl-fast) linear, color var(--xl-fast) linear;
+}
+.xl-tab::after { transition: opacity var(--xl-fast) linear; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}

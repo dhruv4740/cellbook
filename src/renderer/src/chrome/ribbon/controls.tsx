@@ -64,7 +64,7 @@ export function KeyTipBadge({ code }: { code?: string }) {
 }
 
 /** Large ribbon button: icon on top, label wraps below, used for group headline commands. */
-export function BigButton({ icon, label, tip, onClick, active, disabled, color, menu, wide, keytip }: BtnProps & { menu?: MenuItem[]; wide?: boolean }) {
+export function BigButton({ icon, label, tip, onClick, active, disabled, color, menu, wide, keytip, width }: BtnProps & { menu?: MenuItem[]; wide?: boolean; width?: number }) {
   const [open, setOpen] = useState<{ x: number; y: number } | null>(null)
   const ref = useRef<HTMLButtonElement>(null)
   return (
@@ -72,7 +72,9 @@ export function BigButton({ icon, label, tip, onClick, active, disabled, color, 
       <button
         ref={ref}
         className={'xl-big-btn' + (wide ? ' wide' : '') + (active ? ' active' : '') + (open ? ' active' : '')}
+        style={width ? { width, minWidth: width } : undefined}
         disabled={disabled}
+        aria-label={label ? undefined : tip?.title}
         onClick={() => {
           if (menu) {
             const r = ref.current!.getBoundingClientRect()
@@ -93,13 +95,17 @@ export function BigButton({ icon, label, tip, onClick, active, disabled, color, 
 }
 
 /** Split button: left = default action (icon+label), right = separate dropdown caret. */
-export function SplitButton({ icon, label, tip, onClick, active, color, menu, keytip }: BtnProps & { menu: MenuItem[] }) {
+export function SplitButton({ icon, label, tip, onClick, active, color, menu, keytip, menuOnly }: BtnProps & { menu: MenuItem[]; menuOnly?: boolean }) {
   const [open, setOpen] = useState<{ x: number; y: number } | null>(null)
   const ref = useRef<HTMLDivElement>(null)
+  const openMenu = (): void => {
+    const r = ref.current!.getBoundingClientRect()
+    setOpen({ x: r.left, y: r.bottom })
+  }
   return (
     <TipWrap tip={tip}>
       <div ref={ref} className={'xl-big-btn xl-split' + (active ? ' active' : '')}>
-        <button className="xl-split-main" onClick={onClick}>
+        <button className="xl-split-main" onClick={menuOnly ? openMenu : onClick}>
           <span className="xl-big-icon" style={{ position: 'relative' }}>
             {icon}
             {color && <span className="xl-color-bar" style={{ background: color }} />}
@@ -109,10 +115,7 @@ export function SplitButton({ icon, label, tip, onClick, active, color, menu, ke
         </button>
         <button
           className="xl-split-caret"
-          onClick={() => {
-            const r = ref.current!.getBoundingClientRect()
-            setOpen({ x: r.left, y: r.bottom })
-          }}
+          onClick={openMenu}
         >
           <ChevronDown12Regular />
         </button>
@@ -129,7 +132,7 @@ export function StackSplit({ icon, label, tip, onClick, menu, keytip }: BtnProps
   return (
     <TipWrap tip={tip}>
       <div ref={ref} className="xl-stacksplit">
-        <button className="xl-stacksplit-main" onClick={onClick}>
+        <button className="xl-stacksplit-main" aria-label={label ? undefined : tip?.title} onClick={onClick}>
           <span className="xl-stacksplit-icon" style={{ position: 'relative' }}>{icon}<KeyTipBadge code={keytip} /></span>
           {label && <span className="xl-stacksplit-label">{label}</span>}
         </button>
@@ -149,14 +152,33 @@ export function StackSplit({ icon, label, tip, onClick, menu, keytip }: BtnProps
 }
 
 /** Small (16px) ribbon button used stacked 2-3 per group, or in a row. */
-export function SmallButton({ icon, label, tip, onClick, onDoubleClick, active, disabled, menu, keytip }: BtnProps & { menu?: MenuItem[]; onDoubleClick?: () => void }) {
+export function SmallButton({ icon, label, tip, onClick, onDoubleClick, active, disabled, menu, keytip, split }: BtnProps & { menu?: MenuItem[]; onDoubleClick?: () => void; split?: boolean }) {
   const [open, setOpen] = useState<{ x: number; y: number } | null>(null)
   const ref = useRef<HTMLButtonElement>(null)
+  const wrap = useRef<HTMLDivElement>(null)
+  if (split && menu) {
+    // Excel's Underline / Borders: the button runs the current choice, the arrow opens the list.
+    return (
+      <TipWrap tip={tip}>
+        <div ref={wrap} className={'xl-small-btn xl-split' + (active ? ' active' : '')}>
+          <button className="xl-small-split-main" aria-label={label ? undefined : tip?.title} disabled={disabled} onClick={onClick}>
+            <span className="xl-small-icon" style={{ position: 'relative' }}>{icon}<KeyTipBadge code={keytip} /></span>
+            {label && <span className="xl-small-label">{label}</span>}
+          </button>
+          <button className="xl-small-split-caret" disabled={disabled} onClick={() => { const r = wrap.current!.getBoundingClientRect(); setOpen({ x: r.left, y: r.bottom }) }}>
+            <ChevronDown12Regular />
+          </button>
+        </div>
+        {open && <Menu x={open.x} y={open.y} items={menu} onClose={() => setOpen(null)} />}
+      </TipWrap>
+    )
+  }
   return (
     <TipWrap tip={tip}>
       <button
         ref={ref}
         className={'xl-small-btn' + (active ? ' active' : '') + (open ? ' active' : '')}
+        aria-label={label ? undefined : tip?.title}
         disabled={disabled}
         onDoubleClick={onDoubleClick}
         onClick={() => {
@@ -279,7 +301,9 @@ function GroupPopup({ anchor, onClose, children }: { anchor: HTMLElement | null;
     const btn = t.closest('button, .xl-combo-item') as HTMLElement | null
     if (!btn) return
     if (btn.querySelector('[class*="caret"]')) return
-    onClose()
+    // Closed after the click has been handled: unmounting the popup while the event is still being dispatched
+    // dropped the button's own onClick when the click came from a real mouse.
+    setTimeout(onClose, 0)
   }
 
   if (!pos) return null

@@ -1,14 +1,20 @@
 // Home tab: Clipboard, Font, Alignment, Number, Styles, Cells, Editing, Add-ins.
 import { ReactNode, useRef, useState } from 'react'
 import { useStore } from '../../model/store'
-import { useUi, setUi, getUi } from '../ui'
-import { CellStyle, normRange } from '../../model/types'
+import { useUi, setUi, getUi, notAvailable } from '../ui'
+import { hideSheet } from '../sheetCommands'
+import { CURRENCY_FORMAT, ACCOUNTING_FORMAT, SHORT_DATE_FORMAT, LONG_DATE_FORMAT, CURRENCY_SYMBOL } from '../../engine/locale'
+import { CellStyle, normRange, normalFont } from '../../model/types'
 import { MenuItem } from '../../components/Menu'
 import { Group, GroupSep, BigButton, SplitButton, StackSplit, SmallButton, DialogLauncher, Combo, KeyTipBadge } from './controls'
 import { ChevronDown12Regular } from '@fluentui/react-icons'
 import { ColorMenu } from './ColorMenu'
 import * as cmds from '../../grid/commands'
+import { copyAsPicture } from '../../grid/copyPicture'
 import { getSpecialRanges } from '../../dialogs/find'
+import { toggleSheetProtection } from '../../dialogs/ProtectDialogs'
+import { addCfRule, clearCfRules } from '../../format/conditional'
+import { loadCustomTableStyles } from '../../format/customTableStyles'
 import {
   ClipboardPaste24Regular, Cut20Regular, Copy20Regular, PaintBrush20Regular,
   TextBold20Regular, TextItalic20Regular, TextUnderline20Regular, TextUnderlineDouble20Regular,
@@ -35,10 +41,10 @@ const SIZES = ['8', '9', '10', '11', '12', '14', '16', '18', '20', '24', '28', '
 const NUMFMT: [string, string][] = [
   ['General', 'General'],
   ['Number', '0.00'],
-  ['Currency', '$#,##0.00'],
-  ['Accounting', '_($* #,##0.00_);_($* (#,##0.00);_($* "-"??_);_(@_)'],
-  ['Short Date', 'm/d/yyyy'],
-  ['Long Date', 'dddd, mmmm d, yyyy'],
+  ['Currency', CURRENCY_FORMAT],
+  ['Accounting', ACCOUNTING_FORMAT],
+  ['Short Date', SHORT_DATE_FORMAT],
+  ['Long Date', LONG_DATE_FORMAT],
   ['Time', 'h:mm:ss AM/PM'],
   ['Percentage', '0.00%'],
   ['Fraction', '# ?/?'],
@@ -74,7 +80,7 @@ const CELL_STYLES: [string, Partial<CellStyle>][] = [
   ['60% - Accent2', { fill: '#F0935E', color: '#FFFFFF' }],
   ['Accent2', { fill: '#ED7D31', color: '#FFFFFF' }],
   ['Comma', { numFmt: '#,##0.00' }],
-  ['Currency', { numFmt: '$#,##0.00' }],
+  ['Currency', { numFmt: CURRENCY_FORMAT }],
   ['Percent', { numFmt: '0%' }]
 ]
 
@@ -88,52 +94,18 @@ export default function HomeTab() {
   const [colorMenu, setColorMenu] = useState<{ x: number; y: number; mode: 'font' | 'fill' } | null>(null)
   const [lastFontColor, setLastFontColor] = useState('#FF0000')
   const [lastFill, setLastFill] = useState('#FFFF00')
+  const [lastBorder, setLastBorder] = useState('bottom')
 
   const setStyle = (patch: Partial<CellStyle>, label = 'Format Cells') => store.applyStyle(sheet, ranges, patch, label)
   const toggle = (key: 'bold' | 'italic' | 'strike', label: string) => setStyle({ [key]: !style[key] } as Partial<CellStyle>, label)
 
   const applyBorders = (kind: string) => {
-    ranges.forEach((rg) => {
-      const n = normRange(rg)
-      store.applyStyle(sheet, [rg], (s, r, c) => {
-        const b: NonNullable<CellStyle['borders']> = { ...s.borders }
-        const thin = { style: 'thin', color: '#000000' } as const
-        const thick = { style: 'medium', color: '#000000' } as const
-        const clearAll = () => { delete b.top; delete b.right; delete b.bottom; delete b.left }
-        switch (kind) {
-          case 'bottom': b.bottom = thin; break
-          case 'top': b.top = thin; break
-          case 'left': b.left = thin; break
-          case 'right': b.right = thin; break
-          case 'none': clearAll(); break
-          case 'all': b.top = thin; b.bottom = thin; b.left = thin; b.right = thin; break
-          case 'outside':
-            if (r === n.r1) b.top = thin; if (r === n.r2) b.bottom = thin
-            if (c === n.c1) b.left = thin; if (c === n.c2) b.right = thin
-            break
-          case 'thickOutside':
-            if (r === n.r1) b.top = thick; if (r === n.r2) b.bottom = thick
-            if (c === n.c1) b.left = thick; if (c === n.c2) b.right = thick
-            break
-          case 'bottomDouble': b.bottom = { style: 'double', color: '#000000' }; break
-          case 'thickBottom': b.bottom = thick; break
-          case 'topBottom': b.top = thin; b.bottom = thin; break
-          case 'topThickBottom': b.top = thin; b.bottom = thick; break
-        }
-        return { ...s, borders: Object.keys(b).length ? b : undefined }
-      }, 'Borders')
-    })
+    setLastBorder(kind)
+    cmds.applyBorderPreset(kind)
   }
 
-  const decimalAdjust = (delta: number) => {
-    const cur = style.numFmt && style.numFmt !== 'General' ? style.numFmt : '0'
-    const isPct = /%$/.test(cur)
-    const isCur = /^\$/.test(cur)
-    const m = /\.(0+)/.exec(cur)
-    const dec = Math.max(0, (m ? m[1].length : 0) + delta)
-    const base = isCur ? '$#,##0' : (/#,##0/.test(cur) ? '#,##0' : '0')
-    setStyle({ numFmt: base + (dec > 0 ? '.' + '0'.repeat(dec) : '') + (isPct ? '%' : '') }, 'Number Format')
-  }
+
+  const decimalAdjust = (delta: 1 | -1) => cmds.adjustDecimal(delta)
 
   const curFmtName = NUMFMT.find(([, code]) => code === (style.numFmt || 'General'))?.[0] ?? (style.numFmt || 'General')
 
@@ -166,6 +138,7 @@ export default function HomeTab() {
     { label: 'Thick Botto&m Border', onClick: () => applyBorders('thickBottom') },
     { label: 'T&op and Bottom Border', onClick: () => applyBorders('topBottom') },
     { label: 'Top and Thick Bottom Border', onClick: () => applyBorders('topThickBottom') },
+    { label: 'Top and Double Bottom Border', onClick: () => applyBorders('topDoubleBottom') },
     'separator',
     { label: '&More Borders...', onClick: () => setUi({ dialog: { kind: 'formatCells', props: { tab: 'Border' } } }) }
   ]
@@ -206,11 +179,11 @@ export default function HomeTab() {
   const hideUnhideMenu: MenuItem[] = [
     { label: 'Hide &Rows', onClick: () => cmds.hideRows(true) },
     { label: 'Hide &Columns', onClick: () => cmds.hideColumns(true) },
-    { label: 'Hide &Sheet', onClick: () => {} },
+    { label: 'Hide &Sheet', onClick: () => hideSheet() },
     'separator',
     { label: '&Unhide Rows...', onClick: () => cmds.hideRows(false) },
     { label: 'U&nhide Columns...', onClick: () => cmds.hideColumns(false) },
-    { label: 'Unhide S&heet...', onClick: () => {} }
+    { label: 'Unhide S&heet...', disabled: !store.sheets.some((s) => s.layout.sheetHidden === 'hidden'), onClick: () => setUi({ dialog: { kind: 'unhideSheet' } }) }
   ]
   const formatMenu: MenuItem[] = [
     { label: 'Row &Height...', onClick: () => setUi({ dialog: { kind: 'rowHeight' } }) },
@@ -222,10 +195,17 @@ export default function HomeTab() {
     { label: 'Hide, &Unhide', submenu: hideUnhideMenu },
     'separator',
     { label: '&Rename Sheet', onClick: () => setUi({ dialog: { kind: 'renameSheet' } }) },
-    { label: '&Move or Copy Sheet...', onClick: () => {} },
-    { label: 'Ta&b Color', onClick: () => {} },
+    { label: '&Move or Copy Sheet...', onClick: () => setUi({ dialog: { kind: 'moveCopySheet', props: { index: store.activeIndex } } }) },
+    {
+      label: 'Ta&b Color',
+      submenu: ['#FF0000', '#FFC000', '#FFFF00', '#92D050', '#00B050', '#00B0F0', '#0070C0', '#002060', '#7030A0', 'No Color'].map((c) => ({
+        label: c === 'No Color' ? '&No Color' : c,
+        icon: c === 'No Color' ? undefined : <span style={{ display: 'inline-block', width: 12, height: 12, background: c }} />,
+        onClick: () => store.updateLayout(store.active, 'Tab Color', (l) => (l.tabColor = c === 'No Color' ? undefined : c))
+      }))
+    },
     'separator',
-    { label: '&Protect Sheet...', onClick: () => {} },
+    { label: store.active.layout.protection ? 'Unprotect S&heet...' : '&Protect Sheet...', onClick: () => toggleSheetProtection(store.active) },
     { label: '&Lock Cell', onClick: () => setStyle({ locked: !style.locked }, 'Lock Cell') },
     { label: 'Format C&ells...', shortcut: 'Ctrl+1', onClick: () => setUi({ dialog: { kind: 'formatCells', props: { tab: 'Number' } } }) }
   ]
@@ -244,20 +224,20 @@ export default function HomeTab() {
     { label: '&Up', onClick: () => cmds.fill('up') },
     { label: '&Left', onClick: () => cmds.fill('left') },
     'separator',
-    { label: '&Series...', onClick: () => {} },
-    { label: '&Justify', onClick: () => {} }
+    { label: '&Series...', onClick: () => setUi({ dialog: { kind: 'series' } }) },
+    { label: '&Justify', onClick: () => cmds.justifySelection() }
   ]
   const clearMenu: MenuItem[] = [
     { label: 'Clear &All', onClick: () => cmds.clearSelection('all') },
     { label: 'Clear &Formats', onClick: () => cmds.clearSelection('formats') },
     { label: 'Clear &Contents', shortcut: 'Del', onClick: () => cmds.clearSelection('contents') },
-    { label: 'Clear Co&mments and Notes', onClick: () => {} },
-    { label: 'Clear H&yperlinks', onClick: () => {} }
+    { label: 'Clear Co&mments and Notes', onClick: () => cmds.clearSelection('notes') },
+    { label: 'Clear H&yperlinks', onClick: () => cmds.clearSelection('hyperlinks') }
   ]
   const sortMenu: MenuItem[] = [
     { label: 'Sort &A to Z', onClick: () => cmds.sortSelection('asc') },
     { label: 'Sort &Z to A', onClick: () => cmds.sortSelection('desc') },
-    { label: 'Custom Sort...', onClick: () => {} },
+    { label: 'Custom Sort...', onClick: () => cmds.openSortDialog() },
     'separator',
     { label: '&Filter', icon: <Filter20Regular />, checked: !!store.active.layout.autoFilter, shortcut: 'Ctrl+Shift+L', onClick: () => store.toggleAutoFilter() },
     { label: 'Clear', onClick: () => store.clearAllFilters(), disabled: !store.active.layout.autoFilter },
@@ -274,6 +254,7 @@ export default function HomeTab() {
       onClick: () => {
         const ranges = getSpecialRanges(store, 'formulas')
         if (ranges.length > 0) store.setSelection({ ranges, active: { r: ranges[0].r1, c: ranges[0].c1 } })
+        else setUi({ dialog: { kind: 'message', props: { text: 'No cells were found.' } } })
       }
     },
     {
@@ -281,6 +262,7 @@ export default function HomeTab() {
       onClick: () => {
         const ranges = getSpecialRanges(store, 'comments')
         if (ranges.length > 0) store.setSelection({ ranges, active: { r: ranges[0].r1, c: ranges[0].c1 } })
+        else setUi({ dialog: { kind: 'message', props: { text: 'No cells were found.' } } })
       }
     },
     {
@@ -288,10 +270,104 @@ export default function HomeTab() {
       onClick: () => {
         const ranges = getSpecialRanges(store, 'constants')
         if (ranges.length > 0) store.setSelection({ ranges, active: { r: ranges[0].r1, c: ranges[0].c1 } })
+        else setUi({ dialog: { kind: 'message', props: { text: 'No cells were found.' } } })
       }
     },
     'separator',
-    { label: 'Select Objects', onClick: () => {} }
+    { label: 'Select &Objects', checked: getUi().selectObjectsMode, onClick: () => setUi({ selectObjectsMode: !getUi().selectObjectsMode }) }
+  ]
+
+  const cfMenu: MenuItem[] = [
+    {
+      label: 'Highlight Cells Rules',
+      submenu: [
+        { label: 'Greater Than...', onClick: () => setUi({ dialog: { kind: 'cfQuick', props: { kind: 'greaterThan' } } }) },
+        { label: 'Less Than...', onClick: () => setUi({ dialog: { kind: 'cfQuick', props: { kind: 'lessThan' } } }) },
+        { label: 'Between...', onClick: () => setUi({ dialog: { kind: 'cfQuick', props: { kind: 'between' } } }) },
+        { label: 'Equal To...', onClick: () => setUi({ dialog: { kind: 'cfQuick', props: { kind: 'equal' } } }) },
+        { label: 'Text that Contains...', onClick: () => setUi({ dialog: { kind: 'cfQuick', props: { kind: 'textContains' } } }) },
+        { label: 'A Date Occurring...', onClick: () => setUi({ dialog: { kind: 'cfQuick', props: { kind: 'dateOccurring' } } }) },
+        { label: 'Duplicate Values...', onClick: () => setUi({ dialog: { kind: 'cfQuick', props: { kind: 'duplicateValues' } } }) },
+        'separator',
+        { label: 'More Rules...', onClick: () => setUi({ dialog: { kind: 'cfNewRule' } }) }
+      ]
+    },
+    {
+      label: 'Top/Bottom Rules',
+      submenu: [
+        { label: 'Top 10 Items...', onClick: () => setUi({ dialog: { kind: 'cfQuick', props: { kind: 'top10Items' } } }) },
+        { label: 'Top 10%...', onClick: () => setUi({ dialog: { kind: 'cfQuick', props: { kind: 'top10Percent' } } }) },
+        { label: 'Bottom 10 Items...', onClick: () => setUi({ dialog: { kind: 'cfQuick', props: { kind: 'bottom10Items' } } }) },
+        { label: 'Bottom 10%...', onClick: () => setUi({ dialog: { kind: 'cfQuick', props: { kind: 'bottom10Percent' } } }) },
+        { label: 'Above Average...', onClick: () => setUi({ dialog: { kind: 'cfQuick', props: { kind: 'aboveAverage' } } }) },
+        { label: 'Below Average...', onClick: () => setUi({ dialog: { kind: 'cfQuick', props: { kind: 'belowAverage' } } }) },
+        'separator',
+        { label: 'More Rules...', onClick: () => setUi({ dialog: { kind: 'cfNewRule' } }) }
+      ]
+    },
+    {
+      label: 'Data Bars',
+      submenu: [
+        { label: 'Blue Data Bar', onClick: () => addCfRule(store, sheet, { ranges, type: 'dataBar', dataBar: { color: '#638EC6', gradient: true } }) },
+        { label: 'Green Data Bar', onClick: () => addCfRule(store, sheet, { ranges, type: 'dataBar', dataBar: { color: '#63C384', gradient: true } }) },
+        { label: 'Red Data Bar', onClick: () => addCfRule(store, sheet, { ranges, type: 'dataBar', dataBar: { color: '#FF555A', gradient: true } }) },
+        { label: 'Orange Data Bar', onClick: () => addCfRule(store, sheet, { ranges, type: 'dataBar', dataBar: { color: '#FFB620', gradient: true } }) },
+        { label: 'Light Blue Data Bar', onClick: () => addCfRule(store, sheet, { ranges, type: 'dataBar', dataBar: { color: '#33CCCC', gradient: true } }) },
+        { label: 'Purple Data Bar', onClick: () => addCfRule(store, sheet, { ranges, type: 'dataBar', dataBar: { color: '#800080', gradient: true } }) },
+        'separator',
+        { label: 'Blue Data Bar (Solid)', onClick: () => addCfRule(store, sheet, { ranges, type: 'dataBar', dataBar: { color: '#0070C0', gradient: false } }) },
+        { label: 'Green Data Bar (Solid)', onClick: () => addCfRule(store, sheet, { ranges, type: 'dataBar', dataBar: { color: '#00B050', gradient: false } }) },
+        { label: 'Red Data Bar (Solid)', onClick: () => addCfRule(store, sheet, { ranges, type: 'dataBar', dataBar: { color: '#C00000', gradient: false } }) },
+        { label: 'Orange Data Bar (Solid)', onClick: () => addCfRule(store, sheet, { ranges, type: 'dataBar', dataBar: { color: '#FFC000', gradient: false } }) },
+        { label: 'Light Blue Data Bar (Solid)', onClick: () => addCfRule(store, sheet, { ranges, type: 'dataBar', dataBar: { color: '#00B0F0', gradient: false } }) },
+        { label: 'Purple Data Bar (Solid)', onClick: () => addCfRule(store, sheet, { ranges, type: 'dataBar', dataBar: { color: '#7030A0', gradient: false } }) },
+        'separator',
+        { label: 'More Rules...', onClick: () => setUi({ dialog: { kind: 'cfNewRule' } }) }
+      ]
+    },
+    {
+      label: 'Color Scales',
+      submenu: [
+        { label: 'Green - Yellow - Red Color Scale', onClick: () => addCfRule(store, sheet, { ranges, type: 'colorScale', colorScale: { minColor: '#F8696B', midColor: '#FFEB84', maxColor: '#63BE7B' } }) },
+        { label: 'Red - Yellow - Green Color Scale', onClick: () => addCfRule(store, sheet, { ranges, type: 'colorScale', colorScale: { minColor: '#63BE7B', midColor: '#FFEB84', maxColor: '#F8696B' } }) },
+        { label: 'Green - White - Red Color Scale', onClick: () => addCfRule(store, sheet, { ranges, type: 'colorScale', colorScale: { minColor: '#F8696B', midColor: '#FFFFFF', maxColor: '#63BE7B' } }) },
+        { label: 'Red - White - Green Color Scale', onClick: () => addCfRule(store, sheet, { ranges, type: 'colorScale', colorScale: { minColor: '#63BE7B', midColor: '#FFFFFF', maxColor: '#F8696B' } }) },
+        { label: 'Blue - White - Red Color Scale', onClick: () => addCfRule(store, sheet, { ranges, type: 'colorScale', colorScale: { minColor: '#F8696B', midColor: '#FFFFFF', maxColor: '#5A8AC6' } }) },
+        { label: 'Red - White - Blue Color Scale', onClick: () => addCfRule(store, sheet, { ranges, type: 'colorScale', colorScale: { minColor: '#5A8AC6', midColor: '#FFFFFF', maxColor: '#F8696B' } }) },
+        { label: 'White - Red Color Scale', onClick: () => addCfRule(store, sheet, { ranges, type: 'colorScale', colorScale: { minColor: '#FFFFFF', maxColor: '#F8696B' } }) },
+        { label: 'Red - White Color Scale', onClick: () => addCfRule(store, sheet, { ranges, type: 'colorScale', colorScale: { minColor: '#F8696B', maxColor: '#FFFFFF' } }) },
+        { label: 'Green - White Color Scale', onClick: () => addCfRule(store, sheet, { ranges, type: 'colorScale', colorScale: { minColor: '#FFFFFF', maxColor: '#63BE7B' } }) },
+        { label: 'White - Green Color Scale', onClick: () => addCfRule(store, sheet, { ranges, type: 'colorScale', colorScale: { minColor: '#63BE7B', maxColor: '#FFFFFF' } }) },
+        { label: 'Green - Yellow Color Scale', onClick: () => addCfRule(store, sheet, { ranges, type: 'colorScale', colorScale: { minColor: '#FFEB84', maxColor: '#63BE7B' } }) },
+        { label: 'Yellow - Green Color Scale', onClick: () => addCfRule(store, sheet, { ranges, type: 'colorScale', colorScale: { minColor: '#63BE7B', maxColor: '#FFEB84' } }) },
+        'separator',
+        { label: 'More Rules...', onClick: () => setUi({ dialog: { kind: 'cfNewRule' } }) }
+      ]
+    },
+    {
+      label: 'Icon Sets',
+      submenu: [
+        { label: '3 Traffic Lights (Unrimmed)', onClick: () => addCfRule(store, sheet, { ranges, type: 'iconSet', iconSet: { name: '3TrafficLights1' } }) },
+        { label: '3 Traffic Lights (Rimmed)', onClick: () => addCfRule(store, sheet, { ranges, type: 'iconSet', iconSet: { name: '3TrafficLights2' } }) },
+        { label: '3 Arrows (Colored)', onClick: () => addCfRule(store, sheet, { ranges, type: 'iconSet', iconSet: { name: '3Arrows' } }) },
+        { label: '3 Symbols (Circled)', onClick: () => addCfRule(store, sheet, { ranges, type: 'iconSet', iconSet: { name: '3Symbols' } }) },
+        { label: '3 Flags', onClick: () => addCfRule(store, sheet, { ranges, type: 'iconSet', iconSet: { name: '3Flags' } }) },
+        { label: '4 Ratings', onClick: () => addCfRule(store, sheet, { ranges, type: 'iconSet', iconSet: { name: '4Rating' } }) },
+        { label: '5 Ratings', onClick: () => addCfRule(store, sheet, { ranges, type: 'iconSet', iconSet: { name: '5Rating' } }) },
+        'separator',
+        { label: 'More Rules...', onClick: () => setUi({ dialog: { kind: 'cfNewRule' } }) }
+      ]
+    },
+    'separator',
+    { label: 'New Rule...', onClick: () => setUi({ dialog: { kind: 'cfNewRule' } }) },
+    {
+      label: 'Clear Rules',
+      submenu: [
+        { label: 'Clear Rules from Selected Cells', onClick: () => clearCfRules(store, sheet, 'selection') },
+        { label: 'Clear Rules from Entire Sheet', onClick: () => clearCfRules(store, sheet, 'sheet') }
+      ]
+    },
+    { label: 'Manage Rules...', onClick: () => setUi({ dialog: { kind: 'cfManage' } }) }
   ]
 
   return (
@@ -301,11 +377,10 @@ export default function HomeTab() {
           <SplitButton icon={<ClipboardPaste24Regular fontSize={28} />} label="Paste" tip={{ title: 'Paste (Ctrl+V)', desc: 'Paste the contents of the Clipboard.' }} onClick={() => cmds.paste('all')} menu={pasteMenu} keytip="V" />
         </div>
         <div className="xl-col xl-stack">
-          <SmallButton icon={<Cut20Regular />} label="Cut" tip={{ title: 'Cut (Ctrl+X)' }} onClick={() => cmds.cut()} keytip="X" />
-          <SmallButton icon={<Copy20Regular />} label="Copy" menu={[{ label: '&Copy', onClick: () => cmds.copy() }, { label: 'Copy as &Picture...', onClick: () => {} }]} tip={{ title: 'Copy (Ctrl+C)' }} onClick={() => cmds.copy()} keytip="C" />
+          <SmallButton icon={<Cut20Regular />} tip={{ title: 'Cut (Ctrl+X)' }} onClick={() => cmds.cut()} keytip="X" />
+          <SmallButton icon={<Copy20Regular />} split menu={[{ label: '&Copy', onClick: () => cmds.copy() }, { label: 'Copy as &Picture...', onClick: () => void copyAsPicture() }]} tip={{ title: 'Copy (Ctrl+C)' }} onClick={() => cmds.copy()} keytip="C" />
           <SmallButton
             icon={<PaintBrush20Regular />}
-            label="Format Painter"
             tip={{ title: 'Format Painter', desc: 'Copy formatting to another selection. Double-click to keep it on.' }}
             active={!!getUi().formatPainter}
             onClick={() => setUi({ formatPainter: getUi().formatPainter ? null : { once: true } })}
@@ -319,17 +394,16 @@ export default function HomeTab() {
       <Group label="Font" icon={<TextFont20Regular />}>
         <div className="xl-col">
           <div className="xl-row">
-            <Combo value={style.fontFamily ?? 'Calibri'} options={FONTS} width={120} tip={{ title: 'Font' }} onChange={(v) => setStyle({ fontFamily: v }, 'Font')} keytip="FF" />
-            <Combo value={String(style.fontSize ?? 11)} options={SIZES} width={48} tip={{ title: 'Font Size' }} onChange={(v) => { const n = +v; if (n > 0) setStyle({ fontSize: n }, 'Font Size') }} keytip="FS" />
+            <Combo value={style.fontFamily ?? normalFont.name} options={FONTS} width={112} tip={{ title: 'Font' }} onChange={(v) => setStyle({ fontFamily: v }, 'Font')} keytip="FF" />
+            <Combo value={String(style.fontSize ?? 11)} options={SIZES} width={40} tip={{ title: 'Font Size' }} onChange={(v) => { const n = +v; if (n > 0) setStyle({ fontSize: n }, 'Font Size') }} keytip="FS" />
             <SmallButton icon={<FontIncrease20Regular />} tip={{ title: 'Increase Font Size' }} onClick={() => setStyle({ fontSize: (style.fontSize ?? 11) + 1 }, 'Font Size')} keytip="FG" />
             <SmallButton icon={<FontDecrease20Regular />} tip={{ title: 'Decrease Font Size' }} onClick={() => setStyle({ fontSize: Math.max(1, (style.fontSize ?? 11) - 1) }, 'Font Size')} keytip="FK" />
           </div>
           <div className="xl-row">
             <SmallButton icon={<TextBold20Regular />} active={!!style.bold} tip={{ title: 'Bold (Ctrl+B)' }} onClick={() => toggle('bold', 'Bold')} keytip="1" />
             <SmallButton icon={<TextItalic20Regular />} active={!!style.italic} tip={{ title: 'Italic (Ctrl+I)' }} onClick={() => toggle('italic', 'Italic')} keytip="2" />
-            <SmallButton icon={<TextUnderline20Regular />} active={!!style.underline} tip={{ title: 'Underline (Ctrl+U)' }} menu={underlineMenu} onClick={() => setStyle({ underline: style.underline ? undefined : 'single' }, 'Underline')} keytip="3" />
-            <SmallButton icon={<TextStrikethrough20Regular />} active={!!style.strike} tip={{ title: 'Strikethrough' }} onClick={() => toggle('strike', 'Strikethrough')} keytip="4" />
-            <SmallButton icon={<BorderAll20Regular />} tip={{ title: 'Borders' }} menu={bordersMenu} onClick={() => applyBorders('bottom')} keytip="B" />
+            <SmallButton icon={<TextUnderline20Regular />} active={!!style.underline} tip={{ title: 'Underline (Ctrl+U)' }} split menu={underlineMenu} onClick={() => setStyle({ underline: style.underline ? undefined : 'single' }, 'Underline')} keytip="3" />
+            <SmallButton icon={<BorderAll20Regular />} tip={{ title: 'Borders' }} split menu={bordersMenu} onClick={() => applyBorders(lastBorder)} keytip="B" />
             <ColorSplit
               icon={<PaintBucket20Regular />}
               color={lastFill}
@@ -358,22 +432,19 @@ export default function HomeTab() {
             <SmallButton icon={<AlignTop20Regular />} active={style.vAlign === 'top'} tip={{ title: 'Top Align' }} onClick={() => setStyle({ vAlign: 'top' }, 'Align')} keytip="AT" />
             <SmallButton icon={<AlignCenterVertical20Regular />} active={style.vAlign === 'middle'} tip={{ title: 'Middle Align' }} onClick={() => setStyle({ vAlign: 'middle' }, 'Align')} keytip="AM" />
             <SmallButton icon={<AlignBottom20Regular />} active={style.vAlign === 'bottom'} tip={{ title: 'Bottom Align' }} onClick={() => setStyle({ vAlign: 'bottom' }, 'Align')} keytip="AB" />
-            <SmallButton icon={<TextAlignCenterRotate27020Regular />} tip={{ title: 'Orientation' }} menu={orientationMenu} onClick={() => {}} keytip="TQ" />
+            <SmallButton icon={<TextAlignCenterRotate27020Regular />} tip={{ title: 'Orientation' }} menu={orientationMenu} keytip="TQ" />
           </div>
           <div className="xl-row">
             <SmallButton icon={<AlignLeft20Regular />} active={style.hAlign === 'left'} tip={{ title: 'Align Left' }} onClick={() => setStyle({ hAlign: 'left' }, 'Align')} keytip="AL" />
             <SmallButton icon={<AlignCenterHorizontal20Regular />} active={style.hAlign === 'center'} tip={{ title: 'Center' }} onClick={() => setStyle({ hAlign: 'center' }, 'Align')} keytip="AC" />
             <SmallButton icon={<AlignRight20Regular />} active={style.hAlign === 'right'} tip={{ title: 'Align Right' }} onClick={() => setStyle({ hAlign: 'right' }, 'Align')} keytip="AR" />
-            <SmallButton icon={<TextWrap20Regular />} active={!!style.wrap} tip={{ title: 'Wrap Text' }} onClick={() => setStyle({ wrap: !style.wrap }, 'Wrap Text')} keytip="W" />
-          </div>
-          <div className="xl-row">
             <SmallButton icon={<TextIndentDecrease20Regular />} tip={{ title: 'Decrease Indent' }} onClick={() => setStyle({ indent: Math.max(0, (style.indent ?? 0) - 1) }, 'Indent')} keytip="AO" />
             <SmallButton icon={<TextIndentIncrease20Regular />} tip={{ title: 'Increase Indent' }} onClick={() => setStyle({ indent: (style.indent ?? 0) + 1 }, 'Indent')} keytip="AI" />
           </div>
         </div>
         <div className="xl-col xl-align-side">
           <SmallButton icon={<TextWrap20Regular />} label="Wrap Text" active={!!style.wrap} tip={{ title: 'Wrap Text' }} onClick={() => setStyle({ wrap: !style.wrap }, 'Wrap Text')} />
-          <SmallButton icon={<TableCellsMerge20Regular />} label="Merge & Center" tip={{ title: 'Merge & Center' }} menu={mergeMenu} onClick={() => cmds.mergeCells('center')} keytip="M" />
+          <SmallButton icon={<TableCellsMerge20Regular />} label="Merge & Center" tip={{ title: 'Merge & Center' }} split menu={mergeMenu} onClick={() => cmds.mergeCells('center')} keytip="M" />
         </div>
         <DialogLauncher tip={{ title: 'Format Cells: Alignment' }} onClick={() => setUi({ dialog: { kind: 'formatCells', props: { tab: 'Alignment' } } })} />
       </Group>
@@ -383,7 +454,14 @@ export default function HomeTab() {
         <div className="xl-col">
           <Combo value={curFmtName} options={NUMFMT.map(([n]) => n)} width={122} editable={false} tip={{ title: 'Number Format' }} onPick={(name) => { const f = NUMFMT.find(([n]) => n === name); if (f) setStyle({ numFmt: f[1] }, 'Number Format') }} keytip="N" />
           <div className="xl-row">
-            <SmallButton icon={<Glyph text="$" />} tip={{ title: 'Accounting Number Format' }} menu={[{ label: 'Accounting', onClick: () => setStyle({ numFmt: NUMFMT[3][1] }, 'Number Format') }, { label: '$ English (US)', onClick: () => setStyle({ numFmt: '$#,##0.00' }, 'Number Format') }]} onClick={() => setStyle({ numFmt: NUMFMT[3][1] }, 'Number Format')} keytip="AN" />
+            <SmallButton icon={<Glyph text={CURRENCY_SYMBOL.length === 1 ? CURRENCY_SYMBOL : '$'} />} tip={{ title: 'Accounting Number Format' }} split menu={[
+              { label: '₹ English (India)', onClick: () => setStyle({ numFmt: '_ ₹* #,##0.00_ ;_ ₹* -#,##0.00_ ;_ ₹* "-"??_ ;_ @_ ' }, 'Number Format') },
+              { label: '$ English (United States)', onClick: () => setStyle({ numFmt: '_($* #,##0.00_);_($* (#,##0.00);_($* "-"??_);_(@_)' }, 'Number Format') },
+              { label: '£ English (United Kingdom)', onClick: () => setStyle({ numFmt: '_-£* #,##0.00_-;-£* #,##0.00_-;_-£* "-"??_-;_-@_-' }, 'Number Format') },
+              { label: '€ Euro (€ 123)', onClick: () => setStyle({ numFmt: '_-[$€-x-euro2] * #,##0.00_-;-[$€-x-euro2] * #,##0.00_-;_-[$€-x-euro2] * "-"??_-;_-@_-' }, 'Number Format') },
+              'separator',
+              { label: '&More Accounting Formats...', onClick: () => setUi({ dialog: { kind: 'formatCells', props: { tab: 'Number' } } }) }
+            ]} onClick={() => setStyle({ numFmt: NUMFMT[3][1] }, 'Number Format')} keytip="AN" />
             <SmallButton icon={<Glyph text="%" />} tip={{ title: 'Percent Style (Ctrl+Shift+%)' }} onClick={() => setStyle({ numFmt: '0%' }, 'Number Format')} keytip="P" />
             <SmallButton icon={<Glyph text="9" sub="," />} tip={{ title: 'Comma Style' }} onClick={() => setStyle({ numFmt: '#,##0.00' }, 'Number Format')} keytip="K" />
             <SmallButton icon={<DecimalGlyph more />} tip={{ title: 'Increase Decimal' }} onClick={() => decimalAdjust(1)} keytip="0" />
@@ -395,14 +473,13 @@ export default function HomeTab() {
       <GroupSep />
 
       <Group label="Styles" icon={<TableCellsMerge20Regular />}>
-        <BigButton wide icon={<TableCellsMerge20Regular fontSize={28} />} label="Conditional Formatting" tip={{ title: 'Conditional Formatting' }} menu={[{ label: 'Highlight Cells Rules', submenu: [{ label: 'Greater Than...', onClick: () => {} }] }, { label: 'Clear Rules', onClick: () => {} }, { label: 'Manage Rules...', onClick: () => {} }]} onClick={() => {}} keytip="L" />
-        <BigButton wide icon={<TableSimple20Regular fontSize={28} />} label="Format as Table" tip={{ title: 'Format as Table' }} menu={[{ label: 'New Table Style...', onClick: () => {} }]} onClick={() => {}} keytip="T" />
+        <BigButton wide icon={<TableCellsMerge20Regular fontSize={28} />} label="Conditional Formatting" tip={{ title: 'Conditional Formatting' }} menu={cfMenu} keytip="L" />
+        <BigButton wide icon={<TableSimple20Regular fontSize={28} />} label="Format as Table" tip={{ title: 'Format as Table' }} menu={[...cmds.TABLE_STYLES.map((t, i) => ({ label: t.name, icon: <span style={{ display: 'inline-block', width: 14, height: 12, background: `linear-gradient(${t.header} 0 34%, ${t.band} 34% 67%, #fff 67%)`, border: `1px solid ${t.line}` }} />, onClick: () => cmds.formatAsTable(i) } as MenuItem)), ...loadCustomTableStyles().flatMap((t, i): MenuItem[] => [...(i === 0 ? ['separator' as const, { label: 'Custom', disabled: true }] : []), { label: t.name, icon: <span style={{ display: 'inline-block', width: 14, height: 12, background: `linear-gradient(${t.header} 0 34%, ${t.band} 34% 67%, #fff 67%)`, border: `1px solid ${t.line}` }} />, onClick: () => cmds.formatAsTable(t) }]), 'separator', { label: 'New Table Style...', onClick: () => setUi({ dialog: { kind: 'newTableStyle' } }) }]} keytip="T" />
         <BigButton
           wide
           icon={<TableInsertRow20Regular fontSize={28} />}
           label="Cell Styles"
           tip={{ title: 'Cell Styles' }}
-          onClick={() => {}}
           menu={CELL_STYLES.map(([name, s]) => ({ label: name, onClick: () => setStyle(s, 'Cell Styles') } as MenuItem))}
           keytip="J"
         />
@@ -420,22 +497,19 @@ export default function HomeTab() {
 
       <Group label="Editing" icon={<ArrowSort20Regular />}>
         <div className="xl-col xl-stack">
-          <StackSplit icon={<MathFormula20Regular />} label="AutoSum" tip={{ title: 'AutoSum (Alt+=)' }} menu={autoSumMenu} onClick={() => cmds.autoSum('SUM')} keytip="U" />
-          <StackSplit icon={<TableInsertRow20Regular />} label="Fill" tip={{ title: 'Fill' }} menu={fillDirMenu} onClick={() => cmds.fill('down')} keytip="FI" />
-          <StackSplit icon={<Delete20Regular />} label="Clear" tip={{ title: 'Clear' }} menu={clearMenu} onClick={() => cmds.clearSelection('contents')} keytip="E" />
+          <StackSplit icon={<MathFormula20Regular />} tip={{ title: 'AutoSum (Alt+=)' }} menu={autoSumMenu} onClick={() => cmds.autoSum('SUM')} keytip="U" />
+          <StackSplit icon={<TableInsertRow20Regular />} tip={{ title: 'Fill' }} menu={fillDirMenu} onClick={() => cmds.fill('down')} keytip="FI" />
+          <StackSplit icon={<Delete20Regular />} tip={{ title: 'Clear' }} menu={clearMenu} onClick={() => cmds.clearSelection('contents')} keytip="E" />
         </div>
-        <SplitButton icon={<ArrowSort20Regular />} label="Sort & Filter" tip={{ title: 'Sort & Filter' }} menu={sortMenu} onClick={() => cmds.sortSelection('asc')} keytip="S" />
-        <SplitButton icon={<Search20Regular />} label="Find & Select" tip={{ title: 'Find & Select' }} menu={findMenu} onClick={() => setUi({ dialog: { kind: 'find' } })} keytip="FD" />
+        <SplitButton icon={<ArrowSort20Regular />} label="Sort & Filter" tip={{ title: 'Sort & Filter' }} menu={sortMenu} menuOnly keytip="S" />
+        <SplitButton icon={<Search20Regular />} label="Find & Select" tip={{ title: 'Find & Select' }} menu={findMenu} menuOnly keytip="FD" />
       </Group>
       <GroupSep />
 
       <Group label="Add-ins" icon={<DataFunnel20Regular />}>
-        <BigButton icon={<DataFunnel20Regular fontSize={28} />} label="Get Add-ins" tip={{ title: 'Get Add-ins' }} onClick={() => {}} />
+        <BigButton icon={<DataFunnel20Regular fontSize={28} />} label="Add-ins" tip={{ title: 'Add-ins', desc: 'Get and manage add-ins for Excel.' }} onClick={() => notAvailable('Add-ins')} wide />
       </Group>
-      <GroupSep />
-      <Group label="Analysis" icon={<DataHistogram20Regular />}>
-        <BigButton icon={<DataHistogram20Regular fontSize={28} />} label="Analyze Data" tip={{ title: 'Analyze Data' }} onClick={() => {}} />
-      </Group>
+
 
       {colorMenu && (
         <ColorMenu

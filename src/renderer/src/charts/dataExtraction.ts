@@ -64,13 +64,13 @@ function colIsAllText(cells: CellReader, c: number, r1: number, r2: number): boo
  * left column becomes the other axis's labels, when present. The two checks each skip the shared
  * corner cell, so it never has to double as both a series name and a category label to count.
  */
-export function extractChartData(cells: CellReader, range: Range, seriesInColumns: boolean): ExtractedChartData {
+export function extractChartData(cells: CellReader, range: Range, seriesInColumns: boolean, firstIsCategories = false): ExtractedChartData {
   const { r1, c1, r2, c2 } = normRange(range)
   const rows = r2 - r1 + 1
   const cols = c2 - c1 + 1
 
   const hasColHeader = rows > 1 && rowIsAllText(cells, r1, c1 + 1, c2)
-  const hasRowHeader = cols > 1 && colIsAllText(cells, c1, r1 + 1, r2)
+  const hasRowHeader = cols > 1 && (colIsAllText(cells, c1, r1 + 1, r2) || (firstIsCategories && seriesInColumns))
 
   const dataR1 = r1 + (hasColHeader ? 1 : 0)
   const dataC1 = c1 + (hasRowHeader ? 1 : 0)

@@ -1,5 +1,8 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { WorkbookStore } from './store'
+import { setDayFirst } from '../engine/locale'
+
+beforeEach(() => setDayFirst(false))
 
 describe('store', () => {
   it('evaluates formulas and undoes', () => {
@@ -32,6 +35,40 @@ describe('input parsing', () => {
     const s = new WorkbookStore()
     s.setRaw(s.active, 0, 0, '1/31/2025')
     expect(s.getValue(s.active, 0, 0)).toBe(45688)
+  })
+  it('stores a typed "1,234.50" as the number 1234.5 (it was text that SUM skipped)', () => {
+    const s = new WorkbookStore()
+    s.setRaw(s.active, 0, 0, '1,234.50')
+    s.setRaw(s.active, 1, 0, '=SUM(A1)')
+    expect(s.getValue(s.active, 0, 0)).toBe(1234.5)
+    expect(s.getValue(s.active, 1, 0)).toBe(1234.5)
+  })
+  it('keeps input in a Text-formatted cell as text ("00012", "1,234.50"), like Excel', () => {
+    const s = new WorkbookStore()
+    s.setCells(s.active, [{ r: 0, c: 0, raw: '', style: { numFmt: '@' } }, { r: 1, c: 0, raw: '', style: { numFmt: '@' } }], 'fmt')
+    s.setRaw(s.active, 0, 0, '00012')
+    s.setRaw(s.active, 1, 0, '1,234.50')
+    expect(s.getValue(s.active, 0, 0)).toBe('00012')
+    expect(s.getValue(s.active, 1, 0)).toBe('1,234.50')
+    expect(s.getDisplay(s.active, 0, 0).text).toBe('00012')
+  })
+  it('does not save a spilled result as data (it froze FILTER output and dropped leading zeros)', () => {
+    const s = new WorkbookStore()
+    s.setRaw(s.active, 0, 0, "'00012")
+    s.setRaw(s.active, 1, 0, "'00056")
+    s.setRaw(s.active, 0, 2, '=FILTER(A1:A2,A1:A2<>"")')
+    expect(s.getValue(s.active, 1, 2)).toBe('00056')
+    const cells = s.toData().sheets[0].cells
+    expect(cells['0,2'].raw).toBe('=FILTER(A1:A2,A1:A2<>"")')
+    expect(cells['1,2']).toBeUndefined()
+  })
+  it('parses day-first dates on an English (India) PC, like Excel', () => {
+    setDayFirst(true)
+    const s = new WorkbookStore()
+    s.setRaw(s.active, 0, 0, '3/9/2026')
+    expect(s.getValue(s.active, 0, 0)).toBe(46268)
+    s.setRaw(s.active, 0, 1, '1/31/2025')
+    expect(s.getValue(s.active, 0, 1)).toBe('1/31/2025')
   })
 })
 
@@ -112,6 +149,18 @@ describe('AutoFilter', () => {
     s.undo()
     expect(s.getRaw(sh, 2, 0)).toBe('Banana')
     expect(sh.layout.hiddenRows[2]).toBe(true)
+  })
+
+  it('sorts rows with a given fill colour to the top, keeping the others in order', () => {
+    const s = makeTable()
+    const sh = s.active
+    s.setSelection({ ranges: [{ r1: 0, c1: 0, r2: 0, c2: 0 }], active: { r: 0, c: 0 } }, sh)
+    s.toggleAutoFilter(sh)
+    s.applyStyle(sh, [{ r1: 3, c1: 0, r2: 3, c2: 0 }], { fill: '#ff0000' })
+    const before = [s.getRaw(sh, 1, 0), s.getRaw(sh, 2, 0), s.getRaw(sh, 3, 0)]
+    s.sortFilterRange(sh, 0, 'asc', { kind: 'fill', color: '#ff0000' })
+    expect(s.getRaw(sh, 1, 0)).toBe(before[2])
+    expect([s.getRaw(sh, 2, 0), s.getRaw(sh, 3, 0)]).toEqual([before[0], before[1]])
   })
 
   it('finds a current region larger than 10,000 rows', () => {

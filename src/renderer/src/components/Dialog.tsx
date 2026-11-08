@@ -13,9 +13,10 @@ export interface DialogProps {
   width?: number
   /** Extra buttons on the left of the footer. */
   footerLeft?: ReactNode
+  hideFooter?: boolean
 }
 
-export function Dialog({ title, children, onOk, onCancel, okLabel = 'OK', cancelLabel = 'Cancel', width = 400, footerLeft }: DialogProps) {
+export function Dialog({ title, children, onOk, onCancel, okLabel = 'OK', cancelLabel = 'Cancel', width = 400, footerLeft, hideFooter }: DialogProps) {
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null)
   const drag = useRef<{ dx: number; dy: number } | null>(null)
   const box = useRef<HTMLDivElement>(null)
@@ -55,11 +56,13 @@ export function Dialog({ title, children, onOk, onCancel, okLabel = 'OK', cancel
           <span className="xl-dialog-tbtn" onClick={onCancel}>✕</span>
         </div>
         <div className="xl-dialog-body">{children}</div>
-        <div className="xl-dialog-footer">
-          <div style={{ flex: 1 }}>{footerLeft}</div>
-          {onOk && <button className="xl-btn primary" onClick={onOk}>{okLabel}</button>}
-          <button className="xl-btn" onClick={onCancel}>{cancelLabel}</button>
-        </div>
+        {!hideFooter && (
+          <div className="xl-dialog-footer">
+            <div style={{ flex: 1 }}>{footerLeft}</div>
+            {onOk && <button className="xl-btn primary" onClick={onOk}>{okLabel}</button>}
+            <button className="xl-btn" onClick={onCancel}>{cancelLabel}</button>
+          </div>
+        )}
       </div>
     </div>,
     document.body

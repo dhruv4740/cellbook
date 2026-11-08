@@ -18,6 +18,18 @@ describe('commands', () => {
     expect([raw(0, 0), raw(0, 1), raw(0, 2), raw(0, 3)]).toEqual(['a', 'b', 'c', 'd'])
   })
 
+  it('justify re-flows text to the selection width and undoes', () => {
+    store.setRangeRaw(store.active, 0, 0, [['the quick brown fox'], ['jumps over the lazy dog']])
+    sel(0, 0, 1, 0)
+    const chars = Math.floor((store.colWidth(store.active, 0) / 7) * 0.95)
+    cmds.justifySelection()
+    const lines = Array.from({ length: 12 }, (_, r) => raw(r, 0)).filter(Boolean)
+    expect(lines.join(' ')).toBe('the quick brown fox jumps over the lazy dog')
+    for (const l of lines) expect(l.length).toBeLessThanOrEqual(Math.max(chars, 9))
+    store.undo()
+    expect([raw(0, 0), raw(1, 0)]).toEqual(['the quick brown fox', 'jumps over the lazy dog'])
+  })
+
   it('delete shift-up moves cells below into the gap', () => {
     store.setRangeRaw(store.active, 0, 0, [['1'], ['2'], ['3']])
     sel(1, 0)
@@ -126,5 +138,61 @@ describe('commands', () => {
     sel(4, 0) // the blank row between the two blocks
     const values = cmds.pickListValues()
     expect(values).toEqual(['Apple', 'Banana', 'Cherry'])
+  })
+})
+
+describe('clipboard helpers', () => {
+  it('parses Excel clipboard text with quoted fields', async () => {
+    const { parseTsv } = await import('./commands')
+    expect(parseTsv('a\tb\r\n"x\ny"\t"say ""hi"""\r\n')).toEqual([['a', 'b'], ['x\ny', 'say "hi"']])
+    expect(parseTsv('=A1+B1\n')).toEqual([['=A1+B1']])
+  })
+  it('tiles a block across a selection that is an exact multiple of it', async () => {
+    const { tileTargets } = await import('./commands')
+    expect(tileTargets({ r1: 0, c1: 0, r2: 3, c2: 0 }, 1, 1, false).length).toBe(4)
+    expect(tileTargets({ r1: 0, c1: 0, r2: 3, c2: 1 }, 2, 1, false).length).toBe(4)
+    expect(tileTargets({ r1: 0, c1: 0, r2: 2, c2: 0 }, 2, 1, false)).toEqual([{ r1: 0, c1: 0, r2: 1, c2: 0 }])
+  })
+})
+
+describe('clipboard with real Excel', () => {
+  beforeEach(() => store.newWorkbook())
+  const g = globalThis as { window?: unknown }
+
+  it('reads which cells Excel marked as Text (class or inline style)', () => {
+    // Shape of Excel's own markup: classes in <style>, text cells class xl67 {mso-number-format:"\@";}
+    const html = `<style>.xl65 {mso-style-parent:style0; mso-number-format:Standard;} .xl67 {mso-style-parent:style0; mso-number-format:"\\@";}</style>
+      <table><tr><td class=xl65>1,234.50</td><td class=xl67>00012</td><td style='mso-number-format:"\\@"'>007</td><td>plain</td></tr></table>`
+    expect(cmds.excelTextCells(html)).toEqual([[false, true, true, false]])
+    expect(cmds.excelTextCells('<table><tr><td colspan=2>x</td></tr></table>')).toBeNull()
+  })
+
+  it('pasting from Excel keeps Text cells like "00012" as text', async () => {
+    const prev = g.window
+    g.window = { api: {
+      clipboardReadText: async () => '1,234.50\t00012\r\n',
+      clipboardReadHTML: async () => '<style>.xl67 {mso-number-format:"\\@";}</style><table><tr><td>1,234.50</td><td class=xl67>00012</td></tr></table>'
+    } }
+    try {
+      sel(0, 0)
+      await cmds.paste()
+      expect(store.getValue(store.active, 0, 0)).toBe(1234.5)
+      expect(store.getValue(store.active, 0, 1)).toBe('00012')
+    } finally { g.window = prev }
+  })
+
+  it('copies text as Text and keeps line breaks in one cell, in both text and HTML', async () => {
+    const prev = g.window
+    let written: { text: string; html?: string } = { text: '' }
+    g.window = { api: { clipboardWrite: async (d: { text: string; html?: string }) => { written = d } } }
+    try {
+      store.setRangeRaw(store.active, 0, 0, [["'00012", 'Line1\nLine2', '5']])
+      sel(0, 0, 0, 2)
+      await cmds.copy()
+      expect(written.text).toBe('00012\t"Line1\nLine2"\t5')
+      expect(written.html).toContain(`<td style='mso-number-format:"\\@"'>00012</td>`)
+      expect(written.html).toContain('Line1<br style="mso-data-placement:same-cell;"/>Line2')
+      expect(written.html).toContain("<td style=''>5</td>")
+    } finally { g.window = prev }
   })
 })

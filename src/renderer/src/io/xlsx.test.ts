@@ -283,3 +283,720 @@ describe('shared formulas', () => {
     expect(data.sheets[0].cells['1,1'].raw).toBe('=A2*2')
   })
 })
+
+describe('conditional formatting round trip', () => {
+  it('preserves conditional formatting rules in sheet layout', async () => {
+    const data: WorkbookData = {
+      sheets: [
+        {
+          name: 'CFSheet',
+          cells: {
+            '0,0': { raw: '50' },
+            '1,0': { raw: '150' }
+          },
+          layout: {
+            conditionalFormats: [
+              {
+                id: 'cf1',
+                priority: 1,
+                ranges: [{ r1: 0, c1: 0, r2: 5, c2: 0 }],
+                type: 'cellIs',
+                operator: 'greaterThan',
+                value: '100',
+                format: { fill: '#FFC7CE', color: '#9C0006' }
+              }
+            ]
+          }
+        }
+      ]
+    }
+
+    const bytes = await writeXlsx(data)
+    const back = await readXlsx(bytes)
+
+    expect(back.sheets[0].layout?.conditionalFormats).toBeDefined()
+    const rules = back.sheets[0].layout!.conditionalFormats!
+    expect(rules.length).toBe(1)
+    expect(rules[0].type).toBe('cellIs')
+    expect(rules[0].operator).toBe('greaterThan')
+    expect(rules[0].value).toBe('100')
+    expect(rules[0].format?.fill?.toUpperCase()).toBe('#FFC7CE')
+    expect(rules[0].format?.color?.toUpperCase()).toBe('#9C0006')
+  })
+
+  it('round-trips data validation covering all allow types, error styles, messages, lists, and dropdown flags', async () => {
+    const data: WorkbookData = {
+      sheets: [
+        {
+          name: 'ValidationSheet',
+          cells: {},
+          layout: {
+            dataValidations: [
+              // 1. whole number with between, stop error style, input & error messages
+              {
+                id: 'dv1',
+                ranges: [{ r1: 0, c1: 0, r2: 9, c2: 0 }],
+                allow: 'whole',
+                operator: 'between',
+                formula1: '10',
+                formula2: '100',
+                ignoreBlank: true,
+                showInputMessage: true,
+                inputTitle: 'Whole Number Hint',
+                inputMessage: 'Enter a value between 10 and 100',
+                showErrorAlert: true,
+                errorStyle: 'stop',
+                errorTitle: 'Invalid Number',
+                errorMessage: 'Value must be between 10 and 100'
+              },
+              // 2. decimal with greaterThan, warning error style
+              {
+                id: 'dv2',
+                ranges: [{ r1: 0, c1: 1, r2: 9, c2: 1 }],
+                allow: 'decimal',
+                operator: 'greaterThan',
+                formula1: '0.5',
+                errorStyle: 'warning',
+                showErrorAlert: true,
+                errorTitle: 'Warning',
+                errorMessage: 'Should be > 0.5'
+              },
+              // 3. list with literal items and dropdown enabled (inCellDropdown: true)
+              {
+                id: 'dv3',
+                ranges: [{ r1: 0, c1: 2, r2: 9, c2: 2 }],
+                allow: 'list',
+                formula1: '"Red,Green,Blue"',
+                inCellDropdown: true,
+                ignoreBlank: true
+              },
+              // 4. list with range source and dropdown hidden (inCellDropdown: false)
+              {
+                id: 'dv4',
+                ranges: [{ r1: 0, c1: 3, r2: 9, c2: 3 }],
+                allow: 'list',
+                formula1: '=Sheet1!$Z$1:$Z$5',
+                inCellDropdown: false,
+                ignoreBlank: false
+              },
+              // 5. date with lessThanOrEqual, information error style
+              {
+                id: 'dv5',
+                ranges: [{ r1: 0, c1: 4, r2: 9, c2: 4 }],
+                allow: 'date',
+                operator: 'lessThanOrEqual',
+                formula1: '2025-12-31',
+                errorStyle: 'information',
+                showErrorAlert: true,
+                errorTitle: 'Info',
+                errorMessage: 'Date must be within 2025'
+              },
+              // 6. time with notEqual
+              {
+                id: 'dv6',
+                ranges: [{ r1: 0, c1: 5, r2: 9, c2: 5 }],
+                allow: 'time',
+                operator: 'notEqual',
+                formula1: '12:00:00'
+              },
+              // 7. textLength with equal
+              {
+                id: 'dv7',
+                ranges: [{ r1: 0, c1: 6, r2: 9, c2: 6 }],
+                allow: 'textLength',
+                operator: 'equal',
+                formula1: '5'
+              },
+              // 8. custom with formula
+              {
+                id: 'dv8',
+                ranges: [{ r1: 0, c1: 7, r2: 9, c2: 7 }],
+                allow: 'custom',
+                formula1: '=ISNUMBER(H1)'
+              },
+              // 9. any allow type with input message only
+              {
+                id: 'dv9',
+                ranges: [{ r1: 0, c1: 8, r2: 9, c2: 8 }],
+                allow: 'any',
+                showInputMessage: true,
+                inputTitle: 'Any value',
+                inputMessage: 'Type anything here'
+              },
+              // 10. multi-range sqref
+              {
+                id: 'dv10',
+                ranges: [
+                  { r1: 0, c1: 9, r2: 5, c2: 9 },
+                  { r1: 0, c1: 11, r2: 5, c2: 11 }
+                ],
+                allow: 'whole',
+                operator: 'greaterThanOrEqual',
+                formula1: '0'
+              }
+            ]
+          }
+        }
+      ]
+    }
+
+    const bytes = await writeXlsx(data)
+
+    // Check raw XML in zip for valid OOXML
+    const files = unzipSync(bytes)
+    const sheetXml = new TextDecoder('utf-8').decode(files['xl/worksheets/sheet1.xml'])
+    expect(sheetXml).toContain('<dataValidations count="10">')
+    // Verify showDropDown="1" is emitted ONLY when inCellDropdown === false
+    expect(sheetXml).toContain('type="list"')
+    expect(sheetXml).toContain('showDropDown="1"')
+    // Verify multi-range sqref
+    expect(sheetXml).toContain('sqref="J1:J6 L1:L6"')
+
+    // Fast reader round-trip
+    const back = await readXlsx(bytes)
+    const dvs = back.sheets[0].layout?.dataValidations
+    expect(dvs).toBeDefined()
+    expect(dvs?.length).toBe(10)
+
+    // Verify 1: whole between
+    const r1 = dvs![0]
+    expect(r1.allow).toBe('whole')
+    expect(r1.operator).toBe('between')
+    expect(r1.formula1).toBe('10')
+    expect(r1.formula2).toBe('100')
+    expect(r1.ignoreBlank).toBe(true)
+    expect(r1.showInputMessage).toBe(true)
+    expect(r1.inputTitle).toBe('Whole Number Hint')
+    expect(r1.inputMessage).toBe('Enter a value between 10 and 100')
+    expect(r1.showErrorAlert).toBe(true)
+    expect(r1.errorStyle).toBe('stop')
+    expect(r1.errorTitle).toBe('Invalid Number')
+    expect(r1.errorMessage).toBe('Value must be between 10 and 100')
+
+    // Verify 2: decimal warning
+    const r2 = dvs![1]
+    expect(r2.allow).toBe('decimal')
+    expect(r2.operator).toBe('greaterThan')
+    expect(r2.formula1).toBe('0.5')
+    expect(r2.errorStyle).toBe('warning')
+    expect(r2.showErrorAlert).toBe(true)
+    expect(r2.errorTitle).toBe('Warning')
+
+    // Verify 3: list literal with inCellDropdown: true (dropdown shown)
+    const r3 = dvs![2]
+    expect(r3.allow).toBe('list')
+    expect(r3.formula1).toBe('"Red,Green,Blue"')
+    expect(r3.inCellDropdown).toBe(true)
+
+    // Verify 4: list range with inCellDropdown: false (dropdown hidden)
+    const r4 = dvs![3]
+    expect(r4.allow).toBe('list')
+    expect(r4.formula1).toBe('=Sheet1!$Z$1:$Z$5')
+    expect(r4.inCellDropdown).toBe(false)
+    expect(r4.ignoreBlank).toBe(false)
+
+    // Verify 5: date information
+    const r5 = dvs![4]
+    expect(r5.allow).toBe('date')
+    expect(r5.operator).toBe('lessThanOrEqual')
+    expect(r5.formula1).toBe('2025-12-31')
+    expect(r5.errorStyle).toBe('information')
+
+    // Verify 6: time
+    const r6 = dvs![5]
+    expect(r6.allow).toBe('time')
+    expect(r6.operator).toBe('notEqual')
+    expect(r6.formula1).toBe('12:00:00')
+
+    // Verify 7: textLength
+    const r7 = dvs![6]
+    expect(r7.allow).toBe('textLength')
+    expect(r7.operator).toBe('equal')
+    expect(r7.formula1).toBe('5')
+
+    // Verify 8: custom
+    const r8 = dvs![7]
+    expect(r8.allow).toBe('custom')
+    expect(r8.formula1).toBe('=ISNUMBER(H1)')
+
+    // Verify 9: any
+    const r9 = dvs![8]
+    expect(r9.allow).toBe('any')
+    expect(r9.showInputMessage).toBe(true)
+    expect(r9.inputTitle).toBe('Any value')
+
+    // Verify 10: multi-range sqref
+    const r10 = dvs![9]
+    expect(r10.ranges.length).toBe(2)
+    expect(r10.ranges[0]).toEqual({ r1: 0, c1: 9, r2: 5, c2: 9 })
+    expect(r10.ranges[1]).toEqual({ r1: 0, c1: 11, r2: 5, c2: 11 })
+  })
+})
+
+describe('chart round trip', () => {
+  it('round-trips charts covering bar, column, line, area, pie, doughnut, and scatter types', async () => {
+    const data: WorkbookData = {
+      sheets: [
+        {
+          name: 'ChartsSheet',
+          cells: {
+            '0,0': { raw: 'Product' },
+            '0,1': { raw: 'Sales' },
+            '0,2': { raw: 'Profit' },
+            '1,0': { raw: 'Alpha' },
+            '1,1': { raw: '200' },
+            '1,2': { raw: '50' },
+            '2,0': { raw: 'Beta' },
+            '2,1': { raw: '300' },
+            '2,2': { raw: '80' },
+            '3,0': { raw: 'Gamma' },
+            '3,1': { raw: '150' },
+            '3,2': { raw: '30' }
+          },
+          layout: {
+            charts: [
+              // 1. Clustered Column
+              {
+                id: 'chart1',
+                type: 'bar',
+                subtype: 'clusteredColumn',
+                dataRange: { r1: 0, c1: 0, r2: 3, c2: 2 },
+                seriesInColumns: true,
+                title: 'Revenue by Product',
+                anchor: { r: 5, c: 0, dx: 10, dy: 5 },
+                width: 480,
+                height: 288,
+                legendPosition: 'bottom',
+                elements: {
+                  title: true,
+                  legend: true,
+                  gridlines: true,
+                  dataLabels: false,
+                  axes: true,
+                  axisTitles: false
+                }
+              },
+              // 2. Line with markers
+              {
+                id: 'chart2',
+                type: 'line',
+                subtype: 'lineMarkers',
+                dataRange: { r1: 0, c1: 0, r2: 3, c2: 2 },
+                seriesInColumns: true,
+                title: 'Growth Trend',
+                anchor: { r: 5, c: 8, dx: 0, dy: 0 },
+                width: 480,
+                height: 288,
+                legendPosition: 'right',
+                elements: {
+                  title: true,
+                  legend: true,
+                  gridlines: true,
+                  dataLabels: false,
+                  axes: true,
+                  axisTitles: false
+                }
+              },
+              // 3. Pie chart
+              {
+                id: 'chart3',
+                type: 'pie',
+                subtype: 'pie',
+                dataRange: { r1: 0, c1: 0, r2: 3, c2: 1 },
+                seriesInColumns: true,
+                title: 'Market Share',
+                anchor: { r: 20, c: 0, dx: 0, dy: 0 },
+                width: 400,
+                height: 250,
+                legendPosition: 'right',
+                elements: {
+                  title: true,
+                  legend: true,
+                  gridlines: false,
+                  dataLabels: false,
+                  axes: false,
+                  axisTitles: false
+                }
+              },
+              // 4. Doughnut chart
+              {
+                id: 'chart4',
+                type: 'pie',
+                subtype: 'doughnut',
+                dataRange: { r1: 0, c1: 0, r2: 3, c2: 1 },
+                seriesInColumns: true,
+                title: 'Doughnut Split',
+                anchor: { r: 20, c: 8, dx: 0, dy: 0 },
+                width: 400,
+                height: 250,
+                legendPosition: 'top',
+                elements: {
+                  title: true,
+                  legend: true,
+                  gridlines: false,
+                  dataLabels: false,
+                  axes: false,
+                  axisTitles: false
+                }
+              },
+              // 5. Area chart
+              {
+                id: 'chart5',
+                type: 'line',
+                subtype: 'area',
+                dataRange: { r1: 0, c1: 0, r2: 3, c2: 2 },
+                seriesInColumns: true,
+                title: 'Volume Area',
+                anchor: { r: 35, c: 0, dx: 0, dy: 0 },
+                width: 480,
+                height: 288,
+                legendPosition: 'bottom',
+                elements: {
+                  title: true,
+                  legend: true,
+                  gridlines: true,
+                  dataLabels: false,
+                  axes: true,
+                  axisTitles: false
+                }
+              },
+              // 6. Scatter smooth
+              {
+                id: 'chart6',
+                type: 'scatter',
+                subtype: 'scatterSmooth',
+                dataRange: { r1: 0, c1: 0, r2: 3, c2: 2 },
+                seriesInColumns: true,
+                title: 'Correlation',
+                anchor: { r: 35, c: 8, dx: 0, dy: 0 },
+                width: 480,
+                height: 288,
+                legendPosition: 'left',
+                elements: {
+                  title: true,
+                  legend: true,
+                  gridlines: true,
+                  dataLabels: false,
+                  axes: true,
+                  axisTitles: false
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+
+    const bytes = await writeXlsx(data)
+
+    // Check DrawingML packaging
+    const files = unzipSync(bytes)
+    expect(files['xl/drawings/drawing1.xml']).toBeDefined()
+    expect(files['xl/drawings/_rels/drawing1.xml.rels']).toBeDefined()
+    expect(files['xl/charts/chart1.xml']).toBeDefined()
+    expect(files['xl/charts/chart6.xml']).toBeDefined()
+
+    const ct = new TextDecoder('utf-8').decode(files['[Content_Types].xml'])
+    expect(ct).toContain('ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"')
+    expect(ct).toContain('ContentType="application/vnd.openxmlformats-officedocument.drawingml.chart+xml"')
+
+    const sheetXml = new TextDecoder('utf-8').decode(files['xl/worksheets/sheet1.xml'])
+    expect(sheetXml).toContain('<drawing r:id="')
+
+    // Read back via fast reader
+    const back = await readXlsx(bytes)
+    const charts = back.sheets[0].layout?.charts
+    expect(charts).toBeDefined()
+    expect(charts?.length).toBe(6)
+
+    // Verify 1: Column
+    const c1 = charts![0]
+    expect(c1.type).toBe('bar')
+    expect(c1.subtype).toBe('clusteredColumn')
+    expect(c1.title).toBe('Revenue by Product')
+    expect(c1.legendPosition).toBe('bottom')
+    expect(c1.anchor.r).toBe(5)
+    expect(c1.anchor.c).toBe(0)
+    expect(c1.dataRange).toEqual({ r1: 0, c1: 0, r2: 3, c2: 2 })
+
+    // Verify 2: Line with markers
+    const c2 = charts![1]
+    expect(c2.type).toBe('line')
+    expect(c2.subtype).toBe('lineMarkers')
+    expect(c2.title).toBe('Growth Trend')
+    expect(c2.legendPosition).toBe('right')
+
+    // Verify 3: Pie
+    const c3 = charts![2]
+    expect(c3.type).toBe('pie')
+    expect(c3.subtype).toBe('pie')
+    expect(c3.title).toBe('Market Share')
+
+    // Verify 4: Doughnut
+    const c4 = charts![3]
+    expect(c4.type).toBe('pie')
+    expect(c4.subtype).toBe('doughnut')
+    expect(c4.title).toBe('Doughnut Split')
+    expect(c4.legendPosition).toBe('top')
+
+    // Verify 5: Area
+    const c5 = charts![4]
+    expect(c5.subtype).toBe('area')
+    expect(c5.title).toBe('Volume Area')
+
+    // Verify 6: Scatter
+    const c6 = charts![5]
+    expect(c6.type).toBe('scatter')
+    expect(c6.subtype).toBe('scatterSmooth')
+    expect(c6.title).toBe('Correlation')
+    expect(c6.legendPosition).toBe('left')
+  })
+
+  it('loads charts from samples/chart-sample.xlsx fixture', async () => {
+    const { readFile } = await import('fs/promises')
+    const { join } = await import('path')
+    const bytes = new Uint8Array(await readFile(join(process.cwd(), 'samples', 'chart-sample.xlsx')))
+    const wb = await readXlsx(bytes)
+    expect(wb.sheets.length).toBe(1)
+    const charts = wb.sheets[0].layout?.charts
+    expect(charts).toBeDefined()
+    expect(charts?.length).toBe(1)
+    expect(charts![0].type).toBe('bar')
+    expect(charts![0].subtype).toBe('clusteredColumn')
+    expect(charts![0].title).toBe('Regional Quarterly Sales')
+    expect(charts![0].dataRange).toEqual({ r1: 0, c1: 0, r2: 4, c2: 2 })
+    expect(charts![0].seriesInColumns).toBe(true)
+  })
+})
+
+describe('data validation + chart + note on one sheet', () => {
+  it('writes worksheet children in OOXML order and reads everything back', async () => {
+    const data: WorkbookData = {
+      sheets: [
+        {
+          name: 'Mix',
+          cells: { '0,0': { raw: 'A' }, '0,1': { raw: 'B' }, '1,0': { raw: 'x' }, '1,1': { raw: '3' } },
+          layout: {
+            notes: { '0,0': { text: 'hi', author: 'me' } } as any,
+            dataValidations: [{ id: 'd', ranges: [{ r1: 2, c1: 0, r2: 5, c2: 0 }], allow: 'list', formula1: '"a,b"' }],
+            charts: [
+              {
+                id: 'c', type: 'bar', subtype: 'clusteredColumn', dataRange: { r1: 0, c1: 0, r2: 1, c2: 1 },
+                seriesInColumns: true, title: 'T', anchor: { r: 3, c: 3, dx: 0, dy: 0 }, width: 300, height: 200,
+                legendPosition: 'bottom',
+                elements: { title: true, legend: true, gridlines: true, dataLabels: false, axes: true, axisTitles: false }
+              }
+            ] as any
+          }
+        }
+      ]
+    }
+    const bytes = await writeXlsx(data)
+    const xml = new TextDecoder().decode(unzipSync(bytes)['xl/worksheets/sheet1.xml'])
+    const order = ['<dataValidations', '<pageMargins', '<drawing ', '<legacyDrawing ']
+      .map((t) => xml.indexOf(t))
+      .filter((i) => i !== -1)
+    expect(order).toEqual([...order].sort((a, b) => a - b))
+    const back = await readXlsx(bytes)
+    const l = back.sheets[0].layout!
+    expect(l.dataValidations?.length).toBe(1)
+    expect(l.charts?.length).toBe(1)
+  })
+})
+
+describe('defined names', () => {
+  it('evaluate in formulas and survive a save', async () => {
+    const { store } = await import('../model/store')
+    store.load({
+      sheets: [
+        { name: 'Data', cells: { '0,0': { raw: '10' }, '1,0': { raw: '=TaxRate*A1' }, '2,0': { raw: '=SUM(Amounts)' } } },
+        { name: 'Rates', cells: { '0,0': { raw: '1.18' } } }
+      ],
+      names: [
+        { name: 'TaxRate', ref: 'Rates!$A$1' },
+        { name: 'Amounts', ref: 'Data!$A$1:$A$2' },
+        { name: '_xlnm.Print_Area', ref: 'Data!$A$1:$C$10', sheet: 0 }
+      ]
+    }, 'n', null)
+    expect(store.getDisplay(store.sheets[0], 1, 0).text).toBe('11.8')
+    expect(store.getDisplay(store.sheets[0], 2, 0).text).toBe('21.8')
+    const back = await readXlsx(await writeXlsx(store.toData()))
+    expect(back.names).toEqual([
+      { name: 'TaxRate', ref: 'Rates!$A$1' },
+      { name: 'Amounts', ref: 'Data!$A$1:$A$2' },
+      { name: '_xlnm.Print_Area', ref: 'Data!$A$1:$C$10', sheet: 0 }
+    ])
+  })
+})
+
+describe('data bars, color scales and icon sets', () => {
+  it('saves them (used to throw inside ExcelJS) and reads them back with their colors', async () => {
+    const data = {
+      sheets: [{
+        name: 'Sheet1',
+        cells: { '0,0': { raw: '1' }, '1,0': { raw: '5' } },
+        layout: {
+          conditionalFormats: [
+            { id: 'a', priority: 1, ranges: [{ r1: 0, c1: 0, r2: 1, c2: 0 }], type: 'dataBar', dataBar: { color: '#638EC6' } },
+            { id: 'b', priority: 2, ranges: [{ r1: 0, c1: 0, r2: 1, c2: 0 }], type: 'colorScale', colorScale: { minColor: '#F8696B', midColor: '#FFEB84', maxColor: '#63BE7B' } },
+            { id: 'c', priority: 3, ranges: [{ r1: 0, c1: 0, r2: 1, c2: 0 }], type: 'iconSet', iconSet: { name: '3Arrows' } }
+          ]
+        }
+      }]
+    } as unknown as WorkbookData
+    const back = await readXlsx(await writeXlsx(data))
+    const cfs = back.sheets[0].layout!.conditionalFormats!
+    expect(cfs.map((c) => c.type)).toEqual(['dataBar', 'colorScale', 'iconSet'])
+    expect(cfs[0].dataBar?.color).toBe('#638EC6')
+    expect(cfs[1].colorScale).toEqual({ minColor: '#F8696B', midColor: '#FFEB84', maxColor: '#63BE7B' })
+    expect(cfs[2].iconSet?.name).toBe('3Arrows')
+  })
+})
+
+describe('sheet parts after a data bar', () => {
+  it('keeps data validations outside the data-bar rule (Excel refused to open such files)', async () => {
+    const data = {
+      sheets: [{
+        name: 'Sheet1',
+        cells: { '0,0': { raw: '1' }, '1,0': { raw: '5' } },
+        layout: {
+          conditionalFormats: [{ id: 'a', priority: 1, ranges: [{ r1: 0, c1: 0, r2: 1, c2: 0 }], type: 'dataBar', dataBar: { color: '#638EC6' } }],
+          notes: { '0,0': { text: 'hi', author: 'me' } },
+          dataValidations: [{ id: 'v', ranges: [{ r1: 0, c1: 1, r2: 1, c2: 1 }], type: 'list', source: '"Yes,No"', allowBlank: true, showDropdown: true, showErrorMessage: true }]
+        }
+      }]
+    } as unknown as WorkbookData
+    const xml = new TextDecoder().decode(unzipSync(await writeXlsx(data))['xl/worksheets/sheet1.xml'])
+    const cfEnd = xml.lastIndexOf('</conditionalFormatting>')
+    expect(xml.indexOf('<dataValidations')).toBeGreaterThan(cfEnd)
+    expect(xml.slice(xml.indexOf('<cfRule'), cfEnd)).not.toContain('<dataValidations')
+    expect(xml.indexOf('<legacyDrawing')).toBeGreaterThan(0)
+    expect(xml.indexOf('<legacyDrawing')).toBeLessThan(xml.lastIndexOf('<extLst>'))
+  })
+})
+
+describe('cached formula results', () => {
+  it('never writes an error code Excel does not know (Excel refused the file over "#ERROR!")', async () => {
+    const data = {
+      sheets: [{ name: 'S', cells: { '0,0': { raw: '=1/0', value: { error: '#DIV/0!' } }, '1,0': { raw: '=SUM(T[Qty])', value: { error: '#ERROR!' } } } }]
+    } as unknown as WorkbookData
+    const xml = new TextDecoder().decode(unzipSync(await writeXlsx(data))['xl/worksheets/sheet1.xml'])
+    expect(xml).toContain('#DIV/0!')
+    expect(xml).not.toContain('#ERROR!')
+  })
+})
+
+describe('spilling formulas', () => {
+  it('are saved as Excel dynamic arrays (cm="1", ref, metadata part), not as fixed values', async () => {
+    const { WorkbookStore } = await import('../model/store')
+    const s = new WorkbookStore()
+    s.setRaw(s.active, 0, 0, "'00012")
+    s.setRaw(s.active, 1, 0, "'00056")
+    s.setRaw(s.active, 2, 0, 'x')
+    s.setRaw(s.active, 0, 2, '=FILTER(A1:A3,A1:A3<>"x")')
+    const files = unzipSync(await writeXlsx(s.toData()))
+    const xml = new TextDecoder().decode(files['xl/worksheets/sheet1.xml'])
+    expect(xml).toMatch(/<c r="C1"[^>]*cm="1"[^>]*><f t="array" ref="C1:C2">_xlfn\._xlws\.FILTER/)
+    expect(xml).not.toContain('r="C2"')
+    expect(files['xl/metadata.xml']).toBeDefined()
+    expect(new TextDecoder().decode(files['[Content_Types].xml'])).toContain('/xl/metadata.xml')
+  })
+})
+
+describe('threaded comments written by real Excel', () => {
+  it('keeps the text when the fallback note uses Windows line endings', async () => {
+    const { legacyNoteToThread } = await import('./xlsxShared')
+    const text = '[Threaded comment]\r\n\r\nYour version of Excel allows you to read this threaded comment; however, any edits to it will get removed if the file is opened in a newer version of Excel. Learn more: https://go.microsoft.com/fwlink/?linkid=870924\r\n\r\nComment:\r\n    Threaded comment'
+    expect(legacyNoteToThread({ author: 'tc={6FCF}', text })?.text).toBe('Threaded comment')
+  })
+})
+
+describe('sparklines', () => {
+  it('round-trip through the x14 extension', async () => {
+    const defs = [
+      { r: 0, c: 5, type: 'line' as const, src: { r1: 0, c1: 0, r2: 0, c2: 4 }, color: '#376092' },
+      { r: 1, c: 5, type: 'column' as const, src: { r1: 1, c1: 0, r2: 1, c2: 4 }, color: '#ff0000' },
+      { r: 2, c: 5, type: 'winloss' as const, src: { r1: 2, c1: 0, r2: 2, c2: 4 }, color: '#376092' }
+    ]
+    const cells: Record<string, { raw: string }> = {}
+    for (let r = 0; r < 3; r++) for (let c = 0; c < 5; c++) cells[`${r},${c}`] = { raw: String(c - 2 + r) }
+    const back = await readXlsx(await writeXlsx({ sheets: [{ name: 'My Sheet', cells: cells as never, layout: { sparklines: defs } as never }] }))
+    expect(back.sheets[0].layout?.sparklines).toEqual(expect.arrayContaining(defs))
+    expect(back.sheets[0].layout?.sparklines).toHaveLength(3)
+  })
+})
+
+describe('pictures', () => {
+  const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+  it('survive a save and reopen with position, size and bytes', async () => {
+    const pic = { id: 'p1', name: 'Logo', src: PNG, anchor: { r: 2, c: 1, dx: 5, dy: 3 }, width: 120, height: 60, alt: 'company logo' }
+    const buf = await writeXlsx({ sheets: [{ name: 'S', cells: { '0,0': { raw: 'x' } } as never, layout: { pictures: [pic] } as never }] })
+    const back = await readXlsx(buf)
+    const got = back.sheets[0].layout?.pictures
+    expect(got).toHaveLength(1)
+    expect(got![0]).toMatchObject({ name: 'Logo', anchor: { r: 2, c: 1, dx: 5, dy: 3 }, width: 120, height: 60, alt: 'company logo', src: PNG })
+  })
+  it('coexist with a chart on the same sheet', async () => {
+    const pic = { id: 'p1', name: 'Logo', src: PNG, anchor: { r: 0, c: 8, dx: 0, dy: 0 }, width: 50, height: 50 }
+    const chart = { id: 'c1', type: 'bar', subtype: 'clusteredColumn', legendPosition: 'right', anchor: { r: 5, c: 0, dx: 0, dy: 0 }, width: 300, height: 200, dataRange: { r1: 0, c1: 0, r2: 2, c2: 1 }, seriesInColumns: true, title: '', elements: { axes: true, axisTitles: false, title: false, dataLabels: false, gridlines: true, legend: true } }
+    const cells: Record<string, { raw: string }> = { '0,0': { raw: 'a' }, '0,1': { raw: '1' }, '1,0': { raw: 'b' }, '1,1': { raw: '2' } }
+    const back = await readXlsx(await writeXlsx({ sheets: [{ name: 'S', cells: cells as never, layout: { pictures: [pic], charts: [chart] } as never }] }))
+    expect(back.sheets[0].layout?.pictures).toHaveLength(1)
+    expect(back.sheets[0].layout?.charts).toHaveLength(1)
+  })
+})
+
+describe('scenarios', () => {
+  it('survive a save and reopen', async () => {
+    const scenarios = [
+      { name: 'Low & "slow"', cells: [{ r: 0, c: 0 }, { r: 1, c: 0 }], values: ['50', 'a<b'], comment: 'bad case' },
+      { name: 'High', cells: [{ r: 0, c: 0 }], values: ['200'] }
+    ]
+    const back = await readXlsx(await writeXlsx({ sheets: [{ name: 'S', cells: { '0,0': { raw: '1' }, '1,0': { raw: '2' } } as never, layout: { scenarios } as never }] }))
+    expect(back.sheets[0].layout?.scenarios).toEqual(scenarios)
+  })
+})
+
+describe('shapes', () => {
+  it('survive a save and reopen (kind, geometry, fill, outline, text)', async () => {
+    const shapes = [
+      { id: 'a', name: 'Rectangle 1', kind: 'rect', anchor: { r: 1, c: 1, dx: 4, dy: 2 }, width: 120, height: 60, fill: '#4472c4', line: '#2f528f', lineWidth: 1, text: 'Hello\nworld', color: '#ffffff', fontSize: 14, bold: true, align: 'ctr' },
+      { id: 'b', name: 'TextBox 1', kind: 'textbox', anchor: { r: 8, c: 0, dx: 0, dy: 0 }, width: 150, height: 40, text: 'note', fontSize: 11, color: '#000000' },
+      { id: 'c', name: 'Arrow 1', kind: 'arrow', anchor: { r: 3, c: 5, dx: 0, dy: 0 }, width: 100, height: 50, line: '#c00000', lineWidth: 2, flipV: true },
+      { id: 'd', name: 'Oval 1', kind: 'ellipse', anchor: { r: 12, c: 2, dx: 0, dy: 0 }, width: 80, height: 80, fill: '#ed7d31', line: '#000000', lineWidth: 1 }
+    ]
+    const back = await readXlsx(await writeXlsx({ sheets: [{ name: 'S', cells: { '0,0': { raw: 'x' } } as never, layout: { shapes } as never }] }))
+    const got = back.sheets[0].layout?.shapes ?? []
+    expect(got).toHaveLength(4)
+    expect(got.map(({ id: _id, z: _z, ...rest }) => rest)).toEqual(shapes.map(({ id: _id, ...rest }) => rest))
+  })
+  it('keep z-order, rotation, flips and hidden across pictures and shapes', async () => {
+    const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+    const pic = { id: 'p', name: 'Pic', src: PNG, anchor: { r: 0, c: 0, dx: 0, dy: 0 }, width: 50, height: 50, z: 2, rotation: 90, flipH: true }
+    const sh = { id: 's', name: 'Rect', kind: 'rect', anchor: { r: 5, c: 0, dx: 0, dy: 0 }, width: 60, height: 40, fill: '#4472c4', z: 1, hidden: true, rotation: 270, flipV: true }
+    const back = await readXlsx(await writeXlsx({ sheets: [{ name: 'S', cells: { '0,0': { raw: 'x' } } as never, layout: { pictures: [pic], shapes: [sh] } as never }] }))
+    const l = back.sheets[0].layout
+    expect(l?.shapes?.[0]).toMatchObject({ name: 'Rect', z: 0, hidden: true, rotation: 270, flipV: true }) // drawn first = furthest back
+    expect(l?.pictures?.[0]).toMatchObject({ name: 'Pic', z: 1, rotation: 90, flipH: true })
+  })
+})
+
+describe('tables', () => {
+  it('survive a save; the table owns its filter (no sheet-level autoFilter for the same range)', async () => {
+    const cells: Record<string, { raw: string }> = { '0,0': { raw: 'Item' }, '0,1': { raw: 'Qty' } }
+    for (let r = 1; r <= 4; r++) { cells[`${r},0`] = { raw: 'x' + r }; cells[`${r},1`] = { raw: String(r) } }
+    const table = { name: 'Sales', r1: 0, c1: 0, r2: 4, c2: 1, headerRows: 1, totalsRows: 0, style: 'TableStyleMedium2', rowStripes: true, colStripes: false, firstCol: false, lastCol: false, filter: true }
+    const af = { range: { r1: 0, c1: 0, r2: 4, c2: 1 }, columns: { 1: { selected: ['1', '2'] } }, filteredOutRows: [3, 4] }
+    const buf = await writeXlsx({ sheets: [{ name: 'S', cells: cells as never, layout: { tables: [table], autoFilter: af } as never }] })
+    const files = unzipSync(buf)
+    const sheetXml = new TextDecoder().decode(files['xl/worksheets/sheet1.xml'])
+    const tableXml = new TextDecoder().decode(files['xl/tables/table1.xml'])
+    expect(sheetXml).not.toContain('<autoFilter')
+    expect(sheetXml).toContain('<tableParts count="1">')
+    expect(tableXml).toContain('<autoFilter')
+    expect(tableXml).toContain('TableStyleMedium2')
+    const back = await readXlsx(buf)
+    expect(back.sheets[0].layout?.tables).toMatchObject([{ name: 'Sales', r1: 0, c1: 0, r2: 4, c2: 1, style: 'TableStyleMedium2', rowStripes: true, filter: true }])
+    expect(back.sheets[0].layout?.autoFilter?.range).toEqual({ r1: 0, c1: 0, r2: 4, c2: 1 })
+  })
+})

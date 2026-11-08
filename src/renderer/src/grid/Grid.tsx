@@ -3,21 +3,34 @@
 // interacts with them.
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { store, useStore, SheetState } from '../model/store'
-import { getUi, setUi, useUi, commitEdit, cancelEdit } from '../chrome/ui'
+import { getUi, setUi, useUi, commitEdit, cancelEdit, commitEditToSelection } from '../chrome/ui'
 import {
   CellStyle, Range, CellRef, Selection, normRange, inRange, colName, a1, rangeA1, parseA1,
   DEFAULT_COL_WIDTH, DEFAULT_ROW_HEIGHT, MAX_ROWS, MAX_COLS
-} from '../model/types'
+, normalFont } from '../model/types'
 import { buildAxis, Axis } from './axis'
+import { outlineRuns, maxLevel } from '../model/outline'
+import { drawGutter, hitGutter, gutterSizes, GutterGeo } from './outlineGutter'
+import { showOutlineLevel, toggleRun, outlineCommand } from './outlineCommands'
 import { Menu, MenuItem, useMenu } from '../components/Menu'
 import { Dialog } from '../components/Dialog'
 import * as cmd from './commands'
 import { shiftFormula } from '../engine/shiftFormula'
 import ChartOverlay from '../charts/ChartOverlay'
+import { ObjectOverlay } from './ObjectOverlay'
+import { SlicerOverlay } from './SlicerOverlay'
 import { insertChartFromSelection } from '../charts/insertChart'
 import { COLUMN_BAR_GALLERY } from '../charts/gallery'
 import { AutoFilterMenu } from './AutoFilterMenu'
 import { NoteBox, NoteTooltip, CommentBox, closeNoteEditor, closeCommentPanel } from './Annotations'
+import { evaluateCf } from '../format/conditional'
+import { linkAt, followLink } from './links'
+import { sparkValues, drawSparkline } from '../data/sparklines'
+import { cellErrorKind } from '../data/errorCheck'
+import { layoutSheet } from '../io/print'
+import { tableStyleFor } from '../format/tableStyle'
+import { renderPivot } from '../data/pivot'
+import { getValidationForCell, getListItems, validateInput } from '../data/dataValidation'
 import {
   Cut20Regular, Copy20Regular, ClipboardPaste20Regular, ClipboardTaskRegular, ClipboardCodeRegular,
   ClipboardLink20Regular, ArrowSwap20Regular, PaintBrush20Regular, Delete20Regular, Eraser20Regular,
@@ -34,8 +47,8 @@ const CORNER_W_MIN = 46
 const REF_COLORS = ['#2563eb', '#dc2626', '#7c3aed', '#059669', '#d97706', '#0891b2', '#be185d', '#4d7c0f']
 
 function fontString(style: CellStyle | undefined, z: number): string {
-  const size = Math.round((style?.fontSize ?? 11) * z)
-  const fam = style?.fontFamily ?? 'Calibri'
+  const size = Math.round((style?.fontSize ?? normalFont.size) * z)
+  const fam = style?.fontFamily ?? normalFont.name
   let s = ''
   if (style?.italic) s += 'italic '
   if (style?.bold) s += 'bold '
@@ -58,12 +71,77 @@ function MiniBtn({ icon, title, active, onClick }: { icon: React.ReactNode; titl
   )
 }
 
+function drawCfIcon(ctx: CanvasRenderingContext2D, set: string, index: number, x: number, y: number, z: number): void {
+  ctx.save()
+  const r = 5 * z
+  if (set.includes('TrafficLights') || set.includes('Shapes') || set.includes('Symbols')) {
+    const colors = ['#e81123', '#ffb900', '#107c41']
+    ctx.fillStyle = colors[index] || '#107c41'
+    ctx.beginPath()
+    ctx.arc(x + r, y, r, 0, 2 * Math.PI)
+    ctx.fill()
+    ctx.strokeStyle = '#333'
+    ctx.lineWidth = 0.5
+    ctx.stroke()
+  } else {
+    const colors = ['#e81123', '#ffb900', '#107c41']
+    ctx.fillStyle = colors[index] || '#107c41'
+    ctx.beginPath()
+    if (index === 0) {
+      ctx.moveTo(x + r, y + r)
+      ctx.lineTo(x, y - r * 0.5)
+      ctx.lineTo(x + 2 * r, y - r * 0.5)
+    } else if (index === 1) {
+      ctx.moveTo(x + 2 * r, y)
+      ctx.lineTo(x, y - r)
+      ctx.lineTo(x, y + r)
+    } else {
+      ctx.moveTo(x + r, y - r)
+      ctx.lineTo(x, y + r * 0.5)
+      ctx.lineTo(x + 2 * r, y + r * 0.5)
+    }
+    ctx.closePath()
+    ctx.fill()
+  }
+  ctx.restore()
+}
+
+/** Computes the layout rectangle of a cell relative to the grid viewport. */
+export function getCellRect(
+  storeInstance: typeof store,
+  sheet: SheetState,
+  r: number,
+  c: number
+): { x: number; y: number; w: number; h: number } | null {
+  const z = sheet.layout.zoom / 100
+  const showHead = sheet.layout.showHeadings
+  const rowHeaderW = showHead ? 46 * z : 0
+  const headerH = showHead ? HEADER_H * z : 0
+  const colsAxis = buildAxis(sheet.layout.colWidths, sheet.layout.hiddenCols, DEFAULT_COL_WIDTH, MAX_COLS)
+  const rowsAxis = buildAxis(sheet.layout.rowHeights, sheet.layout.hiddenRows, DEFAULT_ROW_HEIGHT, MAX_ROWS)
+  const m = storeInstance.mergeAt(sheet, r, c) ?? { r1: r, c1: c, r2: r, c2: c }
+  const x = rowHeaderW + colsAxis.offset(m.c1) * z
+  const y = headerH + rowsAxis.offset(m.r1) * z
+  const w = colsAxis.totalSize(m.c2 + 1) * z - colsAxis.totalSize(m.c1) * z
+  const h = rowsAxis.totalSize(m.r2 + 1) * z - rowsAxis.totalSize(m.r1) * z
+  return { x, y, w, h }
+}
+
+/** Page Break Preview repaginates only when something changed, not on every scroll frame. */
+let pbCache: { key: string; lay: ReturnType<typeof layoutSheet> } | null = null
+function pageLayoutCached(sheet: SheetState): ReturnType<typeof layoutSheet> {
+  const key = sheet.uid + ':' + store.version
+  if (pbCache?.key !== key) pbCache = { key, lay: layoutSheet(sheet, 'active') }
+  return pbCache.lay
+}
+
 export default function Grid() {
   useStore()
   const ui = useUi()
   const sheet = store.active
   const scrollRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const antsRef = useRef<HTMLCanvasElement>(null)
   const editorRef = useRef<HTMLTextAreaElement>(null)
   const hostRef = useRef<HTMLDivElement>(null)
   const [, setTick] = useState(0)
@@ -77,6 +155,7 @@ export default function Grid() {
   const [resizeTip, setResizeTip] = useState<{ x: number; y: number; text: string } | null>(null)
   const [filterMenu, setFilterMenu] = useState<{ col: number; x: number; y: number } | null>(null)
   const [hoverCell, setHoverCell] = useState<CellRef | null>(null)
+  const [listMenuPos, setListMenuPos] = useState<{ x: number; y: number } | null>(null)
   // Excel's Enter-after-Tab: while chaining Tab across cells in a single-cell selection, Enter
   // commits and moves down to the row below, but back to the column where the Tab-run started.
   const tabAnchorCol = useRef<number | null>(null)
@@ -104,8 +183,13 @@ export default function Grid() {
     () => buildAxis(sheet.layout.rowHeights, sheet.layout.hiddenRows, DEFAULT_ROW_HEIGHT, MAX_ROWS),
     [sheet, sheet.layout.rowHeights, sheet.layout.hiddenRows, ui]
   )
-  const rowHeaderW = showHead ? Math.max(CORNER_W_MIN, 10 + String(Math.max(100, extent.rows)).length * 8) * z : 0
-  const headerH = showHead ? HEADER_H * z : 0
+  const rowDepth = useMemo(() => maxLevel(sheet.layout, 'row'), [sheet.layout.rowLevels])
+  const colDepth = useMemo(() => maxLevel(sheet.layout, 'col'), [sheet.layout.colLevels])
+  const { gutterL, gutterT } = gutterSizes(rowDepth, colDepth, showHead, ui.outlineHidden)
+  const rowRuns = useMemo(() => outlineRuns(sheet.layout, 'row'), [sheet.layout.rowLevels, sheet.layout.hiddenRows, sheet.layout.outline])
+  const colRuns = useMemo(() => outlineRuns(sheet.layout, 'col'), [sheet.layout.colLevels, sheet.layout.hiddenCols, sheet.layout.outline])
+  const rowHeaderW = gutterL + (showHead ? Math.max(CORNER_W_MIN, 10 + String(Math.max(100, extent.rows)).length * 8) * z : 0)
+  const headerH = gutterT + (showHead ? HEADER_H * z : 0)
   const frozen = sheet.layout.frozen
   const frozenW = colsAxis.totalSize(frozen.cols) * z
   const frozenH = rowsAxis.totalSize(frozen.rows) * z
@@ -126,11 +210,21 @@ export default function Grid() {
   useLayoutEffect(() => {
     const el = hostRef.current
     if (!el) return
-    const ro = new ResizeObserver(() => setSize({ w: el.clientWidth, h: el.clientHeight }))
+    // The drawable area excludes the native scrollbars (like Excel's), so the canvas never paints over them.
+    const measure = (): void => { const sc = scrollRef.current ?? el; setSize({ w: sc.clientWidth, h: sc.clientHeight }) }
+    const ro = new ResizeObserver(measure)
     ro.observe(el)
-    setSize({ w: el.clientWidth, h: el.clientHeight })
+    if (scrollRef.current) ro.observe(scrollRef.current)
+    measure()
     return () => ro.disconnect()
   }, [])
+
+  // Scrollbars appear/disappear when the scrollable extent changes (zoom, hidden rows, growing sheet): re-measure then too.
+  useLayoutEffect(() => {
+    const sc = scrollRef.current
+    if (!sc) return
+    setSize((cur) => (cur.w === sc.clientWidth && cur.h === sc.clientHeight ? cur : { w: sc.clientWidth, h: sc.clientHeight }))
+  }, [sizerW, sizerH])
 
   const onScroll = useCallback(() => {
     const el = scrollRef.current
@@ -228,6 +322,41 @@ export default function Grid() {
     return out
   }
 
+  // ---------- Copy / Cut marquee: its own canvas so the dashes can move without repainting the grid ----------
+  const clip = store.clipboard
+  useLayoutEffect(() => {
+    const cv = antsRef.current
+    if (!cv || size.w <= 0 || size.h <= 0) return
+    const dpr = window.devicePixelRatio || 1
+    const pxW = Math.round(size.w * dpr), pxH = Math.round(size.h * dpr)
+    if (cv.width !== pxW || cv.height !== pxH) { cv.width = pxW; cv.height = pxH }
+    const ctx = cv.getContext('2d')!
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    ctx.clearRect(0, 0, size.w, size.h)
+    if (!clip || clip.sheetUid !== sheet.uid || ui.viewMode === 'pageBreak') return
+    const rg = normRange(clip.range)
+    const x1 = cellScreenX(rg.c1), y1 = cellScreenY(rg.r1)
+    const x2 = Math.min(cellScreenX(rg.c2 + 1), size.w + 4), y2 = Math.min(cellScreenY(rg.r2 + 1), size.h + 4)
+    if (x2 < rowHeaderW || y2 < headerH || x1 > size.w || y1 > size.h) return
+    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    let raf = 0
+    const t0 = performance.now()
+    const paint = (t: number): void => {
+      ctx.clearRect(0, 0, size.w, size.h)
+      ctx.save()
+      ctx.beginPath(); ctx.rect(rowHeaderW, headerH, size.w - rowHeaderW, size.h - headerH); ctx.clip()
+      ctx.lineWidth = 2
+      ctx.strokeStyle = '#ffffff'; ctx.setLineDash([])
+      ctx.strokeRect(x1 + 1, y1 + 1, Math.max(0, x2 - x1 - 2), Math.max(0, y2 - y1 - 2))
+      ctx.strokeStyle = '#107c41'; ctx.setLineDash([4, 4]); ctx.lineDashOffset = -(((t - t0) / 1000) * 14) % 8
+      ctx.strokeRect(x1 + 1, y1 + 1, Math.max(0, x2 - x1 - 2), Math.max(0, y2 - y1 - 2))
+      ctx.restore()
+      if (!reduce) raf = requestAnimationFrame(paint)
+    }
+    paint(t0)
+    return () => cancelAnimationFrame(raf)
+  }, [clip, size, scroll, z, sheet, colsAxis, rowsAxis, rowHeaderW, headerH, ui.viewMode]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // ---------- drawing ----------
   useLayoutEffect(() => {
     const canvas = canvasRef.current
@@ -250,21 +379,66 @@ export default function Grid() {
     const wholeColSel = primary.r1 === 0 && primary.r2 >= MAX_ROWS - 1
     const wholeRowSel = primary.c1 === 0 && primary.c2 >= MAX_COLS - 1
 
+    const circled = ui.validationCircles?.[sheet.uid] ? new Set(ui.validationCircles[sheet.uid]) : null
+    const sparkMap = sheet.layout.sparklines?.length ? new Map(sheet.layout.sparklines.map((s) => [s.r * 16384 + s.c, s])) : null
+
     function drawCellContent(r: number, c: number, x: number, y: number, w: number, h: number): void {
       if (w <= 0 || h <= 0) return
-      const style = store.getStyle(sheet, r, c)
-      if (style?.fill) { ctx.fillStyle = style.fill; ctx.fillRect(x, y, w, h) }
+      const baseStyle = store.getStyle(sheet, r, c)
+      const cf = evaluateCf(store, sheet, r, c)
+      const merged = cf.style ? { ...baseStyle, ...cf.style } : baseStyle
+      const tsty = tableStyleFor(sheet, r, c)
+      const style = tsty ? { ...tsty, ...Object.fromEntries(Object.entries(merged ?? {}).filter(([, v]) => v !== undefined)) } : merged
+      const bg = cf.colorScale || style?.fill
+      if (bg) { ctx.fillStyle = bg; ctx.fillRect(x, y, w, h) }
+
+      if (cf.dataBar) {
+        const barW = Math.max(0, Math.min(w - 2, Math.round((w - 2) * cf.dataBar.fraction)))
+        if (barW > 0) {
+          const grad = ctx.createLinearGradient(x + 1, y + 1, x + 1 + barW, y + 1)
+          grad.addColorStop(0, cf.dataBar.color)
+          grad.addColorStop(1, '#ffffff')
+          ctx.fillStyle = grad
+          ctx.fillRect(x + 1, y + 1, barW, h - 2)
+          ctx.strokeStyle = cf.dataBar.color
+          ctx.lineWidth = 1
+          ctx.strokeRect(x + 1, y + 1, barW, h - 2)
+        }
+      }
+
+      if (circled?.has(r + ',' + c)) {
+        const cell = store.getRaw(sheet, r, c)
+        const v = cell.startsWith('=') ? store.getValue(sheet, r, c) : cell
+        if (cell !== '' && !validateInput(store, sheet, r, c, v === null || v === undefined ? '' : String(v)).ok) {
+          ctx.strokeStyle = '#ff0000'; ctx.lineWidth = 1.5
+          ctx.beginPath(); ctx.ellipse(x + w / 2, y + h / 2, Math.max(2, w / 2 - 1), Math.max(2, h / 2 - 0.5), 0, 0, Math.PI * 2); ctx.stroke()
+        }
+      }
+      const spark = sparkMap?.get(r * 16384 + c)
+      if (spark) drawSparkline(ctx, sparkValues(sheet, spark), spark.type, spark.color, x, y, w, h)
+
+      let iconPad = 0
+      if (cf.icon) {
+        iconPad = 14 * z
+        const ix = x + 3 * z, iy = y + h / 2
+        drawCfIcon(ctx, cf.icon.set, cf.icon.index, ix, iy, z)
+      }
+
       const editingHere = ui.edit && ui.edit.r === r && ui.edit.c === c
       if (editingHere) return
       const disp = ui.formulasVisible ? { text: store.getRaw(sheet, r, c), color: undefined, align: 'left' as const } : store.getDisplay(sheet, r, c)
       if (!disp.text) return
+      if (cellErrorKind(sheet, r, c)) {
+        ctx.fillStyle = '#21a366'
+        ctx.beginPath(); ctx.moveTo(x + 1, y + 1); ctx.lineTo(x + 1 + 6 * z, y + 1); ctx.lineTo(x + 1, y + 1 + 6 * z); ctx.closePath(); ctx.fill()
+      }
       ctx.font = fontString(style, z)
       ctx.fillStyle = style?.color ?? disp.color ?? '#000000'
       const hAlign = style?.hAlign && style.hAlign !== 'general' ? style.hAlign : (disp.align ?? 'left')
       const vAlign = style?.vAlign ?? 'bottom'
       const pad = 3 * z
       ctx.textBaseline = 'middle'
-      let tx = x + pad
+      let tx = x + pad + iconPad
       ctx.textAlign = 'left'
       if (hAlign === 'right') { tx = x + w - pad; ctx.textAlign = 'right' }
       else if (hAlign === 'center' || hAlign === 'centerContinuous') { tx = x + w / 2; ctx.textAlign = 'center' }
@@ -272,9 +446,13 @@ export default function Grid() {
       let text = disp.text
       const metrics = ctx.measureText(text)
       const isNumeric = typeof store.getValue(sheet, r, c) === 'number'
-      if (metrics.width > w - 2 * pad && isNumeric) {
-        text = '#'.repeat(Math.max(1, Math.floor((w - 2 * pad) / (7 * z))))
-      } else if (metrics.width > w - 2 * pad && !style?.wrap) {
+      if (metrics.width > w - 2 * pad - iconPad && isNumeric) {
+        const avail = w - 2 * pad - iconPad
+        const fmt = style?.numFmt
+        // General numbers shrink the way Excel's do (fewer decimals, then 2.63E+09) before ####.
+        const fit = !fmt || fmt === 'General' ? fitGeneral(store.getValue(sheet, r, c) as number, (t) => ctx.measureText(t).width <= avail) : null
+        text = fit ?? '#'.repeat(Math.max(1, Math.floor(avail / (7 * z))))
+      } else if (metrics.width > w - 2 * pad - iconPad && !style?.wrap) {
         // overflow into empty neighbours: only clip if neighbour is non-empty
       }
       ctx.save()
@@ -283,13 +461,13 @@ export default function Grid() {
       let clipX = x, clipW = w
       if (!style?.wrap && hAlign === 'left') {
         let cc = c + 1
-        while (clipW < metrics.width + 2 * pad && cc < MAX_COLS && store.getRaw(sheet, r, cc) === '' && !store.mergeAt(sheet, r, cc)) {
+        while (clipW < metrics.width + 2 * pad + iconPad && cc < MAX_COLS && store.getRaw(sheet, r, cc) === '' && !store.mergeAt(sheet, r, cc)) {
           clipW += colsAxis.size(cc) * z
           cc++
         }
       } else if (!style?.wrap && hAlign === 'right') {
         let cc = c - 1
-        while (clipW < metrics.width + 2 * pad && cc >= 0 && store.getRaw(sheet, r, cc) === '' && !store.mergeAt(sheet, r, cc)) {
+        while (clipW < metrics.width + 2 * pad + iconPad && cc >= 0 && store.getRaw(sheet, r, cc) === '' && !store.mergeAt(sheet, r, cc)) {
           clipX -= colsAxis.size(cc) * z
           clipW += colsAxis.size(cc) * z
           cc--
@@ -314,7 +492,9 @@ export default function Grid() {
     }
 
     function drawBorders(r: number, c: number, x: number, y: number, w: number, h: number): void {
-      const style = store.getStyle(sheet, r, c)
+      const baseStyle = store.getStyle(sheet, r, c)
+      const cf = evaluateCf(store, sheet, r, c)
+      const style = cf.style?.borders ? { ...baseStyle, borders: { ...baseStyle?.borders, ...cf.style.borders } } : baseStyle
       const b = style?.borders
       if (!b) return
       ctx.lineWidth = 1
@@ -433,6 +613,59 @@ export default function Grid() {
         })
       })
     }
+    // View > Page Break Preview: grey outside the print area, "Page N" watermarks, blue page breaks
+    if (ui.viewMode === 'pageBreak') {
+      const lay = pageLayoutCached(sheet)
+      if (lay) {
+        const { rg, pages } = lay
+        const X = (c: number): number => cellScreenX(c), Y = (r: number): number => cellScreenY(r)
+        const x1 = X(rg.c1), x2 = X(rg.c2 + 1), y1 = Y(rg.r1), y2 = Y(rg.r2 + 1)
+        ctx.fillStyle = 'rgba(150,150,150,0.45)'
+        ctx.fillRect(rowHeaderW, headerH, size.w - rowHeaderW, Math.max(0, y1 - headerH))
+        ctx.fillRect(rowHeaderW, y2, size.w - rowHeaderW, Math.max(0, size.h - y2))
+        ctx.fillRect(rowHeaderW, y1, Math.max(0, x1 - rowHeaderW), Math.max(0, y2 - y1))
+        ctx.fillRect(x2, y1, Math.max(0, size.w - x2), Math.max(0, y2 - y1))
+        ctx.font = `bold ${Math.round(72 * z)}px Calibri, sans-serif`
+        ctx.fillStyle = 'rgba(120,120,120,0.28)'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+        for (const p of pages) {
+          const px1 = X(p.c1), px2 = X(p.c2 + 1), py1 = Y(p.r1), py2 = Y(p.r2 + 1)
+          if (px2 < rowHeaderW || px1 > size.w || py2 < headerH || py1 > size.h) continue // only the pages on screen
+          ctx.fillText(`Page ${p.number}`, (px1 + px2) / 2, (py1 + py2) / 2)
+        }
+        const manualR = new Set(sheet.layout.pageSetup?.rowBreaks ?? []), manualC = new Set(sheet.layout.pageSetup?.colBreaks ?? [])
+        ctx.strokeStyle = '#1f5fd8'; ctx.lineWidth = 1.5
+        const seenC = new Set<number>(), seenR = new Set<number>()
+        for (const p of pages) {
+          if (p.c1 > rg.c1 && !seenC.has(p.c1) && X(p.c1) >= rowHeaderW && X(p.c1) <= size.w) { seenC.add(p.c1); ctx.setLineDash(manualC.has(p.c1) ? [] : [6, 4]); ctx.beginPath(); ctx.moveTo(X(p.c1), y1); ctx.lineTo(X(p.c1), y2); ctx.stroke() }
+          if (p.r1 > rg.r1 && !seenR.has(p.r1) && Y(p.r1) >= headerH && Y(p.r1) <= size.h) { seenR.add(p.r1); ctx.setLineDash(manualR.has(p.r1) ? [] : [6, 4]); ctx.beginPath(); ctx.moveTo(x1, Y(p.r1)); ctx.lineTo(x2, Y(p.r1)); ctx.stroke() }
+        }
+        ctx.setLineDash([]); ctx.lineWidth = 2.5; ctx.strokeRect(x1, y1, x2 - x1, y2 - y1)
+      }
+    }
+    // Trace Precedents / Dependents arrows
+    if (ui.traceArrows && ui.traceArrows.sheetUid === sheet.uid) {
+      ctx.strokeStyle = '#1f4fd8'; ctx.fillStyle = '#1f4fd8'; ctx.lineWidth = 1.5
+      for (const a of ui.traceArrows.arrows) {
+        const f0 = cellRect(a.from.r1, a.from.c1), t = cellRect(a.to.r1, a.to.c1)
+        if (a.from.r1 !== a.from.r2 || a.from.c1 !== a.from.c2) {
+          const fr = { x: cellScreenX(a.from.c1), y: cellScreenY(a.from.r1) }
+          const fw = colsAxis.totalSize(a.from.c2 + 1) * z - colsAxis.totalSize(a.from.c1) * z
+          const fh = rowsAxis.totalSize(a.from.r2 + 1) * z - rowsAxis.totalSize(a.from.r1) * z
+          ctx.setLineDash([4, 3]); ctx.strokeRect(fr.x + 0.5, fr.y + 0.5, fw - 1, fh - 1); ctx.setLineDash([])
+        }
+        const sx = f0.x + f0.w / 2, sy = f0.y + f0.h / 2, tx = t.x + t.w / 2, ty = t.y + t.h / 2
+        if (sx === tx && sy === ty) continue
+        const ang = Math.atan2(ty - sy, tx - sx)
+        const ex = tx - Math.cos(ang) * 4, ey = ty - Math.sin(ang) * 4
+        ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(ex, ey); ctx.stroke()
+        ctx.beginPath(); ctx.arc(sx, sy, 3, 0, Math.PI * 2); ctx.fill()
+        ctx.beginPath()
+        ctx.moveTo(ex, ey)
+        ctx.lineTo(ex - 8 * Math.cos(ang - 0.4), ey - 8 * Math.sin(ang - 0.4))
+        ctx.lineTo(ex - 8 * Math.cos(ang + 0.4), ey - 8 * Math.sin(ang + 0.4))
+        ctx.closePath(); ctx.fill()
+      }
+    }
     ctx.restore()
 
     // ---------- AutoFilter dropdown arrows ----------
@@ -492,8 +725,8 @@ export default function Grid() {
     if (showHead) {
       // corner
       ctx.fillStyle = '#f5f5f5'
-      ctx.fillRect(0, 0, rowHeaderW, headerH)
-      ctx.strokeStyle = '#d4d4d4'; ctx.strokeRect(0.5, 0.5, rowHeaderW - 1, headerH - 1)
+      ctx.fillRect(gutterL, gutterT, rowHeaderW - gutterL, headerH - gutterT)
+      ctx.strokeStyle = '#d4d4d4'; ctx.strokeRect(gutterL + 0.5, gutterT + 0.5, rowHeaderW - gutterL - 1, headerH - gutterT - 1)
       ctx.beginPath()
       ctx.fillStyle = '#616161'
       ctx.moveTo(rowHeaderW - 8, headerH - 4); ctx.lineTo(rowHeaderW - 3, headerH - 4); ctx.lineTo(rowHeaderW - 3, headerH - 9)
@@ -504,13 +737,13 @@ export default function Grid() {
         for (const { c, x, w } of cols) {
           const isSel = selectedCols.has(c) && !wholeColSel
           ctx.fillStyle = isSel ? '#d3f0e0' : '#f5f5f5'
-          ctx.fillRect(x, 0, w, headerH)
+          ctx.fillRect(x, gutterT, w, headerH - gutterT)
           ctx.strokeStyle = '#d4d4d4'
-          ctx.beginPath(); ctx.moveTo(x + w - 0.5, 0); ctx.lineTo(x + w - 0.5, headerH); ctx.stroke()
+          ctx.beginPath(); ctx.moveTo(x + w - 0.5, gutterT); ctx.lineTo(x + w - 0.5, headerH); ctx.stroke()
           ctx.font = `${isSel ? '600 ' : ''}${Math.round(11 * z)}px "Segoe UI", sans-serif`
           ctx.fillStyle = isSel ? '#107c41' : '#616161'
           ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
-          ctx.fillText(colName(c), x + w / 2, headerH / 2 + 1)
+          ctx.fillText(colName(c), x + w / 2, gutterT + (headerH - gutterT) / 2 + 1)
           if (isSel) { ctx.strokeStyle = '#107c41'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x, headerH - 1); ctx.lineTo(x + w, headerH - 1); ctx.stroke() }
         }
       }
@@ -524,19 +757,20 @@ export default function Grid() {
           const isSel = selectedRows.has(r) && !wholeRowSel
           const isFilteredRow = filterActive && af!.range && r > af!.range.r1 && r <= af!.range.r2 && !sheet.layout.hiddenRows[r]
           ctx.fillStyle = isSel ? '#d3f0e0' : '#f5f5f5'
-          ctx.fillRect(0, y, rowHeaderW, h)
+          ctx.fillRect(gutterL, y, rowHeaderW - gutterL, h)
           ctx.strokeStyle = '#d4d4d4'
-          ctx.beginPath(); ctx.moveTo(0, y + h - 0.5); ctx.lineTo(rowHeaderW, y + h - 0.5); ctx.stroke()
+          ctx.beginPath(); ctx.moveTo(gutterL, y + h - 0.5); ctx.lineTo(rowHeaderW, y + h - 0.5); ctx.stroke()
           ctx.font = `${isSel ? '600 ' : ''}${Math.round(11 * z)}px "Segoe UI", sans-serif`
           ctx.fillStyle = isSel ? '#107c41' : isFilteredRow ? '#1a73c9' : '#616161'
           ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
-          ctx.fillText(String(r + 1), rowHeaderW / 2, y + h / 2 + 1)
+          ctx.fillText(String(r + 1), gutterL + (rowHeaderW - gutterL) / 2, y + h / 2 + 1)
           if (isSel) { ctx.strokeStyle = '#107c41'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(rowHeaderW - 1, y); ctx.lineTo(rowHeaderW - 1, y + h); ctx.stroke() }
         }
       }
       drawRowHeaders(frozen.rows, extent.rows, scroll.y, headerH + frozenH, size.h - headerH - frozenH)
       if (frozen.rows > 0) drawRowHeaders(0, frozen.rows, 0, headerH, frozenH)
     }
+    drawGutter(ctx, gutterGeo())
     ctx.restore()
   })
 
@@ -597,6 +831,9 @@ export default function Grid() {
   }
 
   function beginEdit(r: number, c: number, mode: 'Enter' | 'Edit', initialText?: string): void {
+    if (!store.canEditCells(sheet, [{ r, c }])) return
+    pointCur.current = null
+    pointedLen.current = 0
     const raw = initialText ?? store.getRaw(sheet, r, c)
     setUi({ edit: { r, c, text: initialText ?? (mode === 'Enter' ? '' : raw), caret: (initialText ?? raw).length, source: 'cell', mode } })
     store.setMode(mode)
@@ -607,12 +844,18 @@ export default function Grid() {
 
   function moveActive(dr: number, dc: number, extend: boolean, opts?: { jump?: boolean }): void {
     const cur = sheet.selection
-    let { r, c } = cur.active
+    // Shift+Arrow moves the far corner of the selection (Excel), keeping the active cell as anchor.
+    const last = cur.ranges[cur.ranges.length - 1]
+    const from: CellRef = extend && last
+      ? { r: last.r1 === cur.active.r ? last.r2 : last.r1, c: last.c1 === cur.active.c ? last.c2 : last.c1 }
+      : cur.active
+    let r: number, c: number
     if (opts?.jump) {
-      r = jumpTo(r, c, dr, dc).r
-      c = jumpTo(r0(cur.active), c0(cur.active), dr, dc).c
-      const j = jumpTo(cur.active.r, cur.active.c, dr, dc)
+      const j = jumpTo(from.r, from.c, dr, dc)
       r = j.r; c = j.c
+    } else if (extend) {
+      r = from.r + dr
+      c = from.c + dc
     } else {
       const m = mergedRangeOf(cur.active.r, cur.active.c)
       r = dr < 0 ? m.r1 + dr : dr > 0 ? m.r2 + dr : cur.active.r
@@ -622,8 +865,7 @@ export default function Grid() {
     c = Math.max(0, Math.min(MAX_COLS - 1, c))
     if (extend) {
       const ranges = [...cur.ranges]
-      const last = ranges.length - 1
-      ranges[last] = { r1: cur.active.r, c1: cur.active.c, r2: r, c2: c }
+      ranges[ranges.length - 1] = { r1: cur.active.r, c1: cur.active.c, r2: r, c2: c }
       setSel(ranges, cur.active)
     } else {
       selectSingle(r, c)
@@ -634,7 +876,7 @@ export default function Grid() {
   function c0(a: CellRef) { return a.c }
 
   function jumpTo(r: number, c: number, dr: number, dc: number): CellRef {
-    const hasVal = (rr: number, cc: number) => rr >= 0 && cc >= 0 && rr < MAX_ROWS && cc < MAX_COLS && store.getRaw(sheet, rr, cc) !== ''
+    const hasVal = (rr: number, cc: number) => rr >= 0 && cc >= 0 && rr < MAX_ROWS && cc < MAX_COLS && !store.isBlank(sheet, rr, cc)
     let rr = r, cc = c
     const step = () => { rr += dr; cc += dc }
     const inBounds = () => rr >= 0 && cc >= 0 && rr < MAX_ROWS && cc < MAX_COLS
@@ -712,24 +954,44 @@ export default function Grid() {
     return null
   }
 
+  function gutterGeo(): GutterGeo {
+    return {
+      gutterL, gutterT, headerH, rowHeaderW, showHead, size, rowRuns, colRuns, rowDepth, colDepth,
+      rowY: (i) => cellScreenY(i), colX: (i) => cellScreenX(i),
+      summaryBelow: sheet.layout.outline?.summaryBelow !== false, summaryRight: sheet.layout.outline?.summaryRight !== false
+    }
+  }
+
+  const linkClick = useRef<{ r: number; c: number; t: number } | null>(null)
   function onMouseDown(e: React.MouseEvent): void {
     if (e.button === 2) return
     tabAnchorCol.current = null
     // A chart's own mousedown handler stops propagation, so getting here means the click landed
     // on the grid itself: deselect any floating chart.
     if (getUi().selectedChart) setUi({ selectedChart: null })
+    if (getUi().selectedPicture) setUi({ selectedPicture: null })
     const rect = hostRef.current!.getBoundingClientRect()
     const x = e.clientX - rect.left, y = e.clientY - rect.top
-    editorRef.current?.blur()
-
-    // Point mode: editing a formula, click on grid inserts a reference instead of navigating.
-    if (getUi().edit && getUi().edit!.text.startsWith('=') && y > headerH && x > rowHeaderW) {
+    // Point mode: editing a formula where a reference can go (after =, an operator, "(" or ","),
+    // or right after a pointed reference: clicking inserts/replaces a reference instead of committing.
+    if (canPoint() && y > headerH && x > rowHeaderW) {
+      e.preventDefault() // keep the editor focused
       const { r, c } = cellAt(x, y)
+      pointCur.current = { ar: r, ac: c, r, c }
       insertRefIntoEdit(r, c, r, c)
+      requestAnimationFrame(() => editorRef.current?.focus())
       drag.current = { kind: 'cells', anchor: { r, c }, extendOnly: true, base: [] }
       window.addEventListener('mousemove', onPointDrag)
       window.addEventListener('mouseup', onPointUp)
       return
+    }
+    editorRef.current?.blur()
+
+    // outline gutter: level buttons and [-]/[+]; the rest of the gutter is inert
+    if (gutterL > 0 || gutterT > 0) {
+      const hit = hitGutter(gutterGeo(), x, y)
+      if (hit) { if (hit.kind === 'level') showOutlineLevel(hit.axis, hit.n); else toggleRun(hit.axis, hit.run); return }
+      if (x < gutterL || y < gutterT) return
     }
 
     // select-all corner
@@ -828,6 +1090,8 @@ export default function Grid() {
       setSel([...sheet.selection.ranges, { r1: r, c1: c, r2: r, c2: c }], { r, c })
     } else {
       selectSingle(r, c)
+      // Excel follows a hyperlink on a quick click; click-and-hold just selects the cell.
+      linkClick.current = linkAt(sheet, r, c) ? { r, c, t: Date.now() } : null
     }
     drag.current = { kind: 'cells', anchor: { r, c }, extendOnly: false, base: [] }
     window.addEventListener('mousemove', onCellDrag)
@@ -869,6 +1133,13 @@ export default function Grid() {
     setSel(ranges, drag.current.anchor)
   }
   function onCellUp(): void {
+    const lc = linkClick.current
+    linkClick.current = null
+    if (lc && Date.now() - lc.t < 700) {
+      const n = normRange(sheet.selection.ranges[sheet.selection.ranges.length - 1])
+      const link = linkAt(sheet, lc.r, lc.c)
+      if (link && n.r1 === lc.r && n.r2 === lc.r && n.c1 === lc.c && n.c2 === lc.c) void followLink(link)
+    }
     drag.current = null
     window.removeEventListener('mousemove', onCellDrag)
     window.removeEventListener('mouseup', onCellUp)
@@ -974,6 +1245,16 @@ export default function Grid() {
     window.removeEventListener('mouseup', onResizeUp)
   }
 
+  const pointedLen = useRef(0)
+  const pointCur = useRef<{ ar: number; ac: number; r: number; c: number } | null>(null)
+  function canPoint(): boolean {
+    const e = getUi().edit
+    if (!e || !e.text.startsWith('=')) return false
+    if (pointCur.current) return true
+    const before = e.text.slice(0, e.caret ?? e.text.length)
+    return /[=(,+\-*/^&<>:;%{]\s*$/.test(before)
+  }
+
   function insertRefIntoEdit(ar: number, ac: number, r: number, c: number): void {
     const e = getUi().edit
     if (!e) return
@@ -982,7 +1263,8 @@ export default function Grid() {
     const caret = e.caret ?? base.length
     // Replace a trailing in-progress ref token (from a previous point-mode step) if present.
     const m = /(\$?[A-Za-z]{1,3}\$?\d{1,7}(?::\$?[A-Za-z]{1,3}\$?\d{1,7})?)$/.exec(base.slice(0, caret))
-    const start = m ? caret - m[1].length : caret
+    const start = m && pointedLen.current === m[1].length ? caret - m[1].length : caret
+    pointedLen.current = ref.length
     const text = base.slice(0, start) + ref + base.slice(caret)
     setUi({ edit: { ...e, text, caret: start + ref.length } })
     store.setMode('Point')
@@ -1033,7 +1315,11 @@ export default function Grid() {
     const editing = !!getUi().edit
     const mod = e.ctrlKey || e.metaKey
     if (!editing) {
+      // Moving the cell cursor leaves a selected picture / shape (Excel selects either an object or cells).
+      if ((e.key.startsWith('Arrow') || e.key === 'Tab' || e.key === 'Enter') && getUi().selectedPicture) setUi({ selectedPicture: null })
       const extending = e.shiftKey || getUi().selectMode !== 'none'
+      if (e.altKey && e.shiftKey && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) { outlineCommand(e.key === 'ArrowRight' ? 'group' : 'ungroup'); e.preventDefault(); return }
+      if (mod && !e.shiftKey && e.key === '8') { setUi({ outlineHidden: !getUi().outlineHidden }); e.preventDefault(); return }
       // ---- Scroll Lock: arrows scroll the viewport, active cell doesn't move ----
       if (getUi().scrollLock && !mod && (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
         const el = scrollRef.current
@@ -1045,7 +1331,7 @@ export default function Grid() {
         }
         e.preventDefault(); return
       }
-      if (e.key === 'ArrowDown') { tabAnchorCol.current = null; const j = mod || getUi().endMode; moveActive(1, 0, extending, { jump: j }); if (getUi().endMode) setUi({ endMode: false }); e.preventDefault(); return }
+      if (e.key === 'ArrowDown' && !(e.altKey && !mod)) { tabAnchorCol.current = null; const j = mod || getUi().endMode; moveActive(1, 0, extending, { jump: j }); if (getUi().endMode) setUi({ endMode: false }); e.preventDefault(); return }
       if (e.key === 'ArrowUp') { tabAnchorCol.current = null; const j = mod || getUi().endMode; moveActive(-1, 0, extending, { jump: j }); if (getUi().endMode) setUi({ endMode: false }); e.preventDefault(); return }
       if (e.key === 'ArrowLeft') { tabAnchorCol.current = null; const j = mod || getUi().endMode; moveActive(0, -1, extending, { jump: j }); if (getUi().endMode) setUi({ endMode: false }); e.preventDefault(); return }
       if (e.key === 'ArrowRight') { tabAnchorCol.current = null; const j = mod || getUi().endMode; moveActive(0, 1, extending, { jump: j }); if (getUi().endMode) setUi({ endMode: false }); e.preventDefault(); return }
@@ -1055,6 +1341,22 @@ export default function Grid() {
       if (e.key === 'End' && !mod) { setUi({ endMode: !getUi().endMode }); e.preventDefault(); return }
       // ---- Alt+Down: pick-from-list ----
       if (e.key === 'ArrowDown' && e.altKey && !mod) {
+        // A cell with a List data validation opens its own dropdown instead, as in Excel.
+        const a0 = sheet.selection.active
+        const dv = getValidationForCell(sheet, a0.r, a0.c)
+        if (dv && dv.allow === 'list' && dv.inCellDropdown !== false) {
+          const rect = cellRect(a0.r, a0.c)
+          const hostR = hostRef.current!.getBoundingClientRect()
+          setListMenuPos({ x: hostR.left + rect.x, y: hostR.top + rect.y + rect.h })
+          e.preventDefault(); return
+        }
+        // On a filter header cell Alt+Down opens that column's filter menu, as in Excel.
+        const af = sheet.layout.autoFilter
+        if (af && a0.r === af.range.r1 && a0.c >= af.range.c1 && a0.c <= af.range.c2) {
+          const hostRect = hostRef.current!.getBoundingClientRect()
+          setFilterMenu({ col: a0.c, x: hostRect.left + cellScreenX(a0.c), y: hostRect.top + cellScreenY(af.range.r1) + rowsAxis.size(af.range.r1) * z })
+          e.preventDefault(); return
+        }
         const values = cmd.pickListValues()
         if (values.length) {
           const a = sheet.selection.active
@@ -1105,22 +1407,25 @@ export default function Grid() {
         const u = store.usedRange(sheet) ?? { r1: 0, c1: 0, r2: 0, c2: 0 }
         selectSingle(u.r2, u.c2); ensureVisible(u.r2, u.c2); e.preventDefault(); return
       }
-      if (e.key === 'PageDown' && !e.altKey) { pageMove(1); e.preventDefault(); return }
-      if (e.key === 'PageUp' && !e.altKey) { pageMove(-1); e.preventDefault(); return }
+      if (e.key === 'PageDown' && !e.altKey && !mod) { pageMove(1); e.preventDefault(); return }
+      if (e.key === 'PageUp' && !e.altKey && !mod) { pageMove(-1); e.preventDefault(); return }
       if (e.key === 'PageDown' && e.altKey) { moveActive(0, 10, e.shiftKey); e.preventDefault(); return }
       if (e.key === 'PageUp' && e.altKey) { moveActive(0, -10, e.shiftKey); e.preventDefault(); return }
       if (e.key === 'F2') { tabAnchorCol.current = null; const a = sheet.selection.active; beginEdit(a.r, a.c, 'Edit'); e.preventDefault(); return }
+      // With a picture, shape or chart selected, Delete / Backspace belong to that object (its overlay removes it), not to the cells.
+      if ((e.key === 'Delete' || e.key === 'Backspace') && (getUi().selectedPicture || getUi().selectedChart)) return
       if (e.key === 'Delete') { cmd.clearSelection('contents'); e.preventDefault(); return }
       if (e.key === 'Backspace') { const a = sheet.selection.active; cmd.clearSelection('contents'); beginEdit(a.r, a.c, 'Enter'); e.preventDefault(); return }
       if (mod && e.key.toLowerCase() === 'a') { cmd.selectAll(); e.preventDefault(); return }
       if (mod && e.key === ' ') { const cur = sheet.selection; const rg = cur.ranges[cur.ranges.length - 1]; setSel([{ r1: 0, c1: rg.c1, r2: MAX_ROWS - 1, c2: rg.c2 }], cur.active); e.preventDefault(); return }
       if (e.shiftKey && e.key === ' ') { const cur = sheet.selection; const rg = cur.ranges[cur.ranges.length - 1]; setSel([{ r1: rg.r1, c1: 0, r2: rg.r2, c2: MAX_COLS - 1 }], cur.active); e.preventDefault(); return }
+      if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'e') { cmd.flashFillSelection(); e.preventDefault(); return }
       if (mod && e.shiftKey && e.key.toLowerCase() === 'l') { store.toggleAutoFilter(sheet); e.preventDefault(); return }
       if (mod && e.key.toLowerCase() === 'z') { store.undo(); e.preventDefault(); return }
       if (mod && e.key.toLowerCase() === 'y') { store.redo(); e.preventDefault(); return }
       if (mod && e.key.toLowerCase() === 'c') { cmd.copy(); e.preventDefault(); return }
       if (mod && e.key.toLowerCase() === 'x') { cmd.cut(); e.preventDefault(); return }
-      if (mod && e.key.toLowerCase() === 'v') { cmd.paste(); e.preventDefault(); return }
+      if (mod && !e.altKey && e.key.toLowerCase() === 'v') { cmd.paste(); e.preventDefault(); return }
       if (mod && e.key.toLowerCase() === 'd') { cmd.fill('down'); e.preventDefault(); return }
       if (mod && e.key.toLowerCase() === 'r') { cmd.fill('right'); e.preventDefault(); return }
       if (mod && !e.shiftKey && e.key.toLowerCase() === 'b') { toggleStyle('bold'); e.preventDefault(); return }
@@ -1128,12 +1433,11 @@ export default function Grid() {
       if (mod && !e.shiftKey && e.key.toLowerCase() === 'u') { toggleStyle('underline'); e.preventDefault(); return }
       if (mod && e.key === '1') { setUi({ dialog: { kind: 'formatCells' } }); e.preventDefault(); return }
       if (mod && !e.shiftKey && e.key === '-') { cmd.deleteCellsDialog(); e.preventDefault(); return }
-      if (mod && e.shiftKey && e.key === '=') { cmd.insertCellsDialog(); e.preventDefault(); return }
+      if (mod && (e.key === '+' || (e.shiftKey && e.key === '='))) { cmd.insertCellsDialog(); e.preventDefault(); return }
       if (e.altKey && e.key === '=') { cmd.autoSum(); e.preventDefault(); return }
       if (mod && !e.shiftKey && e.key === ';') { const a = sheet.selection.active; const d = new Date(); store.setRaw(sheet, a.r, a.c, `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`); e.preventDefault(); return }
       if (mod && e.shiftKey && (e.key === ':' || e.key === ';')) { const a = sheet.selection.active; const d = new Date(); store.setRaw(sheet, a.r, a.c, `${d.getHours() % 12 || 12}:${String(d.getMinutes()).padStart(2, '0')} ${d.getHours() >= 12 ? 'PM' : 'AM'}`); e.preventDefault(); return }
-      if (mod && e.key === 'Enter') { const a = sheet.selection.active; const raw = store.getRaw(sheet, a.r, a.c); cmd.clearSelection('contents'); void raw; e.preventDefault(); return }
-      if (e.key === 'Escape') { setUi({ selectMode: 'none' }); e.preventDefault(); return }
+      if (e.key === 'Escape') { setUi({ selectMode: 'none' }); if (store.clipboard) { store.clipboard = null; store.notify() }; e.preventDefault(); return }
       // ---- number format shortcuts: Ctrl+Shift+~ ! @ # $ % ^ ----
       if (mod && e.key === '~') { cmd.applyNumFmtShortcut('general'); e.preventDefault(); return }
       if (mod && e.key === '!') { cmd.applyNumFmtShortcut('number'); e.preventDefault(); return }
@@ -1158,15 +1462,15 @@ export default function Grid() {
       // ---- Ctrl+` show formulas ----
       if (mod && e.key === '`') { setUi({ formulasVisible: !getUi().formulasVisible }); e.preventDefault(); return }
       // ---- sheet navigation: Ctrl+PgUp/PgDn switch sheet, Shift+F11 / Alt+Shift+F1 insert sheet ----
-      if (mod && e.key === 'PageDown') { store.setActiveSheet(Math.min(store.sheets.length - 1, store.activeIndex + 1)); e.preventDefault(); return }
-      if (mod && e.key === 'PageUp') { store.setActiveSheet(Math.max(0, store.activeIndex - 1)); e.preventDefault(); return }
+      if (mod && e.key === 'PageDown') { for (let k = store.activeIndex + 1; k < store.sheets.length; k++) if (!store.sheets[k].layout.sheetHidden) { store.setActiveSheet(k); break }; e.preventDefault(); return }
+      if (mod && e.key === 'PageUp') { for (let k = store.activeIndex - 1; k >= 0; k--) if (!store.sheets[k].layout.sheetHidden) { store.setActiveSheet(k); break }; e.preventDefault(); return }
       if (e.key === 'F11' && e.shiftKey && !mod) { store.addSheet(); e.preventDefault(); return }
       if (e.key === 'F1' && e.altKey && e.shiftKey) { store.addSheet(); e.preventDefault(); return }
       // ---- Alt+F1: embedded chart of the default type (clustered column) from the selection ----
       if (e.key === 'F1' && e.altKey && !e.shiftKey && !mod) { insertChartFromSelection(store, COLUMN_BAR_GALLERY[0]); e.preventDefault(); return }
-      // ---- F9 / Shift+F9: calculate now / calculate active sheet (calc is always automatic here,
-      // so these force a redraw rather than changing any calculation mode) ----
-      if ((e.key === 'F9') && !mod) { store.notify(); e.preventDefault(); return }
+      if (e.key === 'F7' && !mod && !e.altKey && !e.shiftKey) { setUi({ dialog: { kind: 'spelling' } }); e.preventDefault(); return }
+      // ---- F9 / Shift+F9 / Ctrl+Alt+F9: calculate now / active sheet / everything ----
+      if (e.key === 'F9' && !(mod && !e.altKey)) { if (e.shiftKey) store.recalculateSheet(); else store.recalculate(); e.preventDefault(); return }
       // ---- Shift+F3: Insert Function ----
       if (e.key === 'F3' && e.shiftKey) { const a = sheet.selection.active; setUi({ edit: { r: a.r, c: a.c, text: '=', source: 'bar', mode: 'Enter' } }); e.preventDefault(); return }
       // ---- Ctrl+Alt+V: Paste Special ----
@@ -1252,6 +1556,12 @@ export default function Grid() {
   function onEditorKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>): void {
     const edit = getUi().edit!
     if (e.key === 'Escape') { tabAnchorCol.current = null; cancelEdit(); e.preventDefault(); hostRef.current?.focus(); return }
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.altKey) {
+      commitEditToSelection()
+      hostRef.current?.focus()
+      e.preventDefault()
+      return
+    }
     if (e.key === 'Enter' && !e.altKey) {
       commitEdit()
       commitEnterAfterTabAware(e.shiftKey)
@@ -1267,7 +1577,23 @@ export default function Grid() {
       e.preventDefault()
       return
     }
-    if (edit.mode === 'Enter' && (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+    const isArrow = e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight'
+    if (!isArrow && e.key !== 'Shift' && e.key !== 'Control' && e.key !== 'F4') { pointCur.current = null; pointedLen.current = 0 }
+    // Keyboard Point mode: arrows move a reference cursor and write its address into the formula.
+    if (isArrow && edit.mode === 'Enter' && canPoint()) {
+      const dr = e.key === 'ArrowDown' ? 1 : e.key === 'ArrowUp' ? -1 : 0
+      const dc = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0
+      const p0 = pointCur.current ?? { ar: edit.r, ac: edit.c, r: edit.r, c: edit.c }
+      const r = Math.max(0, Math.min(MAX_ROWS - 1, p0.r + dr))
+      const c = Math.max(0, Math.min(MAX_COLS - 1, p0.c + dc))
+      const next = e.shiftKey && pointCur.current ? { ...p0, r, c } : { ar: r, ac: c, r, c }
+      pointCur.current = next
+      insertRefIntoEdit(next.ar, next.ac, next.r, next.c)
+      ensureVisible(r, c)
+      e.preventDefault()
+      return
+    }
+    if (edit.mode === 'Enter' && isArrow) {
       tabAnchorCol.current = null
       commitEdit()
       const dr = e.key === 'ArrowDown' ? 1 : e.key === 'ArrowUp' ? -1 : 0
@@ -1390,7 +1716,7 @@ export default function Grid() {
         <MiniBtn icon={<TextBold20Regular />} title="Bold" active={!!style.bold} onClick={() => toggleStyle('bold')} />
         <MiniBtn icon={<TextItalic20Regular />} title="Italic" active={!!style.italic} onClick={() => toggleStyle('italic')} />
         <MiniBtn icon={<TextUnderline20Regular />} title="Underline" active={!!style.underline} onClick={() => toggleStyle('underline')} />
-        <MiniBtn icon={<BorderAll20Regular />} title="Borders" onClick={() => {}} />
+        <MiniBtn icon={<BorderAll20Regular />} title="All Borders" onClick={() => cmd.applyBorderPreset('all')} />
         <MiniBtn icon={<PaintBucket20Regular />} title="Fill Color" onClick={() => setStyle({ fill: '#FFFF00' })} />
         <MiniBtn icon={<TextFont20Regular />} title="Font Color" onClick={() => setStyle({ color: '#FF0000' })} />
         <span className="xl-mini-sep" />
@@ -1399,8 +1725,8 @@ export default function Grid() {
         <MiniBtn icon={<AlignRight20Regular />} title="Align Right" active={style.hAlign === 'right'} onClick={() => setStyle({ hAlign: 'right' })} />
         <span className="xl-mini-sep" />
         <MiniBtn icon={<TextPercent20Regular />} title="Percent Style" onClick={() => setStyle({ numFmt: '0%' })} />
-        <MiniBtn icon={<TextIndentDecrease20Regular />} title="Decrease Decimal" onClick={() => {}} />
-        <MiniBtn icon={<TextIndentIncrease20Regular />} title="Increase Decimal" onClick={() => {}} />
+        <MiniBtn icon={<TextIndentDecrease20Regular />} title="Decrease Decimal" onClick={() => cmd.adjustDecimal(-1)} />
+        <MiniBtn icon={<TextIndentIncrease20Regular />} title="Increase Decimal" onClick={() => cmd.adjustDecimal(1)} />
       </div>
     )
   }
@@ -1408,7 +1734,18 @@ export default function Grid() {
   const activeKey = sheet.selection.active.r + ',' + sheet.selection.active.c
   const hasNote = !!sheet.layout.notes[activeKey]
   const hasComment = !!sheet.layout.comments[activeKey]
+  const pv = (() => {
+    const a = sheet.selection.active
+    return (sheet.layout.pivots ?? []).find((p) => p.lastSize && a.r >= p.anchor.r && a.r < p.anchor.r + p.lastSize.rows && a.c >= p.anchor.c && a.c < p.anchor.c + p.lastSize.cols)
+  })()
   const cellMenu: MenuItem[] = [
+    ...(pv
+      ? [
+          { label: '&Refresh', onClick: () => { const e = renderPivot(store, sheet, pv); if (e) setUi({ dialog: { kind: 'message', props: { text: e } } }) } } as MenuItem,
+          { label: 'Show Field &List', onClick: () => setUi({ dialog: { kind: 'pivot', props: { edit: { sheetUid: sheet.uid, id: pv.id } } } }) } as MenuItem,
+          'separator' as const
+        ]
+      : []),
     { label: 'Cu&t', icon: <Cut20Regular />, shortcut: 'Ctrl+X', onClick: () => cmd.cut() },
     { label: '&Copy', icon: <Copy20Regular />, shortcut: 'Ctrl+C', onClick: () => cmd.copy() },
     { label: 'Paste Options:', render: pasteOptionsStrip },
@@ -1420,7 +1757,7 @@ export default function Grid() {
     { label: '&Delete...', icon: <Delete20Regular />, onClick: () => cmd.deleteCellsDialog() },
     { label: 'Clear Co&ntents', icon: <Eraser20Regular />, shortcut: 'Del', onClick: () => cmd.clearSelection('contents') },
     { label: '&Translate', icon: <Translate20Regular /> },
-    { label: '&Quick Analysis', icon: <SquareHintSparkles20Regular /> },
+    { label: '&Quick Analysis', icon: <SquareHintSparkles20Regular />, onClick: () => setUi({ dialog: { kind: 'quickAnalysis' } }) },
     'separator',
     {
       label: 'Filt&er', icon: <Filter20Regular />, submenu: [
@@ -1447,9 +1784,24 @@ export default function Grid() {
     ...(hasNote ? [{ label: '&Delete Note', icon: <Delete20Regular />, onClick: () => store.deleteNote(sheet, sheet.selection.active.r, sheet.selection.active.c) } as MenuItem] : []),
     'separator',
     { label: '&Format Cells...', icon: <TableCellEdit20Regular />, onClick: () => setUi({ dialog: { kind: 'formatCells' } }) },
-    { label: 'Pic&k From Drop-down List...' },
-    { label: 'Define N&ame...' },
-    { label: 'L&ink', icon: <Link20Regular />, submenu: [{ label: 'Insert Link...' }] },
+    {
+      label: 'Pic&k From Drop-down List...',
+      onClick: () => {
+        const values = cmd.pickListValues()
+        const a = sheet.selection.active
+        const rect = cellRect(a.r, a.c)
+        const hostR = hostRef.current!.getBoundingClientRect()
+        if (values.length) setUi({ pickList: { r: a.r, c: a.c, x: hostR.left + rect.x, y: hostR.top + rect.y + rect.h, values } })
+      }
+    },
+    { label: 'Define N&ame...', onClick: () => setUi({ dialog: { kind: 'defineName' } }) },
+    ...(linkAt(sheet, sheet.selection.active.r, sheet.selection.active.c)
+      ? [
+          { label: '&Edit Hyperlink...', icon: <Link20Regular />, onClick: () => setUi({ dialog: { kind: 'hyperlink' } }) } as MenuItem,
+          { label: '&Open Hyperlink', onClick: () => { const l = linkAt(sheet, sheet.selection.active.r, sheet.selection.active.c); if (l) void followLink(l) } } as MenuItem,
+          { label: '&Remove Hyperlink', onClick: () => cmd.clearSelection('hyperlinks') } as MenuItem
+        ]
+      : [{ label: 'L&ink', icon: <Link20Regular />, shortcut: 'Ctrl+K', onClick: () => setUi({ dialog: { kind: 'hyperlink' } }) } as MenuItem]),
     { label: 'Show Changes' }
   ]
   const colMenu: MenuItem[] = [
@@ -1485,6 +1837,20 @@ export default function Grid() {
 
   const edit = ui.edit
 
+  const activeCell = sheet.selection.active
+  const dvRule = getValidationForCell(sheet, activeCell.r, activeCell.c)
+  const isListValidation = dvRule?.allow === 'list' && dvRule.inCellDropdown !== false
+  const listItems = isListValidation && dvRule ? getListItems(store, sheet, dvRule) : []
+  const activeRc = isListValidation ? cellRect(activeCell.r, activeCell.c) : null
+  const showDropdownBtn =
+    isListValidation &&
+    !ui.edit &&
+    activeRc !== null &&
+    activeRc.x + activeRc.w > rowHeaderW &&
+    activeRc.y + activeRc.h > headerH &&
+    activeRc.x < size.w &&
+    activeRc.y < size.h
+
   return (
     <div
       className="grid-host"
@@ -1502,6 +1868,9 @@ export default function Grid() {
         <div style={{ width: sizerW, height: sizerH }} />
       </div>
       <canvas ref={canvasRef} className="xl-canvas" style={{ width: size.w, height: size.h }} />
+      <canvas ref={antsRef} className="xl-canvas" style={{ width: size.w, height: size.h }} />
+      <ObjectOverlay sheet={sheet} geo={{ colsAxis, rowsAxis, frozen, scroll, z, rowHeaderW, headerH, viewport: size }} />
+      <SlicerOverlay sheet={sheet} geo={{ colsAxis, rowsAxis, frozen, scroll, z, rowHeaderW, headerH, viewport: size }} />
       <ChartOverlay
         sheet={sheet}
         geo={{ colsAxis, rowsAxis, frozen, scroll, z, rowHeaderW, headerH, viewport: size }}
@@ -1516,6 +1885,44 @@ export default function Grid() {
           onChange={onEditorChange}
           onKeyDown={onEditorKeyDown}
           onBlur={() => { if (getUi().edit) commitEdit() }}
+        />
+      )}
+      {showDropdownBtn && activeRc && (
+        <button
+          type="button"
+          className="xl-dv-dropdown-btn"
+          style={{
+            position: 'absolute',
+            left: Math.round(activeRc.x + activeRc.w - 18),
+            top: Math.round(activeRc.y),
+            width: 18,
+            height: Math.round(activeRc.h),
+            zIndex: 49999
+          }}
+          title="List options"
+          onMouseDown={(e) => {
+            e.stopPropagation()
+            const rect = hostRef.current?.getBoundingClientRect()
+            const clientX = (rect?.left || 0) + activeRc.x
+            const clientY = (rect?.top || 0) + activeRc.y + activeRc.h
+            setListMenuPos(listMenuPos ? null : { x: clientX, y: clientY })
+          }}
+        >
+          ▾
+        </button>
+      )}
+      {listMenuPos && (
+        <Menu
+          x={listMenuPos.x}
+          y={listMenuPos.y}
+          onClose={() => setListMenuPos(null)}
+          items={listItems.map((item) => ({
+            label: item,
+            onClick: () => {
+              store.setRaw(sheet, activeCell.r, activeCell.c, item)
+              setListMenuPos(null)
+            }
+          }))}
         />
       )}
       {resizeTip && <div className="xl-resize-tip" style={{ left: resizeTip.x, top: resizeTip.y }}>{resizeTip.text}</div>}
@@ -1548,6 +1955,12 @@ export default function Grid() {
           }))}
         />
       )}
+      {!ui.noteEditor && Object.entries(sheet.layout.notes).filter(([k, n]) => n.visible && !(hoverCell && k === hoverCell.r + ',' + hoverCell.c)).slice(0, 200).map(([k]) => {
+        const [nr, nc] = k.split(',').map(Number)
+        const rc = cellRect(nr, nc)
+        if (rc.x + rc.w < 0 || rc.y + rc.h < 0 || rc.x > size.w || rc.y > size.h) return null
+        return <NoteTooltip key={'n' + k} sheet={sheet} r={nr} c={nc} rect={rc} />
+      })}
       {hoverCell && !ui.edit && !ui.noteEditor && !filterMenu &&
         sheet.layout.notes[hoverCell.r + ',' + hoverCell.c] && (
           <NoteTooltip sheet={sheet} r={hoverCell.r} c={hoverCell.c} rect={cellRect(hoverCell.r, hoverCell.c)} />
@@ -1656,4 +2069,25 @@ function PasteSpecialBody() {
       </div>
     </div>
   )
+}
+
+/** Shortest-first Excel General fallbacks for a number too wide for its column. */
+export function fitGeneral(v: number, fits: (t: string) => boolean): string | null {
+  const abs = Math.abs(v)
+  if (!Number.isInteger(v) && abs < 1e11) {
+    const intDigits = Math.max(1, Math.floor(Math.log10(Math.max(abs, 1))) + 1)
+    for (let d = 9 - intDigits; d >= 0; d--) {
+      const t = String(Number(v.toFixed(d)))
+      if (fits(t)) return t
+    }
+  }
+  if (abs >= 1e-9) {
+    for (let d = 5; d >= 0; d--) {
+      const [m, e] = v.toExponential(d).split('e')
+      const exp = Number(e)
+      const t = `${Number(m)}E${exp < 0 ? '-' : '+'}${String(Math.abs(exp)).padStart(2, '0')}`
+      if (fits(t)) return t
+    }
+  }
+  return null
 }

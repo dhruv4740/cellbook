@@ -2,7 +2,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { useUi, setUi } from './ui'
 import HomeTab from './ribbon/HomeTab'
-import { InsertTab, PageLayoutTab, FormulasTab, DataTab, ReviewTab, ViewTab, DrawTab, HelpTab } from './ribbon/OtherTabs'
+import { ReviewTab, DrawTab, HelpTab } from './ribbon/OtherTabs'
+import { InsertTab, PageLayoutTab, FormulasTab, DataTab, ViewTab } from './ribbon/ExcelTabs'
 import { RibbonScaleProvider } from './ribbon/controls'
 import { ChartDesignTab, ChartFormatTab } from '../charts/ChartRibbonTabs'
 import { ChevronUp20Regular, ChevronDown20Regular, CommentAdd20Regular, Share20Regular } from '@fluentui/react-icons'
@@ -82,7 +83,7 @@ export default function Ribbon() {
       </div>
       {!ui.ribbonCollapsed && (
         <div className="xl-ribbon-body">
-          <div className="xl-ribbon-groups" ref={groupsRef}>
+          <div className="xl-ribbon-groups" ref={groupsRef} key={ui.ribbonTab}>
             <RibbonScaleProvider key={ui.ribbonTab} containerRef={groupsRef}>
               {ui.ribbonTab === 'Home' && <HomeTab />}
               {ui.ribbonTab === 'Insert' && <InsertTab />}
@@ -109,7 +110,7 @@ export default function Ribbon() {
         </div>
       )}
       {displayMenu && (
-        <div className="xl-menu-layer" onMouseDown={() => setDisplayMenu(false)}>
+        <div className="xl-menu-layer" style={{ pointerEvents: 'auto' }} onMouseDown={() => setDisplayMenu(false)}>
           <div className="xl-menu" style={{ position: 'fixed', right: 8, top: 62 }} onMouseDown={(e) => e.stopPropagation()}>
             <div className="xl-menu-item" onClick={() => { setUi({ ribbonCollapsed: false }); setDisplayMenu(false) }}><span className="xl-menu-label">Show Tabs and Commands</span></div>
             <div className="xl-menu-item" onClick={() => { setUi({ ribbonCollapsed: true }); setDisplayMenu(false) }}><span className="xl-menu-label">Show Tabs</span></div>

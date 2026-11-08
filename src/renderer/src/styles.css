@@ -21,6 +21,13 @@ body { font: 12px var(--ui-font); color: var(--text); background: #fff; user-sel
 .app { display: flex; flex-direction: column; height: 100%; }
 .grid-host { flex: 1; min-height: 0; position: relative; overflow: hidden; background: #fff; }
 
+/* Page Layout > Background: tiled image under the cell area; the main canvas multiplies over it so white cells show it. */
+.grid-host.xl-has-bg::before {
+  content: ''; position: absolute; left: var(--xl-bg-x); top: var(--xl-bg-y); right: 0; bottom: 0; pointer-events: none;
+  background-image: var(--xl-bg-img); background-repeat: repeat; background-position: var(--xl-bg-sx) var(--xl-bg-sy);
+}
+.grid-host.xl-has-bg > canvas:first-of-type { mix-blend-mode: multiply; }
+
 .xl-scroll { position: absolute; inset: 0; overflow: auto; }
 .xl-scroll > div { position: relative; }
 .xl-canvas {
@@ -47,7 +54,7 @@ body { font: 12px var(--ui-font); color: var(--text); background: #fff; user-sel
   overflow: hidden;
   white-space: pre;
   line-height: normal;
-  z-index: 5;
+  z-index: 50000;
 }
 .xl-resize-tip {
   position: absolute;
@@ -59,6 +66,23 @@ body { font: 12px var(--ui-font); color: var(--text); background: #fff; user-sel
   pointer-events: none;
   z-index: 20;
   white-space: nowrap;
+}
+
+.xl-dv-dropdown-btn {
+  background: #fdfdfd;
+  border: 1px solid #adadad;
+  box-sizing: border-box;
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  color: #333;
+}
+.xl-dv-dropdown-btn:hover {
+  background: #e5f1fb;
+  border-color: #0078d7;
 }
 
 .xl-paste-strip { display: flex; gap: 2px; padding: 4px 8px; }
@@ -112,3 +136,6 @@ body { font: 12px var(--ui-font); color: var(--text); background: #fff; user-sel
 .xl-radio-col label { display: flex; align-items: center; gap: 6px; font: 12px var(--ui-font); }
 .xl-paste-special { display: flex; gap: 24px; padding: 8px 0; }
 
+.xl-toast { position: fixed; left: 50%; bottom: 44px; transform: translateX(-50%); z-index: 9000; background: #323130; color: #fff; padding: 8px 14px; border-radius: 4px; font: 12px var(--ui-font, 'Segoe UI', sans-serif); box-shadow: 0 3px 10px rgba(0,0,0,.3); pointer-events: none; }
+
+body.xl-busy, body.xl-busy * { cursor: progress !important; }

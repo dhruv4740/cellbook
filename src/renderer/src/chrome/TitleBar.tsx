@@ -1,5 +1,5 @@
 // Frameless window title bar: logo, AutoSave, Quick Access Toolbar, file name, search, avatar, window controls.
-import { save } from '../io/fileOps'
+import { save, isAutoSaveOn, onAutoSaveChange, setAutoSave } from '../io/fileOps'
 import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../model/store'
 import { useUi } from './ui'
@@ -15,15 +15,22 @@ export default function TitleBar() {
   const store = useStore()
   const ui = useUi()
   const grouped = !!(ui.groupedSheets && ui.groupedSheets.length > 1)
-  const [autoSave, setAutoSave] = useState(false)
+  const [autoSave, setAutoSaveState] = useState(isAutoSaveOn())
+  useEffect(() => onAutoSaveChange(() => setAutoSaveState(isAutoSaveOn())), [])
   const [maximized, setMaximized] = useState(false)
   const [undoMenu, setUndoMenu] = useState<{ x: number; y: number } | null>(null)
   const [qatMenu, setQatMenu] = useState<{ x: number; y: number } | null>(null)
   const [search, setSearch] = useState('')
   const undoBtn = useRef<HTMLDivElement>(null)
   const qatBtn = useRef<HTMLButtonElement>(null)
+  const [viewIndex, setViewIndex] = useState(0)
 
-  const title = store.fileName + (store.filePath ? '' : '') + (grouped ? ' [Group]' : '') + ' - Excel'
+  useEffect(() => {
+    return window.api?.onViewIndexChanged?.((idx) => setViewIndex(idx))
+  }, [])
+
+  const viewSuffix = viewIndex > 0 ? `:${viewIndex}` : ''
+  const title = store.fileName + viewSuffix + (grouped ? ' [Group]' : '') + ' - Excel'
   useEffect(() => {
     document.title = title
     window.api?.setTitle?.(title)
@@ -42,7 +49,7 @@ export default function TitleBar() {
         <div className="xl-logo">
           <svg width="20" height="20" viewBox="0 0 20 20"><rect width="20" height="20" rx="3" fill="#185C37" /><path d="M4 4h6.5l5.5 4-5.5 4L4 16V4z" fill="none" /><text x="3.2" y="15.3" fontFamily="Segoe UI" fontWeight="700" fontSize="12" fill="#fff">X</text></svg>
         </div>
-        <button className={'xl-autosave' + (autoSave ? ' on' : '')} onClick={() => setAutoSave((v) => !v)}>
+        <button className={'xl-autosave' + (autoSave ? ' on' : '')} onClick={() => void setAutoSave(!autoSave)} title={autoSave ? 'AutoSave is on: changes are saved automatically' : 'Turn on AutoSave to save changes automatically'}>
           <span className="xl-autosave-toggle" />
           AutoSave <b>{autoSave ? 'On' : 'Off'}</b>
         </button>
@@ -66,7 +73,7 @@ export default function TitleBar() {
         </div>
 
         <div className="xl-titlebar-center">
-          <span className="xl-filename">{store.fileName}{grouped ? ' [Group]' : ''}</span>
+          <span className="xl-filename">{store.fileName}{viewSuffix}{grouped ? ' [Group]' : ''}</span>
           <span className="xl-saved">{store.dirty ? '' : '• Saved to this PC'}</span>
         </div>
 

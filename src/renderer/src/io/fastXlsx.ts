@@ -5,8 +5,15 @@
 // against readXlsxExceljs).
 import { unzipSync } from 'fflate'
 import { shiftFormula } from '../engine/shiftFormula'
-import type { BorderSide, CellStyle, CommentThread, FilterCriteria, NoteData, Range, SheetLayout } from '../model/types'
-import type { WorkbookData } from '../model/store'
+import { stripFuturePrefixes } from '../engine/xlfn'
+import { resolveStructuredRefs, type TableDef } from '../engine/structuredRefs'
+import type { BorderSide, CellStyle, CfRule, HyperlinkData, CommentThread, DataValidationRule, DvAllowType, DvErrorStyle, DvOperator, FilterCriteria, NoteData, PageSetup, Range, SheetLayout, CalcMode, SparklineDef } from '../model/types'
+import { parseA1 } from '../model/types'
+import type { ScenarioDef } from '../model/types'
+import { isMediaPart, parseDrawingObjects } from './xlsxPictures'
+import { parseSheetProtection } from '../model/protection'
+import { parsePageSetupXml } from './pageSetupXml'
+import type { WorkbookData, DefinedNameData } from '../model/store'
 import { DEFAULT_AUTHOR, defaultLayout } from '../model/defaults'
 import {
   THEME_COLORS, BORDER_STYLES, applyTint, ptToPx, colWidthToPx, colLetterToIndex, parseRangeStr,
@@ -22,6 +29,7 @@ import {
   resolveRelTarget,
   parseRelationships
 } from './fastXlsxXml'
+import { parseDrawingMlCharts } from './xlsxCharts'
 
 const VBA_REL_TYPE = 'http://schemas.microsoft.com/office/2006/relationships/vbaProject'
 const VBA_SIGNATURE_REL_TYPE_RE = /vbaProjectSignature/
@@ -66,7 +74,13 @@ function unzipTextFilter(name: string): boolean {
     name === 'xl/theme/theme1.xml' ||
     /^xl\/worksheets\/[^/]+\.xml$/.test(name) ||
     /^xl\/worksheets\/_rels\/[^/]+\.xml\.rels$/.test(name) ||
-    /^xl\/comments\d*\.xml$/.test(name) ||
+    /^xl\/drawings\/[^/]+\.xml$/.test(name) ||
+    /^xl\/drawings\/_rels\/[^/]+\.xml\.rels$/.test(name) ||
+    /^xl\/charts\/[^/]+\.xml$/.test(name) ||
+    isMediaPart(name) ||
+    /^xl\/tables\/[^/]+\.xml$/.test(name) ||
+    // Notes: Excel writes xl/comments1.xml, other producers xl/comments/comment1.xml (found via rels).
+    /^xl\/(?:[^/]+\/)?comments?\d*\.xml$/.test(name) ||
     // Raw (non-text) parts, kept only for a .xlsm workbook's VBA project - see parseXlsx below.
     name === 'xl/vbaProject.bin' ||
     name === 'xl/vbaProjectSignature.bin' ||
@@ -99,8 +113,10 @@ export function parseXlsx(bytes: Uint8Array): WorkbookData & { vbaProject?: VbaP
   // palette), matching how colorToHex/THEME_COLORS in xlsx.ts treats a theme index + tint.
   const themeColors = parseThemeColors(get('xl/theme/theme1.xml'))
   const xfStyles = parseStyles(get('xl/styles.xml'), themeColors)
+  const dxfStyles = parseDxfs(get('xl/styles.xml'), themeColors)
 
   const sheets: WorkbookData['sheets'] = []
+  const tables: TableDef[] = []
   for (const def of sheetDefs) {
     const target = def.rId ? relMap.get(def.rId) : undefined
     const path = target ? resolveRelTarget('xl/workbook.xml', target) : undefined
@@ -127,6 +143,12 @@ export function parseXlsx(bytes: Uint8Array): WorkbookData & { vbaProject?: VbaP
 
     // Notes vs. threaded comments: a legacy note whose text is Excel's own threaded-comment
     // fallback format (see xlsxShared.ts) came from a `comments` thread on save, not a plain note.
+    const links = parseHyperlinks(xml, files, dec, path)
+    if (Object.keys(links).length) layout.hyperlinks = links
+    const scenarios = parseScenarios(xml)
+    if (scenarios.length) layout.scenarios = scenarios
+    const sparks = parseSparklines(xml, def.name)
+    if (sparks.length) layout.sparklines = sparks
     const notes = parseNotesForSheet(files, dec, path)
     const comments: Record<string, CommentThread> = {}
     for (const [key, note] of Object.entries(notes)) {
@@ -143,6 +165,21 @@ export function parseXlsx(bytes: Uint8Array): WorkbookData & { vbaProject?: VbaP
     if (parsed.showHeadings !== undefined) layout.showHeadings = parsed.showHeadings
     if (parsed.zoom !== undefined) layout.zoom = parsed.zoom
     if (parsed.frozen) layout.frozen = parsed.frozen
+    if (parsed.rowLevels) layout.rowLevels = parsed.rowLevels
+    if (parsed.colLevels) layout.colLevels = parsed.colLevels
+    if (parsed.collapsedRows) layout.collapsedRows = parsed.collapsedRows
+    if (parsed.collapsedCols) layout.collapsedCols = parsed.collapsedCols
+    if (parsed.outline) layout.outline = parsed.outline
+    const ps = parsePageSetupXml(xml)
+    if (ps) layout.pageSetup = ps
+    const spAt = xml.lastIndexOf('<sheetProtection')
+    if (spAt !== -1) {
+      const sp = /^<sheetProtection\b([^>]*?)\/?>/.exec(xml.slice(spAt, spAt + 1500))
+      const prot = sp ? parseSheetProtection(parseAttrs(sp[1], 0, sp[1].length)) : undefined
+      if (prot) layout.protection = prot
+    }
+    const er = [...xml.matchAll(/<protectedRange\b([^>]*?)\/?>/g)].map((m) => parseAttrs(m[1], 0, m[1].length)).filter((a) => a.sqref)
+    if (er.length) layout.editRanges = er.map((a, i) => ({ title: decodeXmlEntities(a.name ?? `Range${i + 1}`), ref: decodeXmlEntities(a.sqref) }))
     if (parsed.tabColorAttrs) {
       const c = resolveColor(parseAttrs(parsed.tabColorAttrs, 0, parsed.tabColorAttrs.length), themeColors)
       if (c) layout.tabColor = c
@@ -162,11 +199,145 @@ export function parseXlsx(bytes: Uint8Array): WorkbookData & { vbaProject?: VbaP
       }
     }
 
+    for (const t of parseTables(files, dec, path, def.name)) {
+      tables.push(t.def)
+      layout.tables = [...(layout.tables ?? []), {
+        name: t.def.name, r1: t.def.r1, c1: t.def.c1, r2: t.def.r2, c2: t.def.c2, headerRows: t.def.headerRows, totalsRows: t.def.totalsRows,
+        ...(t.style ? { style: t.style } : {}), rowStripes: t.rowStripes, colStripes: t.colStripes, firstCol: t.firstCol, lastCol: t.lastCol, filter: !!t.autoFilterXml
+      }]
+      // A table's filter lives in the table part, not the sheet; keep it as the sheet's AutoFilter.
+      if (t.autoFilterXml && !layout.autoFilter) {
+        const range = { r1: t.def.r1, c1: t.def.c1, r2: t.def.r2 - t.def.totalsRows, c2: t.def.c2 }
+        const columns: Record<number, FilterCriteria> = {}
+        for (const [colId, crit] of Object.entries(parseAutoFilterColumns(t.autoFilterXml))) columns[Number(colId) + range.c1] = crit
+        layout.autoFilter = { range, columns, filteredOutRows: Object.keys(parsed.hiddenRows).map(Number).filter((r) => r > range.r1 && r <= range.r2) }
+      }
+    }
+
+    const cfs = parseConditionalFormats(xml, dxfStyles)
+    if (cfs.length) layout.conditionalFormats = cfs
+
+    const dvs = parseDataValidations(xml)
+    if (dvs.length) layout.dataValidations = dvs
+    const charts = parseDrawingMlCharts(files, dec, path, xml, parsed.colWidths, parsed.rowHeights)
+    if (charts.length) layout.charts = charts
+    const objects = parseDrawingObjects(files, dec, path, xml, parsed.colWidths, parsed.rowHeights)
+    if (objects.pictures.length) layout.pictures = objects.pictures
+    if (objects.shapes.length) layout.shapes = objects.shapes
+
     sheets.push({ name: def.name, cells: parsed.cells, layout })
   }
 
+  if (tables.length) {
+    for (const s of sheets) {
+      for (const [key, cell] of Object.entries(s.cells)) {
+        if (!cell.raw?.startsWith('=') || cell.raw.indexOf('[') === -1) continue
+        cell.raw = '=' + resolveStructuredRefs(cell.raw.slice(1), tables, s.name, Number(key.split(',')[0]))
+      }
+    }
+  }
+
+  sheetDefs.forEach((d, i) => {
+    if ((d.state === 'hidden' || d.state === 'veryHidden') && sheets[i]) sheets[i].layout = { ...sheets[i].layout, sheetHidden: d.state }
+  })
   const activeSheet = Math.max(0, Math.min(activeTab, sheets.length - 1))
-  return { sheets, activeSheet, vbaProject: parseVbaProject(files, relsXml, dec) }
+  const names = parseDefinedNames(workbookXml)
+  const out: WorkbookData & { vbaProject?: VbaProject } = { sheets, activeSheet, names: names.length ? names : undefined, vbaProject: parseVbaProject(files, relsXml, dec) }
+  const wp = /<workbookProtection\b([^>]*?)\/?>/.exec(workbookXml)
+  if (wp) {
+    const a = parseAttrs(wp[1], 0, wp[1].length)
+    const lockStructure = a.lockStructure === '1' || a.lockStructure === 'true', lockWindows = a.lockWindows === '1' || a.lockWindows === 'true'
+    if (lockStructure || lockWindows) {
+      const password = a.workbookHashValue && a.workbookSaltValue
+        ? { hashValue: a.workbookHashValue, saltValue: a.workbookSaltValue, spinCount: parseInt(a.workbookSpinCount ?? '100000', 10) }
+        : a.workbookPassword ? { legacy: a.workbookPassword } : undefined
+      out.protection = { lockStructure, lockWindows, ...(password ? { password } : {}) }
+    }
+  }
+  const cm = /<calcPr\b[^>]*\bcalcMode="(manual|autoNoTable)"/.exec(workbookXml)
+  if (cm) out.calcMode = cm[1] as CalcMode
+  const f0 = /<fonts[^>]*>\s*<font[^>]*>([\s\S]*?)<\/font>/.exec(get('xl/styles.xml') ?? '')
+  if (f0) {
+    const nm = /<name\s+val="([^"]*)"/.exec(f0[1]), sz = /<sz\s+val="([\d.]+)"/.exec(f0[1])
+    if (nm && sz && !(nm[1] === 'Calibri' && +sz[1] === 11)) out.defaultFont = { name: nm[1], size: +sz[1] }
+  }
+  return out
+}
+
+function parseScenarios(xml: string): ScenarioDef[] {
+  if (!xml.includes('<scenarios')) return []
+  const un = (s: string): string => s.replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
+  const out: ScenarioDef[] = []
+  for (const sc of xml.matchAll(/<scenario\b([^>]*)>([\s\S]*?)<\/scenario>/g)) {
+    const name = /\bname="([^"]*)"/.exec(sc[1])?.[1]
+    if (name === undefined) continue
+    const comment = /\bcomment="([^"]*)"/.exec(sc[1])?.[1]
+    const cells: ScenarioDef['cells'] = [], values: string[] = []
+    for (const ic of sc[2].matchAll(/<inputCells\b([^>]*?)\/?>/g)) {
+      const a = parseA1(/\br="([A-Z]+\d+)"/.exec(ic[1])?.[1] ?? '')
+      if (!a) continue
+      cells.push({ r: a.r1, c: a.c1 }); values.push(un(/\bval="([^"]*)"/.exec(ic[1])?.[1] ?? ''))
+    }
+    if (cells.length) out.push({ name: un(name), cells, values, ...(comment ? { comment: un(comment) } : {}) })
+  }
+  return out
+}
+
+/** Excel's x14 sparklineGroups extension -> per-cell sparklines (only ones that read this sheet's own cells). */
+function parseSparklines(xml: string, sheetName: string): SparklineDef[] {
+  if (!xml.includes('sparklineGroup')) return []
+  const out: SparklineDef[] = []
+  const unq = (n: string) => n.replace(/^'|'$/g, '').replace(/''/g, "'")
+  for (const g of xml.matchAll(/<(?:x14:)?sparklineGroup\b([^>]*)>([\s\S]*?)<\/(?:x14:)?sparklineGroup>/g)) {
+    const t = /\btype="(\w+)"/.exec(g[1])?.[1]
+    const type: SparklineDef['type'] = t === 'column' ? 'column' : t === 'stacked' ? 'winloss' : 'line'
+    const rgb = /<(?:x14:)?colorSeries\b[^>]*\brgb="([0-9A-Fa-f]{8})"/.exec(g[2])?.[1]
+    const color = rgb ? '#' + rgb.slice(2).toLowerCase() : '#376092'
+    for (const s of g[2].matchAll(/<(?:x14:)?sparkline>\s*<(?:xm:)?f>([^<]*)<\/(?:xm:)?f>\s*<(?:xm:)?sqref>([^<]*)<\/(?:xm:)?sqref>/g)) {
+      const f = s[1].replace(/&apos;/g, "'").replace(/&amp;/g, '&')
+      const m = /^(?:(.+)!)?\$?([A-Z]+)\$?(\d+)(?::\$?([A-Z]+)\$?(\d+))?$/.exec(f)
+      const loc = /^\$?([A-Z]+)\$?(\d+)$/.exec(s[2].trim())
+      if (!m || !loc || (m[1] && unq(m[1]) !== sheetName)) continue
+      const a = parseA1(m[2] + m[3] + (m[4] ? ':' + m[4] + m[5] : ''))
+      const at = parseA1(loc[1] + loc[2])
+      if (a && at) out.push({ r: at.r1, c: at.c1, type, src: { r1: a.r1, c1: a.c1, r2: a.r2, c2: a.c2 }, color })
+    }
+  }
+  return out
+}
+
+function parseTables(files: Record<string, Uint8Array>, dec: TextDecoder, sheetPath: string, sheetName: string): { def: TableDef; autoFilterXml?: string; style?: string; rowStripes?: boolean; colStripes?: boolean; firstCol?: boolean; lastCol?: boolean }[] {
+  const dir = sheetPath.split('/').slice(0, -1).join('/')
+  const relsBytes = files[dir + '/_rels/' + (sheetPath.split('/').pop() ?? '') + '.rels']
+  if (!relsBytes) return []
+  const out: { def: TableDef; autoFilterXml?: string; style?: string; rowStripes?: boolean; colStripes?: boolean; firstCol?: boolean; lastCol?: boolean }[] = []
+  for (const rel of parseRelationships(dec.decode(relsBytes))) {
+    if (!/\/table$/.test(rel.type)) continue
+    const bytes = files[resolveRelTarget(sheetPath, rel.target)]
+    if (!bytes) continue
+    const xml = dec.decode(bytes)
+    const head = /<table\b([^>]*)>/.exec(xml)
+    if (!head) continue
+    const a = parseAttrs(head[1], 0, head[1].length)
+    const range = a.ref ? parseSingleOrRange(a.ref) : null
+    if (!range) continue
+    const columns = [...xml.matchAll(/<tableColumn\b([^>]*?)\/?>/g)].map((m) => decodeXmlEntities(parseAttrs(m[1], 0, m[1].length).name ?? ''))
+    out.push({
+      def: {
+        name: decodeXmlEntities(a.displayName ?? a.name ?? ''), sheet: sheetName, ...range,
+        headerRows: a.headerRowCount === '0' ? 0 : 1, totalsRows: a.totalsRowCount ? parseInt(a.totalsRowCount, 10) : 0, columns
+      },
+      autoFilterXml: /<autoFilter\b[^>]*\/>|<autoFilter\b[\s\S]*?<\/autoFilter>/.exec(xml)?.[0],
+      ...(() => {
+        const si = /<tableStyleInfo\b([^>]*?)\/?>/.exec(xml)
+        if (!si) return {}
+        const s = parseAttrs(si[1], 0, si[1].length)
+        const on = (v: string | undefined): boolean => v === '1' || v === 'true'
+        return { style: s.name, rowStripes: on(s.showRowStripes), colStripes: on(s.showColumnStripes), firstCol: on(s.showFirstColumn), lastCol: on(s.showLastColumn) }
+      })()
+    })
+  }
+  return out
 }
 
 // ---------- .xlsm VBA project (kept as opaque bytes so it survives a save back to .xlsm) ----------
@@ -194,15 +365,32 @@ function parseVbaProject(files: Record<string, Uint8Array>, workbookRelsXml: str
 }
 
 // ---------- workbook.xml ----------
-function parseWorkbookSheets(xml: string): { sheets: { name: string; rId: string }[]; activeTab: number } {
-  const sheets: { name: string; rId: string }[] = []
+function parseDefinedNames(xml: string): DefinedNameData[] {
+  const section = extractSection(xml, 'definedNames')
+  if (!section) return []
+  const out: DefinedNameData[] = []
+  const re = /<definedName\b([^>]*)>([\s\S]*?)<\/definedName>/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(section))) {
+    const a = parseAttrs(m[1], 0, m[1].length)
+    if (!a.name) continue
+    const n: DefinedNameData = { name: a.name, ref: decodeXmlEntities(m[2]).replace(/^=/, '') }
+    if (a.localSheetId !== undefined) n.sheet = parseInt(a.localSheetId, 10)
+    if (a.hidden === '1' || a.hidden === 'true') n.hidden = true
+    out.push(n)
+  }
+  return out
+}
+
+function parseWorkbookSheets(xml: string): { sheets: { name: string; rId: string; state?: string }[]; activeTab: number } {
+  const sheets: { name: string; rId: string; state?: string }[] = []
   const section = extractSection(xml, 'sheets')
   if (section) {
     const re = /<sheet\b([^>]*)\/?>/g
     let m: RegExpExecArray | null
     while ((m = re.exec(section))) {
       const a = parseAttrs(m[1], 0, m[1].length)
-      if (a.name !== undefined) sheets.push({ name: a.name, rId: a.id ?? '' })
+      if (a.name !== undefined) sheets.push({ name: a.name, rId: a.id ?? '', state: a.state })
     }
   }
   let activeTab = 0
@@ -424,6 +612,169 @@ function parseBorders(section: string, themeColors: string[]): (CellStyle | unde
   return out
 }
 
+// Differential formats (<dxfs>) referenced by conditional-formatting rules via dxfId.
+function parseDxfs(xml: string | undefined, themeColors: string[]): (Partial<CellStyle> | undefined)[] {
+  const section = xml ? extractSection(xml, 'dxfs') : undefined
+  if (!section) return []
+  const out: (Partial<CellStyle> | undefined)[] = []
+  const re = /<dxf>([\s\S]*?)<\/dxf>|<dxf\/>/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(section))) {
+    const inner = m[1] ?? ''
+    const s: Partial<CellStyle> = {}
+    const font = /<font>[\s\S]*?<\/font>/.exec(inner)
+    if (font) {
+      const f = parseFonts(font[0], themeColors)[0]
+      if (f?.color) s.color = f.color
+      if (f?.bold) s.bold = true
+      if (f?.italic) s.italic = true
+    }
+    const fill = /<fill>([\s\S]*?)<\/fill>/.exec(inner)
+    if (fill) {
+      const c = /<bgColor\b([^>]*?)\/?>/.exec(fill[1]) ?? /<fgColor\b([^>]*?)\/?>/.exec(fill[1])
+      const hex = c ? resolveColor(parseAttrs(c[1], 0, c[1].length), themeColors) : undefined
+      if (hex) s.fill = hex
+    }
+    out.push(Object.keys(s).length ? s : undefined)
+  }
+  return out
+}
+
+function parseConditionalFormats(xml: string, dxfs: (Partial<CellStyle> | undefined)[]): CfRule[] {
+  if (xml.indexOf('<conditionalFormatting') === -1) return []
+  const out: CfRule[] = []
+  const blockRe = /<conditionalFormatting\b([^>]*)>([\s\S]*?)<\/conditionalFormatting>/g
+  let b: RegExpExecArray | null
+  let pCounter = 1
+  while ((b = blockRe.exec(xml))) {
+    const ba = parseAttrs(b[1], 0, b[1].length)
+    const ranges = (ba.sqref ?? '').split(/\s+/).map(parseSingleOrRange).filter((r): r is Range => r !== null)
+    if (!ranges.length) continue
+    const ruleRe = /<cfRule\b([^>]*?)(?:\/>|>([\s\S]*?)<\/cfRule>)/g
+    let r: RegExpExecArray | null
+    while ((r = ruleRe.exec(b[2]))) {
+      const a = parseAttrs(r[1], 0, r[1].length)
+      const formulae: string[] = []
+      const fRe = /<formula>([\s\S]*?)<\/formula>/g
+      let f: RegExpExecArray | null
+      while ((f = fRe.exec(r[2] ?? ''))) formulae.push(decodeXmlEntities(f[1]))
+      const rule: CfRule = {
+        id: 'cf_' + Math.random().toString(36).slice(2, 9),
+        priority: a.priority ? parseInt(a.priority, 10) : pCounter++,
+        ranges,
+        stopIfTrue: a.stopIfTrue === '1' || a.stopIfTrue === 'true',
+        type: (a.type as CfRule['type']) || 'cellIs',
+        format: a.dxfId !== undefined ? dxfs[parseInt(a.dxfId, 10)] : undefined
+      }
+      if (rule.type === 'cellIs') {
+        rule.operator = a.operator as CfRule['operator']
+        if (formulae[0] !== undefined) rule.value = formulae[0]
+        if (formulae[1] !== undefined) rule.value2 = formulae[1]
+      } else if (rule.type === 'expression') {
+        rule.formula = formulae[0]
+      } else if (rule.type === 'top10') {
+        if (a.rank) rule.rank = parseInt(a.rank, 10)
+        rule.percent = a.percent === '1'
+        rule.bottom = a.bottom === '1'
+      } else if (rule.type === 'aboveAverage') {
+        rule.above = a.aboveAverage !== '0'
+        if (a.equalAverage === '1') rule.equalOrAbove = true
+      } else if (rule.type === 'dataBar' || rule.type === 'colorScale' || rule.type === 'iconSet') {
+        const colors = [...(r[2] ?? '').matchAll(/<color\b[^>]*\brgb="([0-9A-Fa-f]{6,8})"/g)].map((m) => '#' + m[1].slice(-6).toUpperCase())
+        if (rule.type === 'dataBar') rule.dataBar = { color: colors[0] ?? '#638EC6' }
+        else if (rule.type === 'colorScale') {
+          rule.colorScale = colors.length >= 3
+            ? { minColor: colors[0], midColor: colors[1], maxColor: colors[2] }
+            : { minColor: colors[0] ?? '#F8696B', maxColor: colors[1] ?? '#63BE7B' }
+        } else {
+          const set = /<iconSet\b([^>]*)>/.exec(r[2] ?? '')
+          const sa = set ? parseAttrs(set[1], 0, set[1].length) : {}
+          rule.iconSet = { name: sa.iconSet ?? '3TrafficLights1', reverse: sa.reverse === '1', showValue: sa.showValue !== '0' }
+        }
+      }
+      out.push(rule)
+    }
+  }
+  return out
+}
+
+export function parseDataValidations(xml: string): DataValidationRule[] {
+  if (xml.indexOf('<dataValidations') === -1 && xml.indexOf('<dataValidation') === -1) return []
+  const out: DataValidationRule[] = []
+  const dvRe = /<dataValidation\b([^>]*?)(?:\/>|>([\s\S]*?)<\/dataValidation>)/g
+  let m: RegExpExecArray | null
+  while ((m = dvRe.exec(xml))) {
+    const a = parseAttrs(m[1], 0, m[1].length)
+    const inner = m[2] ?? ''
+
+    const ranges = (a.sqref ?? '')
+      .split(/\s+/)
+      .map(parseSingleOrRange)
+      .filter((r): r is Range => r !== null)
+    if (!ranges.length) continue
+
+    const allow = (a.type as DvAllowType) || 'any'
+    const rule: DataValidationRule = {
+      id: 'dv_' + Math.random().toString(36).slice(2, 9),
+      ranges,
+      allow
+    }
+
+    if (a.operator) {
+      rule.operator = a.operator as DvOperator
+    } else if (allow !== 'list' && allow !== 'custom' && allow !== 'any') {
+      rule.operator = 'between'
+    }
+
+    if (a.errorStyle) {
+      rule.errorStyle = a.errorStyle as DvErrorStyle
+    }
+
+    if (a.allowBlank !== undefined) {
+      rule.ignoreBlank = a.allowBlank === '1' || a.allowBlank === 'true'
+    }
+
+    // Invert Excel's showDropDown: showDropDown="1" means dropdown is hidden
+    if (allow === 'list') {
+      rule.inCellDropdown = a.showDropDown !== '1' && a.showDropDown !== 'true'
+    }
+
+    if (a.showInputMessage !== undefined) {
+      rule.showInputMessage = a.showInputMessage === '1' || a.showInputMessage === 'true'
+    }
+
+    if (a.showErrorMessage !== undefined) {
+      rule.showErrorAlert = a.showErrorMessage === '1' || a.showErrorMessage === 'true'
+    }
+
+    if (a.promptTitle !== undefined) {
+      rule.inputTitle = a.promptTitle
+    }
+
+    if (a.prompt !== undefined) {
+      rule.inputMessage = a.prompt
+    }
+
+    if (a.errorTitle !== undefined) {
+      rule.errorTitle = a.errorTitle
+    }
+
+    if (a.error !== undefined) {
+      rule.errorMessage = a.error
+    }
+
+    if (inner) {
+      const f1 = extractChild(inner, 'formula1', 0, inner.length)
+      if (f1) rule.formula1 = decodeXmlEntities(f1.text)
+      const f2 = extractChild(inner, 'formula2', 0, inner.length)
+      if (f2) rule.formula2 = decodeXmlEntities(f2.text)
+    }
+
+    out.push(rule)
+  }
+  return out
+}
+
 function parseStyles(xml: string | undefined, themeColors: string[]): (CellStyle | undefined)[] {
   if (!xml) return [undefined]
 
@@ -530,6 +881,11 @@ interface ParsedSheet {
   showGridlines?: boolean
   showHeadings?: boolean
   zoom?: number
+  rowLevels?: Record<number, number>
+  colLevels?: Record<number, number>
+  collapsedRows?: Record<number, true>
+  collapsedCols?: Record<number, true>
+  outline?: { summaryBelow?: boolean; summaryRight?: boolean }
 }
 
 type CellsMap = WorkbookData['sheets'][number]['cells']
@@ -552,14 +908,31 @@ function parseSheetXml(xml: string, xfStyles: (CellStyle | undefined)[], sharedS
   const merges: Range[] = []
   const mastersBySi = new Map<number, SharedFormulaMaster>()
   const followers: { key: string; row: number; col: number; si: number; style?: CellStyle }[] = []
+  const arrayRanges: [number, number, Range][] = []
 
   // sheetPr / tabColor
   const sheetPr = extractSection(xml, 'sheetPr')
   let tabColorAttrs: string | undefined
+  let outline: ParsedSheet['outline']
   if (sheetPr !== undefined) {
     const tc = /<tabColor\b([^>]*)\/>/.exec(sheetPr)
     if (tc) tabColorAttrs = tc[1]
+    const op = /<outlinePr\b([^>]*)\/?>/.exec(sheetPr)
+    if (op) {
+      const a = parseAttrs(op[1], 0, op[1].length)
+      outline = {}
+      if (a.summaryBelow === '0') outline.summaryBelow = false
+      if (a.summaryRight === '0') outline.summaryRight = false
+      if (outline.summaryBelow === undefined && outline.summaryRight === undefined) outline = undefined
+    }
   }
+  // Rows are only scanned for group levels when the sheet declares any (keeps the hot loop untouched otherwise).
+  const fmtPr = /<sheetFormatPr\b([^>]*?)\/?>/.exec(xml.slice(0, Math.max(0, xml.indexOf('<sheetData'))))
+  const fmtAttrs = fmtPr ? parseAttrs(fmtPr[1], 0, fmtPr[1].length) : {}
+  const rowLevels: Record<number, number> | undefined = parseInt(fmtAttrs.outlineLevelRow ?? '0', 10) > 0 ? {} : undefined
+  const collapsedRows: Record<number, true> = {}
+  const colLevels: Record<number, number> | undefined = parseInt(fmtAttrs.outlineLevelCol ?? '0', 10) > 0 ? {} : undefined
+  const collapsedCols: Record<number, true> = {}
 
   // sheetView
   let showGridlines: boolean | undefined
@@ -578,7 +951,7 @@ function parseSheetXml(xml: string, xfStyles: (CellStyle | undefined)[], sharedS
     const paneM = /<pane\b([^>]*)\/>/.exec(sheetViewsSection)
     if (paneM) {
       const a = parseAttrs(paneM[1], 0, paneM[1].length)
-      if (a.state === 'frozen') {
+      if (a.state === 'frozen' || a.state === 'frozenSplit') {
         frozen = { rows: a.ySplit ? parseInt(a.ySplit, 10) || 0 : 0, cols: a.xSplit ? parseInt(a.xSplit, 10) || 0 : 0 }
       }
     }
@@ -596,11 +969,13 @@ function parseSheetXml(xml: string, xfStyles: (CellStyle | undefined)[], sharedS
       if (!Number.isFinite(min) || !Number.isFinite(max)) continue
       const hidden = a.hidden === '1'
       const width = a.width !== undefined ? parseFloat(a.width) : undefined
-      // Matches exceljs's Column#isCustomWidth: it ignores the customWidth="1" attribute and just
-      // compares against its own hardcoded default of 9 chars, so we do the same for equivalence.
+      // Every explicit width is kept (a width of exactly 9 used to be dropped, copying an exceljs quirk,
+      // which silently widened those columns on save).
       for (let i = min; i <= max; i++) {
         if (hidden) hiddenCols[i - 1] = true
-        if (width !== undefined && width !== 9) colWidths[i - 1] = colWidthToPx(width)
+        if (width !== undefined) colWidths[i - 1] = colWidthToPx(width)
+        if (colLevels && a.outlineLevel && +a.outlineLevel > 0) colLevels[i - 1] = +a.outlineLevel
+        if (colLevels && a.collapsed === '1') collapsedCols[i - 1] = true
       }
     }
   }
@@ -631,6 +1006,11 @@ function parseSheetXml(xml: string, xfStyles: (CellStyle | undefined)[], sharedS
       const htAttr = attrVal(dataSection, after, rowAttrsEnd, 'ht')
       if (htAttr !== undefined) rowHeights[r] = ptToPx(parseFloat(htAttr))
       if (attrVal(dataSection, after, rowAttrsEnd, 'hidden') === '1') hiddenRows[r] = true
+      if (rowLevels) {
+        const ol = attrVal(dataSection, after, rowAttrsEnd, 'outlineLevel')
+        if (ol && +ol > 0) rowLevels[r] = +ol
+        if (attrVal(dataSection, after, rowAttrsEnd, 'collapsed') === '1') collapsedRows[r] = true
+      }
 
       if (selfClose) {
         pos = gt + 1
@@ -638,8 +1018,22 @@ function parseSheetXml(xml: string, xfStyles: (CellStyle | undefined)[], sharedS
       }
       const closeRow = dataSection.indexOf('</row>', gt + 1)
       const rowEnd = closeRow === -1 ? n : closeRow
-      parseCellsInRow(dataSection, gt + 1, rowEnd, r, cells, xfStyles, sharedStrings, mastersBySi, followers)
+      parseCellsInRow(dataSection, gt + 1, rowEnd, r, cells, xfStyles, sharedStrings, mastersBySi, followers, arrayRanges)
       pos = closeRow === -1 ? n : closeRow + 6
+    }
+  }
+
+  // Excel caches an array formula's results (e.g. FILTER's spill) as plain values in the cells it
+  // covers; kept, they would block the formula from spilling here and show #SPILL!.
+  for (const [ar, ac, rg] of arrayRanges) {
+    for (let rr = rg.r1; rr <= rg.r2; rr++) for (let cc = rg.c1; cc <= rg.c2; cc++) {
+      if (rr === ar && cc === ac) continue
+      const k = rr + ',' + cc
+      const cell = cells[k]
+      if (cell && !cell.raw?.startsWith('=')) {
+        if (cell.style) cells[k] = { style: cell.style }
+        else delete cells[k]
+      }
     }
   }
 
@@ -688,13 +1082,19 @@ function parseSheetXml(xml: string, xfStyles: (CellStyle | undefined)[], sharedS
     frozen,
     showGridlines,
     showHeadings,
-    zoom
+    zoom,
+    rowLevels: rowLevels && Object.keys(rowLevels).length ? rowLevels : undefined,
+    colLevels: colLevels && Object.keys(colLevels).length ? colLevels : undefined,
+    collapsedRows: Object.keys(collapsedRows).length ? collapsedRows : undefined,
+    collapsedCols: Object.keys(collapsedCols).length ? collapsedCols : undefined,
+    outline
   }
 }
 
 function parseSingleOrRange(ref: string): Range | null {
-  if (ref.indexOf(':') !== -1) return parseRangeStr(ref)
-  const m = /^([A-Z]+)(\d+)$/.exec(ref)
+  const clean = ref.replace(/\$/g, '')
+  if (clean.indexOf(':') !== -1) return parseRangeStr(clean)
+  const m = /^([A-Z]+)(\d+)$/.exec(clean)
   if (!m) return null
   const c = colLetterToIndex(m[1])
   const r = +m[2] - 1
@@ -706,16 +1106,19 @@ function parseSingleOrRange(ref: string): Range | null {
  *  need one or two named attributes each, and searching the shared backing string with bounds is
  *  cheaper than copying a small substring per tag just to search it. */
 function attrVal(s: string, start: number, end: number, name: string): string | undefined {
+  // Search only inside [start, end): an unbounded indexOf scans the rest of the sheet whenever the
+  // attribute is absent, which made loading quadratic in the number of rows.
+  const seg = s.slice(start, end)
   const needle = name + '="'
-  let i = s.indexOf(needle, start)
-  while (i !== -1 && i < end) {
-    const before = i === start ? 32 : s.charCodeAt(i - 1)
+  let i = seg.indexOf(needle)
+  while (i !== -1) {
+    const before = i === 0 ? 32 : seg.charCodeAt(i - 1)
     if (before === 32 || before === 9 || before === 10 || before === 13 || before === 47) {
       const vstart = i + needle.length
-      const vend = s.indexOf('"', vstart)
-      return vend === -1 || vend > end ? undefined : s.slice(vstart, vend)
+      const vend = seg.indexOf('"', vstart)
+      return vend === -1 ? undefined : seg.slice(vstart, vend)
     }
-    i = s.indexOf(needle, i + 1)
+    i = seg.indexOf(needle, i + 1)
   }
   return undefined
 }
@@ -724,7 +1127,9 @@ function attrVal(s: string, start: number, end: number, name: string): string | 
  *  bounded the same way as attrVal - used for `<v>`/`<is>`, which are never self-closing with
  *  attributes in practice. */
 function tagText(s: string, start: number, end: number, tag: string): string | undefined {
-  const idx = s.indexOf('<' + tag, start)
+  // Bounded search (see attrVal): a missing <v> must not scan the rest of the sheet.
+  const rel = s.slice(start, end).indexOf('<' + tag)
+  const idx = rel === -1 ? -1 : start + rel
   if (idx === -1 || idx >= end) return undefined
   const after = idx + tag.length + 1
   const ch = s.charCodeAt(after)
@@ -739,8 +1144,8 @@ function tagText(s: string, start: number, end: number, tag: string): string | u
     if (s.charCodeAt(gt - 1) === 47) return ''
     contentStart = gt + 1
   }
-  const close = s.indexOf('</' + tag + '>', contentStart)
-  const closeEnd = close === -1 || close > end ? end : close
+  const relClose = s.slice(contentStart, end).indexOf('</' + tag + '>')
+  const closeEnd = relClose === -1 ? end : contentStart + relClose
   return s.slice(contentStart, closeEnd)
 }
 
@@ -766,7 +1171,8 @@ function parseCellsInRow(
   xfStyles: (CellStyle | undefined)[],
   sharedStrings: string[],
   mastersBySi: Map<number, SharedFormulaMaster>,
-  followers: { key: string; row: number; col: number; si: number; style?: CellStyle }[]
+  followers: { key: string; row: number; col: number; si: number; style?: CellStyle }[],
+  arrayRanges: [number, number, Range][]
 ): void {
   let pos = start
   let colCounter = -1
@@ -801,7 +1207,8 @@ function parseCellsInRow(
     const innerEnd = closeC === -1 ? end : closeC
     pos = closeC === -1 ? end : closeC + 4
 
-    const fIdx = xml.indexOf('<f', innerStart)
+    const fRel = xml.slice(innerStart, innerEnd).indexOf('<f')
+    const fIdx = fRel === -1 ? -1 : innerStart + fRel
     if (fIdx !== -1 && fIdx < innerEnd) {
       const fAfter = fIdx + 2
       const fCh = xml.charCodeAt(fAfter)
@@ -823,7 +1230,7 @@ function parseCellsInRow(
         const siAttr = attrVal(xml, fAfter, fAttrsEnd, 'si')
         const si = siAttr !== undefined ? parseInt(siAttr, 10) : NaN
         if (fText) {
-          const formula = decodeXmlEntities(fText)
+          const formula = stripFuturePrefixes(decodeXmlEntities(fText))
           mastersBySi.set(si, { formula, row: r, col: c })
           cells[key] = { raw: '=' + formula, style }
         } else if (Number.isFinite(si)) {
@@ -832,7 +1239,10 @@ function parseCellsInRow(
           cells[key] = { style }
         }
       } else {
-        cells[key] = { raw: '=' + decodeXmlEntities(fText ?? ''), style }
+        cells[key] = { raw: '=' + stripFuturePrefixes(decodeXmlEntities(fText ?? '')), style }
+        const arrRef = fGt !== -1 && attrVal(xml, fAfter, fAttrsEnd, 't') === 'array' ? attrVal(xml, fAfter, fAttrsEnd, 'ref') : undefined
+        const rg = arrRef ? parseSingleOrRange(arrRef) : null
+        if (rg && (rg.r2 > rg.r1 || rg.c2 > rg.c1)) arrayRanges.push([r, c, rg])
       }
       continue
     }
@@ -860,8 +1270,19 @@ function parseCellsInRow(
       raw = tagText(xml, innerStart, innerEnd, 'v')
     }
 
+    // Text cells must stay text: without the quote prefix the engine would re-read "3.9.2026" as a
+    // date or "00123" as a number, which Excel never does for a cell stored as a string.
+    if (raw !== undefined && (t === 's' || t === 'inlineStr' || t === 'str') && needsTextQuote(raw)) raw = "'" + raw
     if (raw !== undefined || style) cells[key] = { raw, style }
   }
+}
+
+export function needsTextQuote(s: string): boolean {
+  if (s === '') return false
+  const c = s.charCodeAt(0)
+  if (c === 39 /* ' */ || c === 61 /* = */) return true
+  if (/^(true|false)$/i.test(s)) return true
+  return /\d/.test(s) && /^[\s\d.,:/\-+$%()€£¥₹eE]*(am|pm|a|p)?\s*$/i.test(s)
 }
 
 // ---------- legacy cell notes (xl/comments*.xml) ----------
@@ -931,6 +1352,28 @@ function parseCommentsXml(xml: string): Record<string, NoteData> {
     if (rg) notes[rg.r1 + ',' + rg.c1] = noteFromRuns(runs)
   }
   return notes
+}
+
+function parseHyperlinks(xml: string, files: Record<string, Uint8Array>, dec: TextDecoder, sheetPath: string): Record<string, HyperlinkData> {
+  const section = extractSection(xml, 'hyperlinks')
+  if (!section) return {}
+  const dir = sheetPath.split('/').slice(0, -1).join('/')
+  const file = sheetPath.split('/').pop() ?? ''
+  const relsBytes = files[dir + '/_rels/' + file + '.rels']
+  const rels = relsBytes ? parseRelationships(dec.decode(relsBytes)) : []
+  const out: Record<string, HyperlinkData> = {}
+  for (const m of section.matchAll(/<hyperlink\b([^>]*?)\/?>/g)) {
+    const a = parseAttrs(m[1], 0, m[1].length)
+    const rg = a.ref ? parseSingleOrRange(a.ref) : null
+    if (!rg) continue
+    const link: HyperlinkData = {}
+    if (a.id) { const rel = rels.find((r) => r.id === a.id); if (rel) link.target = rel.target }
+    if (a.location) link.location = a.location
+    if (a.tooltip) link.tooltip = a.tooltip
+    if (!link.target && !link.location) continue
+    for (let r = rg.r1; r <= rg.r2; r++) for (let c = rg.c1; c <= rg.c2; c++) out[r + ',' + c] = link
+  }
+  return out
 }
 
 function parseNotesForSheet(

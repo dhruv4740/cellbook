@@ -1,8 +1,12 @@
+import { shiftFormula } from '../engine/shiftFormula'
 // Small UI-only state shared between chrome pieces (not part of the workbook, not undoable).
 import { useSyncExternalStore } from 'react'
 import { store } from '../model/store'
+import { validateInput } from '../data/dataValidation'
 
 export interface UiState {
+  /** Label of a long-running command ("Sorting..."): shows the hourglass cursor and the status bar text. */
+  busy?: string | null
   backstage: boolean // File tab open
   ribbonTab: string // 'Home', 'Insert', ...
   ribbonCollapsed: boolean
@@ -21,8 +25,25 @@ export interface UiState {
   commentPanel: null | { r: number; c: number }
   /** The floating chart currently selected on the active sheet, if any; shows the Chart Design/Format tabs. */
   selectedChart: string | null
+  /** The floating picture currently selected on the active sheet, if any. */
+  selectedPicture: string | null
+  /** Every selected floating object (Ctrl+click adds, groups select whole); only valid while it contains the primary selectedPicture / selectedChart. */
+  selectedObjects: string[]
+  /** Page Layout > Selection Pane is showing. */
+  selectionPaneOpen: boolean
+  /** Home > Find & Select > Select Objects: dragging on the sheet rubber-bands floating objects instead of cells. */
+  selectObjectsMode: boolean
   /** Ctrl+` (Show Formulas): cells display their raw formula text instead of the computed value. */
   formulasVisible: boolean
+  /** Data > Data Validation > Circle Invalid Data: cells ('r,c') to ring in red, per sheet uid. */
+  validationCircles: Record<number, string[]> | null
+  /** Formulas > Trace Precedents / Dependents arrows on one sheet. */
+  traceArrows: import('../data/trace').TraceState | null
+  /** Formulas > Watch Window: whether it's showing, and the cells it watches. */
+  watchOpen: boolean
+  /** View > Normal / Page Break Preview. */
+  viewMode: 'normal' | 'pageBreak'
+  watchItems: { sheetUid: number; r: number; c: number }[]
   /** F8/Shift+F8: keyboard "Extend Selection" / "Add to Selection" mode (shown on the status bar;
    *  while active, arrow keys extend/add to the selection without needing Shift held down). */
   selectMode: 'none' | 'extend' | 'add'
@@ -38,19 +59,42 @@ export interface UiState {
   groupedSheets: number[] | null
   /** Alt+Down "pick from list": the open dropdown of unique values from the column above/below. */
   pickList: null | { r: number; c: number; x: number; y: number; values: string[] }
+  /** Short message shown bottom-centre for a few seconds (e.g. a command Cellbook doesn't have yet). */
+  toast: string | null
+  /** Draw tab: the active ink tool (null = normal cell editing). */
+  inkTool: import('../data/ink').InkTool | null
+  /** Pens added with Draw > Add > Add Pen (session only). */
+  customPens: import('../data/ink').Pen[]
+  /** Review > Hide Ink. */
+  hideInk: boolean
+  /** Ink Replay in progress: strokes before `shown` are complete, stroke `shown` is `frac` drawn. */
+  inkReplay: { order: string[]; shown: number; frac: number } | null
+  /** Ctrl+8: hide the outline symbols (gutter) even when the sheet has groups. */
+  outlineHidden: boolean
 }
 
 let state: UiState = {
   backstage: false, ribbonTab: 'Home', ribbonCollapsed: false, hideFormulaBar: false, dialog: null,
-  formatPainter: null, edit: null, noteEditor: null, commentPanel: null, selectedChart: null,
-  formulasVisible: false, selectMode: 'none', backstageTab: null, scrollLock: false, endMode: false,
-  groupedSheets: null, pickList: null
+  formatPainter: null, edit: null, noteEditor: null, commentPanel: null, selectedChart: null, selectedPicture: null, selectedObjects: [], selectionPaneOpen: false, selectObjectsMode: false,
+  formulasVisible: false, validationCircles: null, traceArrows: null, watchOpen: false, viewMode: 'normal', watchItems: [], selectMode: 'none', backstageTab: null, scrollLock: false, endMode: false,
+  groupedSheets: null, pickList: null, toast: null, outlineHidden: false, inkTool: null, customPens: [], hideInk: false, inkReplay: null
 }
 const listeners = new Set<() => void>()
 
 export function setUi(patch: Partial<UiState>): void {
   state = { ...state, ...patch }
   listeners.forEach((l) => l())
+}
+let toastTimer = 0
+/** Tells the user something happened (or didn't) without a modal dialog. */
+export function showToast(msg: string): void {
+  window.clearTimeout(toastTimer)
+  setUi({ toast: msg })
+  toastTimer = window.setTimeout(() => setUi({ toast: null }), 4000)
+}
+/** Used by every command Cellbook doesn't implement yet, so no button silently does nothing. */
+export function notAvailable(name: string): void {
+  showToast(`"${name.replace(/&/g, '').replace(/\.\.\.$/, '')}" isn't available in Cellbook yet.`)
 }
 export function getUi(): UiState {
   return state
@@ -63,15 +107,105 @@ export function useUi(): UiState {
 export function commitEdit(): boolean {
   const e = state.edit
   if (!e) return false
+  const sheet = store.active
+  const res = validateInput(store, sheet, e.r, e.c, e.text)
+  if (!res.ok) {
+    setUi({
+      dialog: {
+        kind: 'dataValidationError',
+        props: {
+          style: res.style,
+          title: res.title,
+          message: res.message,
+          onRetry: () => {
+            setUi({ dialog: null })
+          },
+          onCancel: () => {
+            cancelEdit()
+            setUi({ dialog: null })
+          },
+          onContinue: () => {
+            setUi({ dialog: null, edit: null })
+            const raw = store.getRaw(sheet, e.r, e.c)
+            if (raw !== e.text) store.setRaw(sheet, e.r, e.c, e.text)
+            store.setMode('Ready')
+          }
+        }
+      }
+    })
+    return false
+  }
   setUi({ edit: null })
-  const raw = store.getRaw(store.active, e.r, e.c)
-  if (raw !== e.text) store.setRaw(store.active, e.r, e.c, e.text)
+  const text = normalizeEntry(e.text)
+  const raw = store.getRaw(sheet, e.r, e.c)
+  if (raw !== text) { store.setRaw(sheet, e.r, e.c, text); if (store.clipboard) { store.clipboard = null; store.notify() } } // typing into a cell ends the Copy marquee
   store.setMode('Ready')
   return true
+}
+
+/** Excel's entry fix-ups: "+A1"/"-A1" become formulas, and unclosed "(" get their ")". */
+export function normalizeEntry(text: string): string {
+  let t = text
+  if (/^[+-]/.test(t) && !/^[+-]?\s*[\d.,]+%?\s*$/.test(t) && !/^[+-]+$/.test(t)) t = '=' + t
+  if (t.startsWith('=') && t.length > 1) {
+    let depth = 0
+    let inStr = false
+    for (const ch of t) {
+      if (ch === '"') inStr = !inStr
+      else if (!inStr && ch === '(') depth++
+      else if (!inStr && ch === ')') depth--
+    }
+    if (!inStr && depth > 0) t += ')'.repeat(depth)
+  }
+  return t
+}
+
+/** Ctrl+Enter: writes the entry into every selected cell (formulas adjusted per cell), keeps the selection. */
+export function commitEditToSelection(): void {
+  const e = state.edit
+  if (!e) return
+  const sheet = store.active
+  const text = normalizeEntry(e.text)
+  const cells: { r: number; c: number; raw: string }[] = []
+  for (const rg of sheet.selection.ranges) {
+    const r1 = Math.min(rg.r1, rg.r2), r2 = Math.max(rg.r1, rg.r2)
+    const c1 = Math.min(rg.c1, rg.c2), c2 = Math.max(rg.c1, rg.c2)
+    if ((r2 - r1 + 1) * (c2 - c1 + 1) > 1_000_000) continue
+    for (let r = r1; r <= r2; r++)
+      for (let c = c1; c <= c2; c++) cells.push({ r, c, raw: text.startsWith('=') ? shiftFormula(text, r - e.r, c - e.c) : text })
+  }
+  setUi({ edit: null })
+  store.setCells(sheet, cells, 'Typing')
+  store.setMode('Ready')
 }
 
 export function cancelEdit(): void {
   if (!state.edit) return
   setUi({ edit: null })
   store.setMode('Ready')
+}
+
+// Handle for automated UI checks (Playwright drives the built app and needs to read/open dialogs directly).
+;(globalThis as unknown as { __ui: { getUi: typeof getUi; setUi: typeof setUi } }).__ui = { getUi, setUi }
+
+/**
+ * Runs a heavy synchronous command after giving the UI one frame to show the hourglass cursor and status text
+ * (the work itself blocks the thread, like Excel's own long sorts and recalculations).
+ */
+export async function runBusy<T>(label: string, fn: () => T): Promise<T> {
+  document.body.classList.add('xl-busy')
+  setUi({ busy: label })
+  await new Promise<void>((r) => requestAnimationFrame(() => setTimeout(r, 0)))
+  try {
+    return fn()
+  } finally {
+    document.body.classList.remove('xl-busy')
+    setUi({ busy: null })
+  }
+}
+
+/** Small jobs run at once (and keep commands synchronous); big ones show the busy state first. */
+export function runMaybeBusy(cells: number, label: string, fn: () => void): void {
+  if (cells < 100_000 || typeof document === 'undefined') fn()
+  else void runBusy(label, fn)
 }

@@ -1,20 +1,36 @@
-import { contextBridge, ipcRenderer, webUtils } from 'electron'
+import { contextBridge, ipcRenderer, webFrame, webUtils } from 'electron'
 
 export interface WinListEntry { id: number; title: string; current: boolean }
 export interface WinState { fileName: string; filePath: string | null; dirty: boolean }
 export interface OpenPathPayload { path: string; data: Uint8Array }
 
 const api = {
+  /** Review > Spelling: Electron's built-in spellchecker for this window's language. */
+  spell: {
+    isMisspelled: (word: string): boolean => webFrame.isWordMisspelled(word),
+    suggestions: (word: string): string[] => webFrame.getWordSuggestions(word),
+    addWord: (word: string): Promise<boolean> => ipcRenderer.invoke('spell:addWord', word),
+    languages: (): Promise<string[]> => ipcRenderer.invoke('spell:languages')
+  },
+  /** Windows region (e.g. en-IN), which Excel uses for dates and digit grouping. */
+  regionLocale: process.argv.find((a) => a.startsWith('--cellbook-region='))?.slice('--cellbook-region='.length),
   windowControl: (action: 'minimize' | 'maximize' | 'close') => ipcRenderer.invoke('window:control', action),
   setTitle: (title: string) => ipcRenderer.invoke('window:setTitle', title),
   onMaximized: (cb: (max: boolean) => void) => ipcRenderer.on('window:maximized', (_e, v) => cb(v)),
 
-  // ---- multi-window (one workbook per window, like Excel) ----
-  newWindow: (): Promise<void> => ipcRenderer.invoke('window:new'),
+  // ---- multi-window (one workbook per window, or multiple views of same workbook) ----
+  newWindow: (opts?: { isNewWorkbook?: boolean }): Promise<void> => ipcRenderer.invoke('window:new', opts),
+  newViewWindow: (snapshot: { data: unknown; fileName: string; filePath: string | null }): Promise<void> =>
+    ipcRenderer.invoke('window:newView', snapshot),
   listWindows: (): Promise<WinListEntry[]> => ipcRenderer.invoke('window:list'),
   activateWindow: (id: number): Promise<void> => ipcRenderer.invoke('window:activate', id),
+  /** View > Hide: false if this is the only visible window. */
+  hideWindow: (): Promise<boolean> => ipcRenderer.invoke('window:hide'),
+  listHiddenWindows: (): Promise<{ id: number; title: string }[]> => ipcRenderer.invoke('window:listHidden'),
   cycleWindow: (dir: 1 | -1): Promise<void> => ipcRenderer.invoke('window:cycle', dir),
   arrangeWindowsPrompt: (): Promise<void> => ipcRenderer.invoke('window:arrangePrompt'),
+  arrangeWindows: (mode: 'tiled' | 'horizontal' | 'vertical' | 'cascade'): Promise<void> =>
+    ipcRenderer.invoke('window:arrange', mode),
   onWindowListChanged: (cb: (list: WinListEntry[]) => void): (() => void) => {
     const listener = (_e: Electron.IpcRendererEvent, list: WinListEntry[]): void => cb(list)
     ipcRenderer.on('window:listChanged', listener)
@@ -25,13 +41,55 @@ const api = {
   /** Sent to a freshly-shown spare window to give it its "BookN" name. */
   onAssignBook: (cb: (name: string) => void) => ipcRenderer.on('window:assignBook', (_e, name) => cb(name)),
 
+  // ---- multi-window view synchronization ----
+  broadcastOp: (msg: unknown): void => ipcRenderer.send('workbook:op', msg),
+  onRemoteOp: (cb: (msg: unknown) => void): (() => void) => {
+    const listener = (_e: Electron.IpcRendererEvent, msg: unknown): void => cb(msg)
+    ipcRenderer.on('workbook:op', listener)
+    return () => ipcRenderer.removeListener('workbook:op', listener)
+  },
+  reportWorkbookSaved: (info: { fileName: string; filePath: string | null }): void =>
+    ipcRenderer.send('workbook:saved', info),
+  onWorkbookSaved: (cb: (info: { fileName: string; filePath: string | null }) => void): (() => void) => {
+    const listener = (_e: Electron.IpcRendererEvent, info: { fileName: string; filePath: string | null }): void => cb(info)
+    ipcRenderer.on('workbook:saved', listener)
+    return () => ipcRenderer.removeListener('workbook:saved', listener)
+  },
+  onViewIndexChanged: (cb: (viewIndex: number) => void): (() => void) => {
+    const listener = (_e: Electron.IpcRendererEvent, idx: number): void => cb(idx)
+    ipcRenderer.on('window:viewIndexChanged', listener)
+    return () => ipcRenderer.removeListener('window:viewIndexChanged', listener)
+  },
+  onInitView: (cb: (payload: { data: unknown; fileName: string; filePath: string | null; viewIndex: number }) => void): (() => void) => {
+    const listener = (_e: Electron.IpcRendererEvent, payload: { data: unknown; fileName: string; filePath: string | null; viewIndex: number }): void => cb(payload)
+    ipcRenderer.on('window:initView', listener)
+    return () => ipcRenderer.removeListener('window:initView', listener)
+  },
+
   // ---- files ----
+  clipboardReadText: (): Promise<string> => ipcRenderer.invoke('clipboard:readText'),
+  clipboardReadImage: (): Promise<string> => ipcRenderer.invoke('clipboard:readImage'),
+  clipboardReadHTML: (): Promise<string> => ipcRenderer.invoke('clipboard:readHTML'),
+  clipboardWrite: (data: { text: string; html?: string }): Promise<void> => ipcRenderer.invoke('clipboard:write', data),
+  clipboardWriteImage: (dataUrl: string): Promise<void> => ipcRenderer.invoke('clipboard:writeImage', dataUrl),
+  screenWindows: (): Promise<{ name: string; dataUrl: string }[]> => ipcRenderer.invoke('screen:windows'),
+  screenGrab: (): Promise<string | null> => ipcRenderer.invoke('screen:grab'),
+  webFetch: (url: string): Promise<{ body: string; contentType: string }> => ipcRenderer.invoke('web:fetch', url),
+  recoverWrite: (id: string, name: string, data: Uint8Array): Promise<void> => ipcRenderer.invoke('recover:write', id, name, data),
+  recoverClear: (id: string): Promise<void> => ipcRenderer.invoke('recover:clear', id),
+  recoverRegister: (id: string): Promise<void> => ipcRenderer.invoke('recover:register', id),
+  recoverTakeOne: (): Promise<{ name: string; data: Uint8Array } | null> => ipcRenderer.invoke('recover:takeOne'),
   pickAndOpen: (): Promise<boolean> => ipcRenderer.invoke('file:pickAndOpen'),
   openPathRequest: (path: string): Promise<boolean> => ipcRenderer.invoke('file:openPathRequest', path),
   onOpenPath: (cb: (payload: OpenPathPayload) => void) => ipcRenderer.on('file:openPath', (_e, payload) => cb(payload)),
   saveAs: (defaultName: string): Promise<string | null> => ipcRenderer.invoke('file:saveAs', defaultName),
-  writeFile: (path: string, data: Uint8Array): Promise<boolean> => ipcRenderer.invoke('file:write', path, data),
+  /** true, or the reason the save failed. */
+  writeFile: (path: string, data: Uint8Array): Promise<true | string> => ipcRenderer.invoke('file:write', path, data),
   readFile: (path: string): Promise<Uint8Array> => ipcRenderer.invoke('file:read', path),
+  openLink: (target: string): Promise<true | string> => ipcRenderer.invoke('shell:openLink', target),
+  /** Prints (system dialog) or saves as PDF a print document; true, null if cancelled, or an error. */
+  printDocument: (opts: { html: string; mode: 'print' | 'pdf'; widthIn: number; heightIn: number; defaultName: string }): Promise<true | string | null> =>
+    ipcRenderer.invoke('print:run', opts),
   /** Resolves a dropped File to an absolute path (Electron's replacement for File.path). */
   getPathForFile: (file: File): string => webUtils.getPathForFile(file),
 

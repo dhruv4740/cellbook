@@ -1,5 +1,38 @@
-import { describe, it, expect } from 'vitest'
-import { formatValue, detectInputFormat, buildNumberFormat, adjustDecimals, FORMAT_CATEGORIES } from './numfmt'
+import { describe, it, expect, beforeEach } from 'vitest'
+import { formatValue, detectInputFormat, buildNumberFormat, adjustDecimals, FORMAT_CATEGORIES, numericInput } from './numfmt'
+import { setLakhGrouping, setDayFirst } from '../engine/locale'
+
+beforeEach(() => { setLakhGrouping(false); setDayFirst(false) })
+
+describe('grouped and rupee input is a number, as Excel stores it (checked with FormulaLocal on en-IN)', () => {
+  it('western and lakh grouping, rupees', () => {
+    setLakhGrouping(true)
+    expect(numericInput('1,234.50')).toBe('1234.50')
+    expect(numericInput('12,34,567.89')).toBe('1234567.89')
+    expect(numericInput('-12,34,567')).toBe('-1234567')
+    expect(numericInput('₹5,000')).toBe('5000')
+    expect(numericInput('₹ 5,000.50')).toBe('5000.50')
+    expect(detectInputFormat('₹5,000')).toBe('₹ #,##0;[Red]₹ -#,##0')
+    expect(formatValue(5000, '₹ #,##0;[Red]₹ -#,##0').text).toBe('₹ 5,000')
+    expect(detectInputFormat('12,34,567.89')).toBe('#,##0.00')
+  })
+  it('leaves text alone', () => {
+    setLakhGrouping(true)
+    for (const s of ['1,23', '12,345,67', '$5,000', '00012', 'a,b', '1234']) expect(numericInput(s)).toBeUndefined()
+    setLakhGrouping(false)
+    expect(numericInput('12,34,567')).toBeUndefined()
+  })
+})
+
+describe('digit grouping follows the PC region (Excel on English (India))', () => {
+  it('groups lakhs and crores', () => {
+    setLakhGrouping(true)
+    expect(formatValue(1234567.891, '#,##0.00').text).toBe('12,34,567.89')
+    expect(formatValue(123456789, '#,##0').text).toBe('12,34,56,789')
+    expect(formatValue(-1234, '#,##0').text).toBe('-1,234')
+    expect(formatValue(999, '#,##0').text).toBe('999')
+  })
+})
 
 function t(value: number | string | boolean | null, fmt?: string) {
   return formatValue(value as never, fmt).text
